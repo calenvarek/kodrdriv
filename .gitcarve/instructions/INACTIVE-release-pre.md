@@ -1,0 +1,1 @@
+Everything in a release note should be in pirate speak.

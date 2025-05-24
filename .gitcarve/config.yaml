@@ -1,0 +1,11 @@
+verbose: false
+model: gpt-4o
+contextDirectories:
+  - .kodrdriv/context/people
+  - .kodrdriv/context/projects
+commit:
+  cached: true
+  sendit: true
+release:
+  from: main
+  to: HEAD
