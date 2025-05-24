@@ -1,0 +1,76 @@
+{
+    "name": "@eldrforge/kodrdriv",
+    "version": "0.0.1",
+    "description": "Create Intelligent Release Notes or Change Logs from Git",
+    "main": "dist/main.js",
+    "type": "module",
+    "bin": {
+        "kodrdriv": "./dist/main.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eldrforge/kodrdriv.git"
+    },
+    "packageManager": "pnpm@10.11.0",
+    "scripts": {
+        "build": "tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist",
+        "start": "dist/main.js",
+        "dev": "vite",
+        "watch": "vite build --watch",
+        "test": "vitest run --coverage",
+        "lint": "eslint . --ext .ts",
+        "lint:fix": "eslint . --ext .ts --fix",
+        "clean": "rm -rf dist",
+        "prepublishOnly": "npm run clean && npm run build"
+    },
+    "keywords": [
+        "git",
+        "genai",
+        "release",
+        "changelog",
+        "analysis"
+    ],
+    "author": "Calen Varek <calenvarek@gmail.com>",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "@theunwalked/cardigantime": "^0.0.1",
+        "@riotprompt/riotprompt": "^0.0.1",
+        "commander": "^14.0.0",
+        "dayjs": "^1.11.13",
+        "dotenv": "^16.5.0",
+        "glob": "^11.0.2",
+        "js-yaml": "^4.1.0",
+        "luxon": "^3.6.1",
+        "moment-timezone": "^0.5.48",
+        "openai": "^4.98.0",
+        "shell-escape": "^0.2.0",
+        "winston": "^3.17.0",
+        "zod": "^3.24.4"
+    },
+    "devDependencies": {
+        "@eslint/eslintrc": "^3.3.1",
+        "@eslint/js": "^9.26.0",
+        "@rollup/plugin-replace": "^6.0.2",
+        "@swc/core": "^1.11.24",
+        "@types/js-yaml": "^4.0.9",
+        "@types/luxon": "^3.6.2",
+        "@types/node": "^22.15.18",
+        "@types/shell-escape": "^0.2.3",
+        "@types/winston": "^2.4.4",
+        "@typescript-eslint/eslint-plugin": "^8.32.1",
+        "@typescript-eslint/parser": "^8.32.1",
+        "@vitest/coverage-v8": "^3.1.4",
+        "copyfiles": "^2.4.1",
+        "esbuild": "0.25.3",
+        "eslint": "^9.26.0",
+        "eslint-plugin-import": "^2.31.0",
+        "globals": "^16.1.0",
+        "mockdate": "^3.0.5",
+        "rollup-plugin-preserve-shebang": "^1.0.1",
+        "rollup-plugin-visualizer": "^5.14.0",
+        "typescript": "^5.8.3",
+        "vite": "^6.3.5",
+        "vite-plugin-node": "^5.0.1",
+        "vitest": "^3.0.0"
+    }
+}
