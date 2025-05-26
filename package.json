@@ -41,7 +41,7 @@
         "glob": "^11.0.2",
         "js-yaml": "^4.1.0",
         "luxon": "^3.6.1",
-        "moment-timezone": "^0.5.48",
+        "moment-timezone": "^0.6.0",
         "openai": "^4.103.0",
         "shell-escape": "^0.2.0",
         "winston": "^3.17.0",
