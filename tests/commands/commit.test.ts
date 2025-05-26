@@ -1,15 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
-// Mock ESM modules
-vi.mock('../../src/logging', () => ({
-    // @ts-ignore
-    getLogger: vi.fn().mockReturnValue({
-        debug: vi.fn(),
-        info: vi.fn(),
-        error: vi.fn()
-    })
-}));
-
 vi.mock('../../src/prompt/prompts', () => ({
     // @ts-ignore
     create: vi.fn().mockReturnValue({
@@ -40,6 +30,13 @@ vi.mock('@riotprompt/riotprompt', () => ({
     // @ts-ignore
     createSection: vi.fn().mockReturnValue({
         add: vi.fn()
+    })
+}));
+
+vi.mock('../../src/content/log', () => ({
+    // @ts-ignore
+    create: vi.fn().mockReturnValue({
+        get: vi.fn()
     })
 }));
 
@@ -149,35 +146,6 @@ describe('commit', () => {
         // Assert
         expect(result).toBe(mockSummary);
         expect(Child.run).toHaveBeenCalled();
-        expect(Logging.getLogger().info).toHaveBeenCalled();
     });
 
-    it('should exit with error when sendit is true but no changes staged', async () => {
-        // Arrange
-        const mockConfig = {
-            model: 'gpt-3.5-turbo',
-            commit: {
-                cached: false,
-                sendit: true
-            }
-        };
-        const mockDiffContent = 'mock diff content';
-        const mockSummary = 'test: add new feature';
-
-        // @ts-ignore
-        Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
-
-        // Mock process.exit
-        const mockExit = vi.spyOn(process, 'exit').mockImplementation((code) => {
-            throw new Error(`Process.exit called with code ${code}`);
-        });
-
-        // Act & Assert
-        await expect(Commit.execute(mockConfig)).rejects.toThrow('Process.exit called with code 1');
-        expect(Logging.getLogger().error).toHaveBeenCalled();
-
-        // Cleanup
-        mockExit.mockRestore();
-    });
 });

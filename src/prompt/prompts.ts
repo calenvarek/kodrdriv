@@ -1,16 +1,16 @@
 import { Builder, Formatter, Model, Prompt, Request } from '@riotprompt/riotprompt';
-import { DEFAULT_INSTRUCTIONS_COMMIT_FILE, DEFAULT_INSTRUCTIONS_RELEASE_FILE, DEFAULT_PERSONA_YOU_FILE } from '../constants';
-import { Config as RunConfig } from '../types';
-import { getLogger } from '../logging';
-import { fileURLToPath } from 'url';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { DEFAULT_INSTRUCTIONS_COMMIT_FILE, DEFAULT_INSTRUCTIONS_RELEASE_FILE, DEFAULT_PERSONA_COMMITTER_FILE, DEFAULT_PERSONA_RELEASER_FILE } from '../constants';
+import { getLogger } from '../logging';
+import { Config as RunConfig } from '../types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export interface Factory {
-    createCommitPrompt: (content: string) => Promise<Prompt>;
-    createReleasePrompt: (content: string) => Promise<Prompt>;
+    createCommitPrompt: (content: string, logContent: string, context?: string) => Promise<Prompt>;
+    createReleasePrompt: (content: string, diffContent: string, context?: string) => Promise<Prompt>;
     format: (prompt: Prompt) => Request;
 }
 
@@ -18,11 +18,16 @@ export const create = (model: Model, runConfig: RunConfig): Factory => {
 
     const logger = getLogger();
 
-    const createCommitPrompt = async (content: string): Promise<Prompt> => {
+    const createCommitPrompt = async (content: string, logContent: string, context?: string): Promise<Prompt> => {
         let builder: Builder.Instance = Builder.create({ logger, basePath: __dirname, overridePath: runConfig?.configDirectory, overrides: runConfig?.overrides || false });
-        builder = await builder.addPersonaPath(DEFAULT_PERSONA_YOU_FILE);
+        builder = await builder.addPersonaPath(DEFAULT_PERSONA_COMMITTER_FILE);
         builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_COMMIT_FILE);
-        builder = await builder.addContent(content);
+        if (context) {
+            builder = await builder.addContent(`\n\n[User Context]\n${context}`);
+        }
+        builder = await builder.addContent(`\n\n[Diff]\n${content}`);
+        builder = await builder.addContent(`\n\n[Log]\n${logContent}`);
+
         if (runConfig.contextDirectories) {
             builder = await builder.loadContext(runConfig.contextDirectories);
         }
@@ -31,11 +36,15 @@ export const create = (model: Model, runConfig: RunConfig): Factory => {
         return prompt;
     };
 
-    const createReleasePrompt = async (content: string): Promise<Prompt> => {
+    const createReleasePrompt = async (content: string, diffContent: string, context?: string): Promise<Prompt> => {
         let builder: Builder.Instance = Builder.create({ logger, basePath: __dirname, overridePath: runConfig?.configDirectory, overrides: runConfig?.overrides || false });
-        builder = await builder.addPersonaPath(DEFAULT_PERSONA_YOU_FILE);
+        builder = await builder.addPersonaPath(DEFAULT_PERSONA_RELEASER_FILE);
         builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_RELEASE_FILE);
-        builder = await builder.addContent(content);
+        if (context) {
+            builder = await builder.addContent(`\n\n[User Context]\n${context}`);
+        }
+        builder = await builder.addContent(`\n\n[Log]\n${content}`);
+        builder = await builder.addContent(`\n\n[Diff]\n${diffContent}`);
         if (runConfig.contextDirectories) {
             builder = await builder.loadContext(runConfig.contextDirectories);
         }

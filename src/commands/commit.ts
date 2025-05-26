@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-import { Model, Request } from '@riotprompt/riotprompt';
+import { Model, Request, Formatter } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import shellescape from 'shell-escape';
 import { DEFAULT_EXCLUDED_PATTERNS } from '../constants';
 import * as Diff from '../content/diff';
+import * as Log from '../content/log';
 import { getLogger } from '../logging';
 import * as Prompts from '../prompt/prompts';
 import { Config } from '../types';
 import { run } from '../util/child';
 import { createCompletion } from '../util/openai';
+import { stringifyJSON } from '../util/general';
 
 export const execute = async (runConfig: Config) => {
     const logger = getLogger();
@@ -22,11 +24,29 @@ export const execute = async (runConfig: Config) => {
     if (runConfig.commit?.cached === undefined) {
         cached = await Diff.hasStagedChanges();
     }
+
+    // Fix: Exit early if sendit is true but no changes are staged
+    if (runConfig.commit?.sendit && !cached) {
+        logger.warn('SendIt mode enabled, but no changes to commit.');
+        process.exit(1);
+    }
+
     const options = { cached, excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS };
     const diff = await Diff.create(options);
     diffContent = await diff.get();
 
-    const prompt = await prompts.createCommitPrompt(diffContent);
+    const logOptions = {
+        limit: runConfig.commit?.messageLimit,
+    };
+    const log = await Log.create(logOptions);
+    const logContent = await log.get();
+
+    const prompt = await prompts.createCommitPrompt(diffContent, logContent, runConfig.commit?.context);
+
+    if (runConfig.debug) {
+        const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);
+        logger.debug('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
+    }
 
     const request: Request = prompts.format(prompt);
 
