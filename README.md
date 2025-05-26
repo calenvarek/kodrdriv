@@ -68,6 +68,8 @@ KodrDriv provides several command line options to customize its behavior:
 
 - `--cached`: Use cached diff for generating commit messages
 - `--sendit`: Commit with the generated message without review (default: false)
+- `--context <context>`: Provide additional context (as a string or file path) to guide the commit message generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the commit.
+- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the prompt for context (default: 10). This can help focus the AI on the most relevant recent changes.
 
 ### OpenAI Configuration
 
@@ -121,6 +123,12 @@ kodrdriv commit --verbose --model gpt-4
 Use custom instructions from a file:
 ```bash
 kodrdriv release --instructions ./my-custom-instructions.md
+```
+
+Use custom context and message limit:
+```bash
+kodrdriv commit --context "Refactoring for performance" --message-limit 5
+kodrdriv release --context "Quarterly release, focus on stability" --message-limit 20
 ```
 
 ### Configuration Directory
@@ -307,26 +315,38 @@ To enable instruction overrides, you'll need to use the `--overrides` flag when 
 
 ## About the Name
 
-Ski carving and efficient software development have a lot in common. Carving uses edge control to follow a smooth, energy-efficient arc — just like automation uses clean, repeatable scripts to replace manual work. Both are about flow: linking turns or commits without hesitation. As carving unlocks speed and control, automation unlocks scalability and momentum. The result is clean tracks — razor-thin arcs on snow, or tidy diffs in code. And when you’ve mastered your craft, you don’t stop to think about your last move. Your code leaves a clean trail — and your commit message can be automated straight from the diff.  And — snowboarders carve too. Different board, same beauty. We won’t hold it against you if you’re dropping clean edges on a single plank.
+Ski carving and efficient software development have a lot in common. Carving uses edge control to follow a smooth, energy-efficient arc — just like automation uses clean, repeatable scripts to replace manual work. Both are about flow: linking turns or commits without hesitation. As carving unlocks speed and control, automation unlocks scalability and momentum. The result is clean tracks — razor-thin arcs on snow, or tidy diffs in code. And when you've mastered your craft, you don't stop to think about your last move. Your code leaves a clean trail — and your commit message can be automated straight from the diff.  And — snowboarders carve too. Different board, same beauty. We won't hold it against you if you're dropping clean edges on a single plank.
 
 ## Origin Story: kodrdriv
 
 It always happened at the same moment.
 
-You’ve just spent the entire day in a flow state — the kind that only comes when everything clicks. Whether it was writing code for a critical feature or hammering out chapters of a Markdown or AsciiDoc book, you were locked in. Maybe you were racing the clock to hit a deadline. Maybe you were just up late trying to carve something beautiful out of nothing. Either way, you went right up to the wire, focused, dialed in, exhausted but satisfied.
+You've just spent the entire day in a flow state — the kind that only comes when everything clicks. Whether it was writing code for a critical feature or hammering out chapters of a Markdown or AsciiDoc book, you were locked in. Maybe you were racing the clock to hit a deadline. Maybe you were just up late trying to carve something beautiful out of nothing. Either way, you went right up to the wire, focused, dialed in, exhausted but satisfied.
 
 And then… Git hits you with the meta-question:
-“What did you do?”
+"What did you do?"
 
-That one prompt — to sum it all up in a commit message — feels totally out of place. It asks you to stop, zoom out, and articulate everything you’ve just done, right when your brain is at its least reflective. You’re not in summary mode. You’re still in it. Still shaping. Still carving.
+That one prompt — to sum it all up in a commit message — feels totally out of place. It asks you to stop, zoom out, and articulate everything you've just done, right when your brain is at its least reflective. You're not in summary mode. You're still in it. Still shaping. Still carving.
 
-And that’s the thing: it sounds silly, like it shouldn’t be a real problem. But every developer, every writer who lives in Git knows that exact moment. The friction is real. The context switch is jarring. It’s like being asked to narrate your entire ski run after you’ve blasted through powder, dodged trees, hit the cliff drop — and now you’re out of breath, standing at the bottom, being asked to give a PowerPoint.
+And that's the thing: it sounds silly, like it shouldn't be a real problem. But every developer, every writer who lives in Git knows that exact moment. The friction is real. The context switch is jarring. It's like being asked to narrate your entire ski run after you've blasted through powder, dodged trees, hit the cliff drop — and now you're out of breath, standing at the bottom, being asked to give a PowerPoint.
 
-That’s why I built kodrdriv.
+That's why I built kodrdriv.
 
-It’s not just a tool — it’s a mindset shift. The idea is simple: you’ve already carved your line in the snow. Your code is there. Your diffs are real. Instead of making you explain it, kodrdriv uses an LLM to read the trail you left behind and generate a clean, meaningful commit message. One that actually reflects your work — without breaking your flow or making you guess what mattered most.
+It's not just a tool — it's a mindset shift. The idea is simple: you've already carved your line in the snow. Your code is there. Your diffs are real. Instead of making you explain it, kodrdriv uses an LLM to read the trail you left behind and generate a clean, meaningful commit message. One that actually reflects your work — without breaking your flow or making you guess what mattered most.
 
-Whether you’re merging branches or writing books, kodrdriv is built for that end-of-day moment when you want to commit and move on — not pause for existential reflection. It reads the line you’ve drawn, and it helps you push it forward.
+Whether you're merging branches or writing books, kodrdriv is built for that end-of-day moment when you want to commit and move on — not pause for existential reflection. It reads the line you've drawn, and it helps you push it forward.
+
+### Release Command Options
+
+- `--from <from>`: Branch or reference to generate release notes from
+- `--to <to>`: Branch or reference to generate release notes to
+- `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
+- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 10).
+
+### Explanation
+
+- The `--context` option allows you to inject custom context into the AI prompt, which can help tailor the generated commit message or release notes to your specific needs or project conventions. You can provide a string directly or a path to a file containing the context.
+- The `--message-limit` option controls how many recent commit messages are included in the prompt. Reducing this number can make the summary more focused, while increasing it can provide broader historical context.
 
 
 

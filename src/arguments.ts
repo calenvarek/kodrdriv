@@ -22,6 +22,8 @@ export const InputSchema = z.object({
     from: z.string().optional(),
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
+    context: z.string().optional(),
+    messageLimit: z.number().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -47,6 +49,8 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         transformedCliArgs.commit = {};
         if (finalCliArgs.cached !== undefined) transformedCliArgs.commit.cached = finalCliArgs.cached;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.commit.sendit = finalCliArgs.sendit;
+        if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
+        if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
     }
 
     // Nested mappings for 'release' options
@@ -54,9 +58,12 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         transformedCliArgs.release = {};
         if (finalCliArgs.from !== undefined) transformedCliArgs.release.from = finalCliArgs.from;
         if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
+        if (finalCliArgs.context !== undefined) transformedCliArgs.release.context = finalCliArgs.context;
+        if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.release.messageLimit = finalCliArgs.messageLimit;
     }
 
     if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
+
 
     // Note: finalCliArgs.openaiApiKey is intentionally omitted here as it belongs to SecureConfig
 
@@ -128,6 +135,8 @@ function getCliConfig(program: Command): [Input, CommandConfig] {
         .command('commit')
         .option('--cached', 'use cached diff')
         .option('--sendit', 'Commit with the message generated. No review.')
+        .option('--context <context>', 'context for the commit message')
+        .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
         .description('Generate commit notes');
     addSharedOptions(commitCommand);
 
@@ -135,6 +144,7 @@ function getCliConfig(program: Command): [Input, CommandConfig] {
         .command('release')
         .option('--from <from>', 'branch to generate release notes from')
         .option('--to <to>', 'branch to generate release notes to')
+        .option('--context <context>', 'context for the commit message')
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
@@ -200,10 +210,14 @@ async function validateAndProcessOptions(options: Partial<Config>): Promise<Conf
         commit: {
             cached: options.commit?.cached ?? KODRDRIV_DEFAULTS.commit.cached, // Might be undefined if not commit command
             sendit: options.commit?.sendit ?? KODRDRIV_DEFAULTS.commit.sendit,
+            messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
+            context: options.commit?.context,
         },
         release: {
             from: options.release?.from ?? KODRDRIV_DEFAULTS.release.from,
             to: options.release?.to ?? KODRDRIV_DEFAULTS.release.to,
+            messageLimit: options.release?.messageLimit ?? KODRDRIV_DEFAULTS.release.messageLimit,
+            context: options.release?.context,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };
