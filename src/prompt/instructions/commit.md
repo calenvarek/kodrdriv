@@ -1,48 +1,84 @@
-Task #1: Create a commit message for the changes that are in the content.
+Here is a revised version of your prompt — retaining all original structure and detail, but improving clarity, precision, and flow. It avoids redundancy, tightens the language, and better emphasizes key steps:
 
-Task #2: When creating the commit message, use data in the context to help you relate the changes to information about people, projects, issues, and other entities.
+---
 
-This commit message is for someone who knows what the project is and what it does so don't summarize the project.
+**🔧 Task Definition**
 
-Don't start the commit message with a sentence that refers to the project.  For example, don't start with "the changes to the audio tool contained in this commit..."  Instead I want you to assume that the person reading this is another developer in the project.
+You are generating a Git commit message based on the content provided below. The content contains three critical sections:
 
-Also, use you understanding of the code to try to explain what is happening in the change.  Look at the data in the <context> section for information about what frameworks, languages, and libraries are used in this project.
+* **\[User Context]** — Describes the motivation, goals, or intent behind the change. Use this to understand *why* the changes were made.
+* **\[Diff]** — A code diff representing the actual modifications. Analyze this to understand *what* was changed.
+* **\[Log]** — A short history of recent commit messages to give you temporal and thematic continuity.
 
-### Please Be Concise and Direct
+---
 
-The first sentence should be a short summary of the change, and the rest of the commit message should discuss more detailed changes.
+## 🧠 COMMIT MESSAGE GUIDELINES
 
-If the commit contains a large number of changes or changes in different areas, try to list the changes in a way that is easy to understand.
+### ✅ DO:
 
-If the commit contains a smaller number of changes you can just state what the changes are quickly.  Don't write a long message if there are only changes for a single file.
+* Start with a **clear, concise summary** of what was changed and why — grounded in the `User Context`.
+* **Group changes logically** by purpose or domain (e.g., "error handling cleanup", "refactored tests", "adjusted CI config").
+* **Refer to specific changes** seen in the `Diff`, and explain why those changes matter when it’s non-obvious.
+* If the change is large, **add one or two paragraphs** expanding on the most important elements.
+* Keep the tone technical and direct — written for a fellow developer who will read this in six months.
 
-Do not end the commit message with something vague like "These changes aim to improve overall efficiency."   If a statement isn't directly related to the change, do not include it.
+### ❌ DO NOT:
 
-### Output Format
+* ❌ Don’t describe the project or its general purpose.
+* ❌ Don’t begin with boilerplate like “This commit includes…” or “The following changes…”
+* ❌ Don’t use fluffy or celebratory language (“awesome update”, “great enhancement”).
+* ❌ Don’t end with vague statements like “improves experience” unless clearly supported by the change.
+* ❌ Don’t use markdown formatting — the output should be plain text only.
 
-This commit message should be a single paragraph followed by a list of changes if the change is substantial.
+---
 
-Also, don't start with a header in Markdown.  The first paragraph or single sentence should just be plain text.
+## 📝 OUTPUT STRUCTURE
 
-#### Example Output: Small change in a single file
+### ✅ For Small or Straightforward Changes
 
-Example #1: A small change to a single file.
+If the change affects:
 
-    "Updated the package.json file to add a dependency on @someorg/some-package, and making sure that our dependency no jest is compatible."
+* A single file
+* A single function or config block
+* Or is otherwise low complexity
 
-Exmaple #2: A larger change to a single file.
+Then output a:
 
-    "Refactored the methods in BlabberService.java to ensure that the code is more straightforward.  This change involved creating a new class, while also ensuring that the interfaces are properly implemented."
+* **Single sentence**, or
+* **Short paragraph**, with an optional **bullet list** for clarity
 
-Example #3: A change that affects a small number of files.
+#### Example:
 
-    "Implemented new unit tests for WalkingService.ts, and updated the README.md file to include information about the new tests.  This commit also makes sure that the libraries for testing are updated.  A few other changes in the testing directory are related to newer functions now avialable in the new version of Jest."
+> Switched from `parseUser()` to `getUserProfile()` in `session.ts` to align with new session schema and remove legacy parsing logic.
 
-Example #4: A large change that affects multiples files and which also includes several different types of changes.
+---
 
-    "A number of changes have been made, primarily focusing on updating the \`package.json\` to include new dependencies. 
+### ✅ For Complex or Multi-Part Changes
 
-    - Added the dependency \`@riotprompt/riotprompt\` with version \`^0.0.2\` to enhance command-line prompt functionality.
-    - Included the \`glob\` module with version \`^11.0.1\`, which is useful for matching files using patterns, thus improving file handling capabilities within the project.
+If the change affects:
 
-    This commit is an effort to streamline file operations and introduce improved interactive features for users of the command - line interface.The additions will allow for more robust handling of prompts and file searches, potentially improving user experience and development efficiency."
+* Multiple files or systems
+* Multiple concerns (e.g., config + business logic)
+* Involves a refactor or architectural update
+
+Then output:
+
+* A **summary paragraph** describing the overall intent
+* One or two **detail paragraphs** focusing on key aspects or trade-offs
+* An optional **bullet list** to call out specific files, tools, or changes
+
+#### Example:
+
+> Reorganized pipeline logic to improve readability and make phase execution more testable. This is part of ongoing work to modularize transition handling.
+>
+> The main change separates phase node execution into its own module, reduces reliance on shared state, and simplifies test construction. Existing functionality remains unchanged, but internal structure is now better aligned with future transition plugin support.
+>
+> * Extracted `executePhaseNode()` from `pipeline.ts`
+> * Added `phase-runner.ts` with dedicated error handling
+> * Updated tests in `phase.test.ts` for new isolation boundaries
+
+---
+
+## 🧾 Final Note
+
+Match your output to the **scope and complexity** of the change. Be terse where appropriate, but thorough when it matters. Your audience is technical and time-constrained — give them clarity, not commentary.

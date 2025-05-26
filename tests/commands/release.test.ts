@@ -28,6 +28,14 @@ vi.mock('../../src/content/log', () => ({
     })
 }));
 
+vi.mock('../../src/content/diff', () => ({
+    // @ts-ignore
+    create: vi.fn().mockReturnValue({
+        get: vi.fn()
+    }),
+    hasStagedChanges: vi.fn()
+}));
+
 vi.mock('../../src/util/openai', () => ({
     // @ts-ignore
     createCompletion: vi.fn().mockResolvedValue('mock summary')
