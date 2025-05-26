@@ -12,10 +12,14 @@ export const ConfigSchema = z.object({
     commit: z.object({
         cached: z.boolean().optional(),
         sendit: z.boolean().optional(),
+        messageLimit: z.number().optional(),
+        context: z.string().optional(),
     }).optional(),
     release: z.object({
         from: z.string().optional(),
         to: z.string().optional(),
+        messageLimit: z.number().optional(),
+        context: z.string().optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });

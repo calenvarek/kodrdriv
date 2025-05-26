@@ -6,6 +6,7 @@ contextDirectories:
 commit:
   cached: true
   sendit: true
+  messageLimit: 10
 release:
   from: main
   to: HEAD

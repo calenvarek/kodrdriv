@@ -34,7 +34,8 @@ export const DEFAULT_CONFIG_DIR = `.${PROGRAM_NAME}`;
 
 export const DEFAULT_PERSONAS_DIR = `/personas`;
 
-export const DEFAULT_PERSONA_YOU_FILE = `${DEFAULT_PERSONAS_DIR}/you.md`;
+export const DEFAULT_PERSONA_COMMITTER_FILE = `${DEFAULT_PERSONAS_DIR}/committer.md`;
+export const DEFAULT_PERSONA_RELEASER_FILE = `${DEFAULT_PERSONAS_DIR}/releaser.md`;
 
 export const DEFAULT_INSTRUCTIONS_DIR = `/instructions`;
 
@@ -48,6 +49,7 @@ export const DEFAULT_SENDIT_MODE = false;
 export const DEFAULT_FROM_COMMIT_ALIAS = 'main';
 export const DEFAULT_TO_COMMIT_ALIAS = 'HEAD';
 export const DEFAULT_VERSION = '1.0.0';
+export const DEFAULT_MESSAGE_LIMIT = 10;
 
 export const DEFAULT_EXCLUDED_PATTERNS: string[] = [
     // Node modules & dependency files
@@ -114,10 +116,12 @@ export const KODRDRIV_DEFAULTS = {
     commit: {
         cached: DEFAULT_CACHED,
         sendit: DEFAULT_SENDIT_MODE,
+        messageLimit: DEFAULT_MESSAGE_LIMIT,
     },
     release: {
         from: DEFAULT_FROM_COMMIT_ALIAS,
         to: DEFAULT_TO_COMMIT_ALIAS,
+        messageLimit: DEFAULT_MESSAGE_LIMIT,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };
