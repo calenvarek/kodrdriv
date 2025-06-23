@@ -54,7 +54,7 @@
         "@swc/core": "^1.11.29",
         "@types/js-yaml": "^4.0.9",
         "@types/luxon": "^3.6.2",
-        "@types/node": "^22.15.24",
+        "@types/node": "^24.0.3",
         "@types/shell-escape": "^0.2.3",
         "@types/winston": "^2.4.4",
         "@typescript-eslint/eslint-plugin": "^8.33.0",
