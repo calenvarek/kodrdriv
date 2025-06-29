@@ -7,6 +7,7 @@ import { Config, PullRequest } from '../types';
 import { run } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
+import { incrementPatchVersion } from '../util/general';
 
 const PNPM_WORKSPACE_FILE = 'pnpm-workspace.yaml';
 const PNPM_WORKSPACE_BACKUP_FILE = 'pnpm-workspace.yaml.bak';
@@ -96,6 +97,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
         const tagName = `v${version}`;
         const releaseNotesContent = await storage.readFile('RELEASE_NOTES.md', 'utf-8');
         await GitHub.createRelease(tagName, releaseNotesContent);
+
+        logger.info('Creating new release branch...');
+        const nextVersion = incrementPatchVersion(version);
+        const newBranchName = `release/${nextVersion}`;
+        await run(`git checkout -b ${newBranchName}`);
+        await run(`git push -u origin ${newBranchName}`);
+        logger.info(`Branch ${newBranchName} created and pushed to origin.`);
 
         logger.info('Preparation complete.');
     } finally {
