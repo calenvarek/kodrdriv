@@ -130,6 +130,7 @@ export const KODRDRIV_DEFAULTS = {
     },
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,
+        requiredEnvVars: ['GITHUB_TOKEN', 'OPENAI_API_KEY'],
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

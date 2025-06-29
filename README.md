@@ -65,7 +65,7 @@ The `publish` command orchestrates a comprehensive release workflow, designed to
 
 1.  **Dependency Management**: If a `pnpm-workspace.yaml` file is present, it's temporarily renamed to switch from workspace dependencies to registry versions. It then runs `pnpm update --latest` to ensure dependencies are up to date. You can configure specific dependency patterns to update instead of updating all dependencies using the `dependencyUpdatePatterns` configuration option.
 
-2.  **Pre-flight Checks**: Before committing any changes, it runs a series of checks (`clean`, `lint`, `build`, and `test`) to ensure the project is in a good state.
+2.  **Pre-flight Checks**: Before committing any changes, it runs the `prepublishOnly` script from your `package.json`. This script should contain your project's pre-flight checks (e.g., `clean`, `lint`, `build`, `test`) to ensure the project is in a good state. **Note**: A `prepublishOnly` script is required in your `package.json` - the publish command will fail if this script is not present.
 
 3.  **Release Commit**: If there are changes to `package.json` or `pnpm-lock.yaml`, it creates an intelligent commit message for the dependency updates.
 
@@ -142,6 +142,109 @@ The publish command supports selective dependency updates through the `dependenc
 - Patterns can include npm scopes (e.g., `@company/*`) or specific package names
 - If no patterns are configured, all dependencies are updated (default behavior)
 - This is particularly useful when developing a set of related packages where you want to ensure you're using the latest versions of your organization's packages while keeping other dependencies stable
+
+#### Environment Variable Configuration
+
+The publish command includes comprehensive environment variable validation to ensure all required credentials and tokens are available before starting the release process. This prevents failures partway through the publication workflow.
+
+**Core Required Environment Variables:**
+
+The following environment variables are required by default for all publish operations:
+
+- `GITHUB_TOKEN`: Required for GitHub API operations (creating pull requests, releases, etc.)
+- `OPENAI_API_KEY`: Required for AI-powered commit message and release note generation
+
+**Configurable Additional Environment Variables:**
+
+You can specify additional required environment variables specific to your project or organization:
+
+**Configuration (config.yaml):**
+```yaml
+publish:
+  requiredEnvVars:
+    - NODE_AUTH_TOKEN        # Often needed for publishing to npm
+    - DEPLOY_KEY            # Custom deployment credentials
+    - CUSTOM_API_TOKEN      # Organization-specific tokens
+    - CODECOV_TOKEN         # Code coverage reporting
+```
+
+**Configuration (config.json):**
+```json
+{
+  "publish": {
+    "requiredEnvVars": [
+      "NODE_AUTH_TOKEN",
+      "DEPLOY_KEY", 
+      "CUSTOM_API_TOKEN",
+      "CODECOV_TOKEN"
+    ]
+  }
+}
+```
+
+**Automatic .npmrc Scanning:**
+
+The publish command automatically scans your `.npmrc` file for environment variable references and includes them in the validation. It detects common patterns like:
+
+- `${NODE_AUTH_TOKEN}` - Curly brace syntax
+- `$NODE_AUTH_TOKEN` - Direct variable reference
+
+Example `.npmrc` file:
+```
+@myorg:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+In this case, `NODE_AUTH_TOKEN` would be automatically detected and validated.
+
+**Validation Behavior:**
+- All environment variable checks happen during the initial prechecks phase
+- If any required environment variables are missing, the publish command fails immediately with a clear error message
+- The error message lists all missing variables at once, making it easy to set them all before retrying
+- Variables from configuration, .npmrc scanning, and core requirements are combined and deduplicated
+
+**Example Error:**
+```
+Missing required environment variables: NODE_AUTH_TOKEN, DEPLOY_KEY. 
+Please set these environment variables before running publish.
+```
+
+**Security Best Practices:**
+- Store sensitive environment variables in your CI/CD system's secure variable storage
+- Use tools like 1Password CLI, HashiCorp Vault, or similar for local development
+- Never commit environment variables or tokens to your repository
+- Consider using `.env` files (with proper .gitignore configuration) for local development
+
+#### prepublishOnly Script Requirement
+
+The publish command requires a `prepublishOnly` script to be defined in your `package.json`. This script should contain all the checks and builds necessary to verify your project is ready for release.
+
+**Example package.json:**
+```json
+{
+  "scripts": {
+    "prepublishOnly": "pnpm run clean && pnpm run lint && pnpm run build && pnpm run test",
+    "clean": "rimraf dist",
+    "lint": "eslint src/",
+    "build": "tsc",
+    "test": "vitest run"
+  }
+}
+```
+
+**Why prepublishOnly?**
+- The `prepublishOnly` script is an npm/pnpm standard that runs automatically before publishing packages
+- It ensures consistent pre-flight checks regardless of how the package is published
+- It allows projects to define their own specific validation pipeline
+- The publish command validates this script exists during the initial prechecks phase
+
+**Common prepublishOnly Patterns:**
+- `"prepublishOnly": "npm run test"` - Run tests only
+- `"prepublishOnly": "npm run build && npm run test"` - Build and test
+- `"prepublishOnly": "npm run lint && npm run build && npm run test"` - Full validation pipeline
+- `"prepublishOnly": "npm run ci"` - Delegate to a CI script that includes all checks
+
+If this script is missing, the publish command will fail immediately with a helpful error message explaining the requirement.
 
 ### OpenAI Configuration
 
@@ -253,7 +356,8 @@ Example configuration file (`.kodrdriv/config.json`):
   "contextDirectories": ["src", "docs"],
   "publish": {
     "mergeMethod": "merge",
-    "dependencyUpdatePatterns": ["@company/*", "@myorg/*"]
+    "dependencyUpdatePatterns": ["@company/*", "@myorg/*"],
+    "requiredEnvVars": ["NODE_AUTH_TOKEN", "CUSTOM_TOKEN"]
   },
   "commit": {
     "add": true,

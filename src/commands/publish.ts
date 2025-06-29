@@ -12,9 +12,123 @@ import { incrementPatchVersion } from '../util/general';
 const PNPM_WORKSPACE_FILE = 'pnpm-workspace.yaml';
 const PNPM_WORKSPACE_BACKUP_FILE = 'pnpm-workspace.yaml.bak';
 
+const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
+    const npmrcPath = path.join(process.cwd(), '.npmrc');
+    const envVars: string[] = [];
+
+    if (await storage.exists(npmrcPath)) {
+        try {
+            const npmrcContent = await storage.readFile(npmrcPath, 'utf-8');
+            // Match environment variable patterns like ${VAR_NAME} or $VAR_NAME
+            const envVarMatches = npmrcContent.match(/\$\{([^}]+)\}|\$([A-Z_][A-Z0-9_]*)/g);
+
+            if (envVarMatches) {
+                for (const match of envVarMatches) {
+                    // Extract variable name from ${VAR_NAME} or $VAR_NAME format
+                    const varName = match.replace(/\$\{|\}|\$/g, '');
+                    if (varName && !envVars.includes(varName)) {
+                        envVars.push(varName);
+                    }
+                }
+            }
+        } catch (error) {
+            // If we can't read .npmrc, that's okay - just continue
+        }
+    }
+
+    return envVars;
+};
+
+const validateEnvironmentVariables = (requiredEnvVars: string[]): void => {
+    const logger = getLogger();
+    const missingEnvVars: string[] = [];
+
+    for (const envVar of requiredEnvVars) {
+        if (!process.env[envVar]) {
+            missingEnvVars.push(envVar);
+        }
+    }
+
+    if (missingEnvVars.length > 0) {
+        logger.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+        throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}. Please set these environment variables before running publish.`);
+    }
+};
+
+const runPrechecks = async (runConfig: Config): Promise<void> => {
+    const logger = getLogger();
+    const storage = createStorage({ log: logger.info });
+
+    logger.info('Running prechecks...');
+
+    // Check if we're in a git repository
+    try {
+        await run('git rev-parse --git-dir');
+    } catch (error) {
+        throw new Error('Not in a git repository. Please run this command from within a git repository.');
+    }
+
+    // Check for uncommitted changes
+    logger.info('Checking for uncommitted changes...');
+    try {
+        const { stdout } = await run('git status --porcelain');
+        if (stdout.trim()) {
+            throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish.');
+        }
+    } catch (error) {
+        throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
+    }
+
+    // Check if we're on a release branch
+    logger.info('Checking current branch...');
+    const currentBranch = await GitHub.getCurrentBranchName();
+    if (!currentBranch.startsWith('release/')) {
+        throw new Error(`Current branch '${currentBranch}' is not a release branch. Please switch to a release branch (e.g., release/1.0.0) before running publish.`);
+    }
+
+    // Check if prepublishOnly script exists in package.json
+    logger.info('Checking for prepublishOnly script...');
+    const packageJsonPath = path.join(process.cwd(), 'package.json');
+
+    if (!await storage.exists(packageJsonPath)) {
+        throw new Error('package.json not found in current directory.');
+    }
+
+    let packageJson;
+    try {
+        const packageJsonContents = await storage.readFile(packageJsonPath, 'utf-8');
+        packageJson = JSON.parse(packageJsonContents);
+    } catch (error) {
+        throw new Error('Failed to parse package.json. Please ensure it contains valid JSON.');
+    }
+
+    if (!packageJson.scripts?.prepublishOnly) {
+        throw new Error('prepublishOnly script is required in package.json but was not found. Please add a prepublishOnly script that runs your pre-flight checks (e.g., clean, lint, build, test).');
+    }
+
+    // Check required environment variables
+    logger.info('Checking required environment variables...');
+    const coreRequiredEnvVars = runConfig.publish?.requiredEnvVars || [];
+    const npmrcEnvVars = await scanNpmrcForEnvVars(storage);
+    const allRequiredEnvVars = [...new Set([...coreRequiredEnvVars, ...npmrcEnvVars])];
+
+    if (allRequiredEnvVars.length > 0) {
+        logger.info(`Required environment variables: ${allRequiredEnvVars.join(', ')}`);
+        validateEnvironmentVariables(allRequiredEnvVars);
+    } else {
+        logger.info('No required environment variables specified.');
+    }
+
+    logger.info('All prechecks passed.');
+};
+
 export const execute = async (runConfig: Config): Promise<void> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
+
+    // Run prechecks before starting any work
+    await runPrechecks(runConfig);
+
     logger.info('Starting release process...');
 
     const workspaceFile = path.join(process.cwd(), PNPM_WORKSPACE_FILE);
@@ -59,8 +173,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.info('Staging changes for release commit');
             await run('git add package.json pnpm-lock.yaml');
 
-            logger.info('Running pre-flight checks...');
-            await run('pnpm run clean && pnpm run lint && pnpm run build && pnpm run test');
+            logger.info('Running prepublishOnly script...');
+            await run('pnpm run prepublishOnly');
 
             logger.info('Checking for staged changes...');
             if (await Diff.hasStagedChanges()) {
