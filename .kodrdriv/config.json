@@ -1,5 +1,0 @@
-{
-  "publish": {
-    "requiredEnvVars": ["GITHUB_TOKEN", "OPENAI_API_KEY", "TEST_TOKEN"]
-  }
-}
