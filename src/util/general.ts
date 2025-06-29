@@ -71,3 +71,16 @@ export const stringifyJSON = function (obj: any, options: { depth: number } = { 
     }
     return '';
 };
+
+export const incrementPatchVersion = (version: string): string => {
+    const parts = version.split('.');
+    if (parts.length !== 3) {
+        throw new Error(`Invalid version string: ${version}`);
+    }
+    const patch = parseInt(parts[2], 10);
+    if (isNaN(patch)) {
+        throw new Error(`Invalid patch version: ${parts[2]}`);
+    }
+    parts[2] = (patch + 1).toString();
+    return parts.join('.');
+};
