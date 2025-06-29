@@ -35,3 +35,11 @@ export const CommandConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema> & Cardigantime.Config;
 export type SecureConfig = z.infer<typeof SecureConfigSchema>;
 export type CommandConfig = z.infer<typeof CommandConfigSchema>;
+
+export interface PullRequest {
+    html_url: string;
+    number: number;
+    labels: {
+        name: string;
+    }[];
+}

@@ -3,8 +3,9 @@ import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
 import * as Arguments from './arguments';
 import * as Commit from './commands/commit';
+import * as Publish from './commands/publish';
 import * as Release from './commands/release';
-import { COMMAND_COMMIT, COMMAND_RELEASE, DEFAULT_CONFIG_DIR } from './constants';
+import { COMMAND_COMMIT, COMMAND_PUBLISH, COMMAND_RELEASE, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { CommandConfig } from 'types';
 import { Config, ConfigSchema, SecureConfig } from './types';
@@ -38,7 +39,7 @@ export async function main() {
         let commandName = commandConfig.commandName;
 
         // If we have a specific command argument, use that
-        if (command === 'commit' || command === 'release') {
+        if (command === 'commit' || command === 'release' || command === 'publish') {
             commandName = command;
         }
 
@@ -48,6 +49,8 @@ export async function main() {
             summary = await Commit.execute(runConfig);
         } else if (commandName === COMMAND_RELEASE) {
             summary = await Release.execute(runConfig);
+        } else if (commandName === COMMAND_PUBLISH) {
+            await Publish.execute(runConfig);
         }
 
         // eslint-disable-next-line no-console
