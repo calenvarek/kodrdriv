@@ -17,11 +17,19 @@ export const execute = async (runConfig: Config) => {
     const logger = getLogger();
     const prompts = Prompts.create(runConfig.model as Model, runConfig);
 
+    if (runConfig.commit?.add) {
+        logger.info('Adding all changes to the index...');
+        await run('git add -A');
+    }
+
     let diffContent = '';
 
     let cached = runConfig.commit?.cached;
-    // If cached is undefined? We're going to look for a staged commit; otherwise, we'll use the supplied setting.
-    if (runConfig.commit?.cached === undefined) {
+    // If `add` is used, we should always look at staged changes.
+    if (runConfig.commit?.add) {
+        cached = true;
+    } else if (cached === undefined) {
+        // If cached is undefined? We're going to look for a staged commit; otherwise, we'll use the supplied setting.
         cached = await Diff.hasStagedChanges();
     }
 

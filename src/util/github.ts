@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import { getLogger } from '../logging';
-import { PullRequest } from '../types';
+import { PullRequest, MergeMethod } from '../types';
 import { run } from './child';
 
 export const getOctokit = (): Octokit => {
@@ -122,12 +122,12 @@ export const waitForPullRequestChecks = async (prNumber: number): Promise<void> 
     }
 };
 
-export const mergePullRequest = async (prNumber: number): Promise<void> => {
+export const mergePullRequest = async (prNumber: number, mergeMethod: MergeMethod = 'squash'): Promise<void> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
     const logger = getLogger();
 
-    logger.info(`Merging PR #${prNumber}...`);
+    logger.info(`Merging PR #${prNumber} using ${mergeMethod} method...`);
     const pr = await octokit.pulls.get({
         owner,
         repo,
@@ -139,9 +139,9 @@ export const mergePullRequest = async (prNumber: number): Promise<void> => {
         owner,
         repo,
         pull_number: prNumber,
-        merge_method: 'squash',
+        merge_method: mergeMethod,
     });
-    logger.info(`PR #${prNumber} merged.`);
+    logger.info(`PR #${prNumber} merged using ${mergeMethod} method.`);
 
     logger.info(`Deleting branch ${headBranch}...`);
     await octokit.git.deleteRef({

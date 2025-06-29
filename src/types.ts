@@ -10,6 +10,7 @@ export const ConfigSchema = z.object({
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
     commit: z.object({
+        add: z.boolean().optional(),
         cached: z.boolean().optional(),
         sendit: z.boolean().optional(),
         messageLimit: z.number().optional(),
@@ -20,6 +21,10 @@ export const ConfigSchema = z.object({
         to: z.string().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+    }).optional(),
+    publish: z.object({
+        mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
+        dependencyUpdatePatterns: z.array(z.string()).optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
@@ -35,6 +40,8 @@ export const CommandConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema> & Cardigantime.Config;
 export type SecureConfig = z.infer<typeof SecureConfigSchema>;
 export type CommandConfig = z.infer<typeof CommandConfigSchema>;
+
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
 export interface PullRequest {
     html_url: string;
