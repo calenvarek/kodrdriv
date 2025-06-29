@@ -25,6 +25,7 @@ export interface Utility {
     readFile: (path: string, encoding: string) => Promise<string>;
     readStream: (path: string) => Promise<fs.ReadStream>;
     writeFile: (path: string, data: string | Buffer, encoding: string) => Promise<void>;
+    rename: (oldPath: string, newPath: string) => Promise<void>;
     forEachFileIn: (directory: string, callback: (path: string) => Promise<void>, options?: { pattern: string }) => Promise<void>;
     hashFile: (path: string, length: number) => Promise<string>;
     listFiles: (directory: string) => Promise<string[]>;
@@ -111,6 +112,10 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
         await fs.promises.writeFile(path, data, { encoding: encoding as BufferEncoding });
     }
 
+    const rename = async (oldPath: string, newPath: string): Promise<void> => {
+        await fs.promises.rename(oldPath, newPath);
+    }
+
     const forEachFileIn = async (directory: string, callback: (file: string) => Promise<void>, options: { pattern: string | string[] } = { pattern: '*.*' }): Promise<void> => {
         try {
             const files = await glob(options.pattern, { cwd: directory, nodir: true });
@@ -148,6 +153,7 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
         readFile,
         readStream,
         writeFile,
+        rename,
         forEachFileIn,
         hashFile,
         listFiles,

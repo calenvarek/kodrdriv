@@ -27,7 +27,8 @@ export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 
 export const COMMAND_COMMIT = 'commit';
 export const COMMAND_RELEASE = 'release';
-export const ALLOWED_COMMANDS = [COMMAND_COMMIT, COMMAND_RELEASE];
+export const COMMAND_PUBLISH = 'publish';
+export const ALLOWED_COMMANDS = [COMMAND_COMMIT, COMMAND_RELEASE, COMMAND_PUBLISH];
 export const DEFAULT_COMMAND = COMMAND_COMMIT;
 
 export const DEFAULT_CONFIG_DIR = `.${PROGRAM_NAME}`;

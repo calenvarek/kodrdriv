@@ -148,6 +148,11 @@ function getCliConfig(program: Command): [Input, CommandConfig] {
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
+    const publishCommand = program
+        .command('publish')
+        .description('Publish a release');
+    addSharedOptions(publishCommand);
+
     program.parse();
 
     const cliArgs: Input = program.opts<Input>(); // Get all opts initially
@@ -162,6 +167,8 @@ function getCliConfig(program: Command): [Input, CommandConfig] {
             commandOptions = commitCommand.opts<Partial<Input>>();
         } else if (commandName === 'release' && releaseCommand.opts) {
             commandOptions = releaseCommand.opts<Partial<Input>>();
+        } else if (commandName === 'publish' && publishCommand.opts) {
+            commandOptions = publishCommand.opts<Partial<Input>>();
         }
     }
 

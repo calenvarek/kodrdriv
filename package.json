@@ -33,6 +33,7 @@
     "author": "Calen Varek <calenvarek@gmail.com>",
     "license": "Apache-2.0",
     "dependencies": {
+        "@octokit/rest": "^22.0.0",
         "@riotprompt/riotprompt": "^0.0.1",
         "@theunwalked/cardigantime": "^0.0.1",
         "commander": "^14.0.0",
