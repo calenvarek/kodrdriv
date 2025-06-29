@@ -46,7 +46,15 @@ export const execute = async (runConfig: Config): Promise<void> => {
             }
 
             logger.info('Updating dependencies to latest versions from registry');
-            await run('pnpm update --latest');
+            const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
+            if (updatePatterns && updatePatterns.length > 0) {
+                logger.info(`Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
+                const patternsArg = updatePatterns.join(' ');
+                await run(`pnpm update --latest ${patternsArg}`);
+            } else {
+                logger.info('No dependency update patterns specified, updating all dependencies');
+                await run('pnpm update --latest');
+            }
 
             logger.info('Staging changes for release commit');
             await run('git add package.json pnpm-lock.yaml');
@@ -85,7 +93,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info(`Waiting for PR #${pr.number} checks to complete...`);
         await GitHub.waitForPullRequestChecks(pr.number);
 
-        await GitHub.mergePullRequest(pr.number);
+        const mergeMethod = runConfig.publish?.mergeMethod || 'squash';
+        await GitHub.mergePullRequest(pr.number, mergeMethod);
 
         logger.info('Checking out main branch...');
         await run('git checkout main');

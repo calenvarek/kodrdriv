@@ -53,6 +53,51 @@ kodrdriv release
 > 
 > You can use the `--from` and `--to` options to generate release notes comparing two different releases. For example, to see what changed between v1.0.0 and v1.1.0, you could use `kodrdriv release --from v1.0.0 --to v1.1.0`. This is particularly useful for creating detailed changelogs when preparing release documentation.
 
+### Publish Command
+
+Automate the entire release process, from dependency updates to GitHub release creation:
+
+```bash
+kodrdriv publish
+```
+
+The `publish` command orchestrates a comprehensive release workflow, designed to ensure a safe and consistent release process. Here's what it does:
+
+1.  **Dependency Management**: If a `pnpm-workspace.yaml` file is present, it's temporarily renamed to switch from workspace dependencies to registry versions. It then runs `pnpm update --latest` to ensure dependencies are up to date. You can configure specific dependency patterns to update instead of updating all dependencies using the `dependencyUpdatePatterns` configuration option.
+
+2.  **Pre-flight Checks**: Before committing any changes, it runs a series of checks (`clean`, `lint`, `build`, and `test`) to ensure the project is in a good state.
+
+3.  **Release Commit**: If there are changes to `package.json` or `pnpm-lock.yaml`, it creates an intelligent commit message for the dependency updates.
+
+4.  **Version Bump**: It automatically bumps the patch version of your project.
+
+5.  **Release Notes**: It generates release notes based on the recent changes and saves them to `RELEASE_NOTES.md`.
+
+6.  **Pull Request Automation**:
+    *   It pushes the changes and tags to the origin.
+    *   It creates a new pull request for the release.
+    *   It waits for all status checks on the pull request to pass.
+    *   Once checks are complete, it automatically merges the pull request using the configured merge method (default: squash).
+
+7.  **GitHub Release**: After the PR is merged, it checks out the `main` branch, pulls the latest changes, and creates a new GitHub release with the tag and release notes.
+
+8.  **New Release Branch**: Finally, it creates and pushes a new release branch for the next version (e.g., `release/0.0.5`).
+
+This command is designed for repositories that follow a pull-request-based release workflow with required status checks. It streamlines the process, reducing manual steps and potential for error.
+
+> [!TIP]
+> ### Choosing the Right Merge Method
+> 
+> The merge method you choose affects your Git history and can impact your team's workflow:
+> 
+> - **Squash** (default): Best for keeping a clean, linear history. All commits from the feature branch are combined into a single commit, making it easier to understand what was changed in each release.
+> 
+> - **Merge**: Preserves the complete commit history from the feature branch. Use this when you want to maintain detailed development history and individual commit information.
+> 
+> - **Rebase**: Creates a linear history without merge commits. The commits from the feature branch are replayed on top of the target branch. This keeps history clean while preserving individual commits.
+> 
+> Consider your team's preferences and any branch protection rules when choosing a merge method.
+
 ## Command Line Options
 
 KodrDriv provides several command line options to customize its behavior:
@@ -70,6 +115,33 @@ KodrDriv provides several command line options to customize its behavior:
 - `--sendit`: Commit with the generated message without review (default: false)
 - `--context <context>`: Provide additional context (as a string or file path) to guide the commit message generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the commit.
 - `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the prompt for context (default: 10). This can help focus the AI on the most relevant recent changes.
+
+### Publish Command Options
+
+- `--merge-method <method>`: Method to merge pull requests during the publish process (default: 'squash')
+  - Available methods: 'merge', 'squash', 'rebase'
+  - `merge`: Creates a merge commit that combines the feature branch into the target branch
+  - `squash`: Combines all commits from the feature branch into a single commit on the target branch
+  - `rebase`: Replays commits from the feature branch onto the target branch without creating a merge commit
+
+#### Dependency Update Configuration
+
+The publish command supports selective dependency updates through the `dependencyUpdatePatterns` configuration option. This allows you to specify which dependencies should be updated during the release process instead of updating all dependencies.
+
+**Configuration:**
+```json
+{
+  "publish": {
+    "dependencyUpdatePatterns": ["@company/*", "@myorg/*", "specific-package"]
+  }
+}
+```
+
+**Behavior:**
+- When patterns are specified, only dependencies matching those patterns will be updated
+- Patterns can include npm scopes (e.g., `@company/*`) or specific package names
+- If no patterns are configured, all dependencies are updated (default behavior)
+- This is particularly useful when developing a set of related packages where you want to ensure you're using the latest versions of your organization's packages while keeping other dependencies stable
 
 ### OpenAI Configuration
 
@@ -131,6 +203,18 @@ kodrdriv commit --context "Refactoring for performance" --message-limit 5
 kodrdriv release --context "Quarterly release, focus on stability" --message-limit 20
 ```
 
+Publish with different merge methods:
+```bash
+# Use default squash merge
+kodrdriv publish
+
+# Use merge commit (preserves individual commits)
+kodrdriv publish --merge-method merge
+
+# Use rebase (clean linear history)
+kodrdriv publish --merge-method rebase
+```
+
 ### Configuration Directory
 
 KodrDriv uses a configuration directory to store custom settings, instructions, and other configuration files. You can specify a custom location using the `--config-dir` option:
@@ -152,8 +236,46 @@ The configuration directory structure is as follows:
 │   ├── release.md        # Override for release instructions
 │   ├── release-pre.md    # Content prepended to default release instructions
 │   └── release-post.md   # Content appended to default release instructions
+├── config.json           # Main configuration file
 └── ...                   # Other configuration files
 ```
+
+### Configuration File
+
+You can create a `config.json` file in your `.kodrdriv` directory to set default options for all commands. This allows you to avoid repeating command-line options and ensures consistent behavior across your project.
+
+Example configuration file (`.kodrdriv/config.json`):
+
+```json
+{
+  "model": "gpt-4o-mini",
+  "verbose": true,
+  "contextDirectories": ["src", "docs"],
+  "publish": {
+    "mergeMethod": "merge",
+    "dependencyUpdatePatterns": ["@company/*", "@myorg/*"]
+  },
+  "commit": {
+    "add": true,
+    "messageLimit": 5
+  },
+  "release": {
+    "from": "main",
+    "to": "HEAD",
+    "messageLimit": 10
+  },
+  "excludedPatterns": [
+    "node_modules",
+    "dist",
+    "*.log"
+  ]
+}
+```
+
+Configuration options set in the file can be overridden by command-line arguments. The precedence order is:
+1. Command-line arguments (highest priority)
+2. Configuration file
+3. Default values (lowest priority)
 
 ## Default Instructions
 

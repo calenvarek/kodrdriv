@@ -4,9 +4,14 @@ contextDirectories:
   - .kodrdriv/context/people
   - .kodrdriv/context/projects
 commit:
+  add: true
   cached: true
   sendit: true
   messageLimit: 10
 release:
   from: main
   to: HEAD
+publish:
+  dependencyUpdatePatterns:
+    - "@eldrforge/*"
+  mergeMethod: squash

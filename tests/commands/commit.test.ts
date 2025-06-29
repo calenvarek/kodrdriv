@@ -148,4 +148,26 @@ describe('commit', () => {
         expect(Child.run).toHaveBeenCalled();
     });
 
+    it('should run "git add -A" and use cached diff when add is true', async () => {
+        // Arrange
+        const mockConfig = {
+            model: 'gpt-3.5-turbo',
+            commit: {
+                add: true,
+            }
+        };
+        const mockDiffContent = 'mock diff content';
+
+        // @ts-ignore
+        Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
+        OpenAI.createCompletion.mockResolvedValue('test commit');
+
+        // Act
+        await Commit.execute(mockConfig);
+
+        // Assert
+        expect(Child.run).toHaveBeenCalledWith('git add -A');
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.hasStagedChanges).not.toHaveBeenCalled();
+    });
 });

@@ -99,5 +99,59 @@ describe('openai', () => {
             expect(Storage.create().writeFile).toHaveBeenCalledWith('debug.json', expect.any(String), 'utf8');
         });
 
+        it('should throw error if OPENAI_API_KEY is not set', async () => {
+            delete process.env.OPENAI_API_KEY;
+            await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('OPENAI_API_KEY environment variable is not set');
+        });
+
+        it('should throw error on API failure', async () => {
+            mockChatCreate.mockRejectedValue(new Error('API Error'));
+            await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('Failed to create completion: API Error');
+        });
+
+        it('should throw error on empty response', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: null
+                    }
+                }]
+            };
+            mockChatCreate.mockResolvedValue(mockResponse);
+            await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('No response received from OpenAI');
+        });
+    });
+
+    describe('transcribeAudio', () => {
+        it('should transcribe audio successfully', async () => {
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            const result = await transcribeAudio('test.mp3');
+            expect(result).toEqual(mockResponse);
+        });
+
+        it('should write debug file when debug is enabled', async () => {
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            await transcribeAudio('test.mp3', { debug: true, debugFile: 'debug.json' });
+            expect(Storage.create().writeFile).toHaveBeenCalledWith('debug.json', expect.any(String), 'utf8');
+        });
+
+        it('should throw error if OPENAI_API_KEY is not set', async () => {
+            delete process.env.OPENAI_API_KEY;
+            await expect(transcribeAudio('test.mp3')).rejects.toThrow('OPENAI_API_KEY environment variable is not set');
+        });
+
+        it('should throw error on API failure', async () => {
+            mockTranscriptionsCreate.mockRejectedValue(new Error('API Error'));
+            await expect(transcribeAudio('test.mp3')).rejects.toThrow('Failed to transcribe audio: API Error');
+        });
+
+        it('should throw error on empty response', async () => {
+            mockTranscriptionsCreate.mockResolvedValue(null);
+            await expect(transcribeAudio('test.mp3')).rejects.toThrow('No transcription received from OpenAI');
+        });
     });
 });

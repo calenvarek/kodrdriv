@@ -45,12 +45,15 @@ export const DEFAULT_INSTRUCTIONS_RELEASE_FILE = `${DEFAULT_INSTRUCTIONS_DIR}/re
 
 export const DEFAULT_CACHED = false;
 
+export const DEFAULT_ADD = false;
+
 export const DEFAULT_SENDIT_MODE = false;
 
 export const DEFAULT_FROM_COMMIT_ALIAS = 'main';
 export const DEFAULT_TO_COMMIT_ALIAS = 'HEAD';
 export const DEFAULT_VERSION = '1.0.0';
 export const DEFAULT_MESSAGE_LIMIT = 10;
+export const DEFAULT_MERGE_METHOD = 'squash' as const;
 
 export const DEFAULT_EXCLUDED_PATTERNS: string[] = [
     // Node modules & dependency files
@@ -115,6 +118,7 @@ export const KODRDRIV_DEFAULTS = {
     commandName: DEFAULT_COMMAND,
     configDirectory: DEFAULT_CONFIG_DIR,
     commit: {
+        add: DEFAULT_ADD,
         cached: DEFAULT_CACHED,
         sendit: DEFAULT_SENDIT_MODE,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
@@ -123,6 +127,9 @@ export const KODRDRIV_DEFAULTS = {
         from: DEFAULT_FROM_COMMIT_ALIAS,
         to: DEFAULT_TO_COMMIT_ALIAS,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
+    },
+    publish: {
+        mergeMethod: DEFAULT_MERGE_METHOD,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

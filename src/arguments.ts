@@ -18,12 +18,14 @@ export const InputSchema = z.object({
     instructions: z.string().optional(),
     configDir: z.string().optional(),
     cached: z.boolean().optional(),
+    add: z.boolean().optional(),
     sendit: z.boolean().optional(),
     from: z.string().optional(),
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     context: z.string().optional(),
     messageLimit: z.number().optional(),
+    mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -45,8 +47,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     if (finalCliArgs.configDir !== undefined) transformedCliArgs.configDirectory = finalCliArgs.configDir;
 
     // Nested mappings for 'commit' options
-    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined) {
+    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
         transformedCliArgs.commit = {};
+        if (finalCliArgs.add !== undefined) transformedCliArgs.commit.add = finalCliArgs.add;
         if (finalCliArgs.cached !== undefined) transformedCliArgs.commit.cached = finalCliArgs.cached;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.commit.sendit = finalCliArgs.sendit;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
@@ -60,6 +63,12 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
         if (finalCliArgs.context !== undefined) transformedCliArgs.release.context = finalCliArgs.context;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.release.messageLimit = finalCliArgs.messageLimit;
+    }
+
+    // Nested mappings for 'publish' options
+    if (finalCliArgs.mergeMethod !== undefined) {
+        transformedCliArgs.publish = {};
+        if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
     }
 
     if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
@@ -134,6 +143,7 @@ function getCliConfig(program: Command): [Input, CommandConfig] {
     const commitCommand = program
         .command('commit')
         .option('--cached', 'use cached diff')
+        .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
         .option('--context <context>', 'context for the commit message')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
@@ -150,6 +160,7 @@ function getCliConfig(program: Command): [Input, CommandConfig] {
 
     const publishCommand = program
         .command('publish')
+        .option('--merge-method <method>', 'method to merge PR (merge, squash, rebase)', 'squash')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
@@ -215,6 +226,7 @@ async function validateAndProcessOptions(options: Partial<Config>): Promise<Conf
         configDirectory: configDir,
         // Command-specific options with defaults
         commit: {
+            add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
             cached: options.commit?.cached ?? KODRDRIV_DEFAULTS.commit.cached, // Might be undefined if not commit command
             sendit: options.commit?.sendit ?? KODRDRIV_DEFAULTS.commit.sendit,
             messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
@@ -225,6 +237,9 @@ async function validateAndProcessOptions(options: Partial<Config>): Promise<Conf
             to: options.release?.to ?? KODRDRIV_DEFAULTS.release.to,
             messageLimit: options.release?.messageLimit ?? KODRDRIV_DEFAULTS.release.messageLimit,
             context: options.release?.context,
+        },
+        publish: {
+            mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

@@ -1,14 +1,11 @@
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Input, transformCliArgs, validateCommand, validateContextDirectories } from '../src/arguments'; // Adjust path as needed
-// Import the type for type safety
+import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, validateAndReadInstructions } from '../src/arguments';
 import type { Cardigantime } from '@theunwalked/cardigantime';
-// Removed Cardigantime import here, will be dynamically imported
-import { ALLOWED_COMMANDS, KODRDRIV_DEFAULTS } from '../src/constants'; // Adjust path as needed
-import { CommandConfig, Config, SecureConfig } from '../src/types'; // Adjust path as needed
-// Removed Logging import here, will be dynamically imported
-// import * as Logging from '../src/logging'; // Adjust path as needed
+import { ALLOWED_COMMANDS, KODRDRIV_DEFAULTS, DEFAULT_CHARACTER_ENCODING } from '../src/constants';
+import { CommandConfig, Config, SecureConfig } from '../src/types';
 import { Mock } from 'vitest';
+import { ZodError } from 'zod';
 
 // Mock dependencies
 vi.mock('commander');
@@ -26,9 +23,14 @@ const mockLogger = {
 
 // Define mockStorage structure at the top level
 const mockStorage = {
+    exists: vi.fn(),
+    isDirectory: vi.fn(),
+    isDirectoryWritable: vi.fn(),
     isDirectoryReadable: vi.fn(),
+    isFileReadable: vi.fn(),
+    readFile: vi.fn(),
+    createDirectory: vi.fn(),
     listFiles: vi.fn(),
-    // Add other methods if they are part of the Storage interface and used
 };
 
 // Mock the logging module here, using a factory for getLogger's return value
@@ -291,8 +293,14 @@ describe('Argument Parsing and Configuration', () => {
             mockLogger.warn.mockClear(); // Already present for logger
 
             // Clear storage mock calls here, as mockStorage is now top-level
+            mockStorage.exists.mockClear();
+            mockStorage.isDirectory.mockClear();
+            mockStorage.isDirectoryWritable.mockClear();
             mockStorage.isDirectoryReadable.mockClear();
-            mockStorage.listFiles.mockClear(); // Assuming listFiles might be used or for consistency
+            mockStorage.isFileReadable.mockClear();
+            mockStorage.readFile.mockClear();
+            mockStorage.createDirectory.mockClear();
+            mockStorage.listFiles.mockClear();
 
             // No need to define mockStorage here, it's top-level
             // No need to mock '../src/util/storage' here, it's top-level
@@ -345,6 +353,334 @@ describe('Argument Parsing and Configuration', () => {
         });
     });
 
-    // TODO: Add tests for validateConfigDir
-    // TODO: Add tests for validateAndReadInstructions
+    describe('InputSchema', () => {
+        it('should validate valid input with all fields', () => {
+            const validInput = {
+                dryRun: true,
+                verbose: false,
+                debug: true,
+                overrides: false,
+                openaiApiKey: 'sk-test-key',
+                model: 'gpt-4',
+                contextDirectories: ['src', 'tests'],
+                instructions: 'path/to/instructions.md',
+                configDir: '/config',
+                cached: true,
+                add: false,
+                sendit: true,
+                from: 'main',
+                to: 'develop',
+                excludedPatterns: ['*.log', 'node_modules'],
+                context: 'test context',
+                messageLimit: 20,
+            };
+
+            const result = InputSchema.parse(validInput);
+            expect(result).toEqual(validInput);
+        });
+
+        it('should validate input with minimal fields', () => {
+            const minimalInput = {};
+            const result = InputSchema.parse(minimalInput);
+            expect(result).toEqual({});
+        });
+
+        it('should validate input with optional arrays as empty', () => {
+            const inputWithEmptyArrays = {
+                contextDirectories: [],
+                excludedPatterns: [],
+            };
+            const result = InputSchema.parse(inputWithEmptyArrays);
+            expect(result).toEqual(inputWithEmptyArrays);
+        });
+
+        it('should reject invalid types', () => {
+            const invalidInput = {
+                dryRun: 'not-boolean',
+                messageLimit: 'not-number',
+                contextDirectories: 'not-array',
+            };
+
+            expect(() => InputSchema.parse(invalidInput)).toThrow(ZodError);
+        });
+
+        it('should handle undefined values gracefully', () => {
+            const inputWithUndefined = {
+                dryRun: undefined,
+                model: undefined,
+                contextDirectories: undefined,
+            };
+            const result = InputSchema.parse(inputWithUndefined);
+            expect(result).toEqual({});
+        });
+    });
+
+    describe('validateAndReadInstructions', () => {
+        beforeEach(() => {
+            mockStorage.isFileReadable.mockReset();
+            mockStorage.readFile.mockReset();
+            mockLogger.debug.mockReset();
+            mockLogger.error.mockReset();
+            mockLogger.warn.mockReset();
+        });
+
+        it('should read instructions from a readable file', async () => {
+            const instructionsPath = '/path/to/instructions.md';
+            const instructionsContent = '# Test Instructions\nThis is a test.';
+
+            mockStorage.isFileReadable.mockResolvedValue(true);
+            mockStorage.readFile.mockResolvedValue(instructionsContent);
+
+            const result = await validateAndReadInstructions(instructionsPath);
+
+            expect(result).toBe(instructionsContent);
+            expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsPath);
+            expect(mockStorage.readFile).toHaveBeenCalledWith(instructionsPath, DEFAULT_CHARACTER_ENCODING);
+            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Reading instructions from file'));
+        });
+
+        it('should return string content directly if file is not readable', async () => {
+            const instructionsString = 'Direct instructions content';
+
+            mockStorage.isFileReadable.mockResolvedValue(false);
+
+            const result = await validateAndReadInstructions(instructionsString);
+
+            expect(result).toBe(instructionsString);
+            expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsString);
+            expect(mockStorage.readFile).not.toHaveBeenCalled();
+            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
+        });
+
+        // Note: These tests are commented out due to mocking complexity with async error handling
+        // The validateAndReadInstructions function uses a try-catch with await, which makes it
+        // difficult to properly mock the rejection scenarios without the mock throwing immediately
+        // Integration tests would better cover these error scenarios
+
+        it('should handle file path that does not exist by treating it as content', async () => {
+            const instructionsContent = 'This is direct content, not a file path';
+
+            mockStorage.isFileReadable.mockResolvedValue(false);
+
+            const result = await validateAndReadInstructions(instructionsContent);
+
+            expect(result).toBe(instructionsContent);
+            expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsContent);
+            expect(mockStorage.readFile).not.toHaveBeenCalled();
+            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
+        });
+
+        it('should handle storage errors gracefully when default fallback succeeds', async () => {
+            const instructionsPath = '/path/to/instructions.md';
+            const defaultInstructions = 'Default instructions content';
+
+            // First call throws error
+            mockStorage.isFileReadable.mockRejectedValueOnce(new Error('Storage error'));
+
+            // Second call for default path succeeds
+            mockStorage.isFileReadable.mockResolvedValueOnce(true);
+            mockStorage.readFile.mockResolvedValueOnce(defaultInstructions);
+
+            const result = await validateAndReadInstructions(instructionsPath);
+
+            expect(result).toBe(defaultInstructions);
+            expect(mockLogger.error).toHaveBeenCalledWith('Error reading instructions file %s: %s', instructionsPath, expect.any(String));
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Falling back to default instructions'));
+        });
+
+        it('should throw error when storage errors occur and default fallback fails', async () => {
+            const instructionsPath = '/path/to/instructions.md';
+
+            // First call throws error
+            mockStorage.isFileReadable.mockRejectedValueOnce(new Error('Storage error'));
+
+            // Second call for default path also fails
+            mockStorage.isFileReadable.mockResolvedValueOnce(false);
+
+            await expect(validateAndReadInstructions(instructionsPath))
+                .rejects.toThrow('Failed to read instructions from /path/to/instructions.md or default location.');
+
+            expect(mockLogger.error).toHaveBeenCalledWith('Error reading instructions file %s: %s', instructionsPath, expect.any(String));
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Falling back to default instructions'));
+        });
+    });
+
+    describe('edge cases and error scenarios', () => {
+        describe('transformCliArgs edge cases', () => {
+            it('should handle context and messageLimit for both commit and release', () => {
+                const cliArgs: Input = {
+                    context: 'shared context',
+                    messageLimit: 15,
+                    cached: true, // This should trigger commit object creation
+                    from: 'main', // This should trigger release object creation
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result).toEqual({
+                    commit: {
+                        cached: true,
+                        context: 'shared context',
+                        messageLimit: 15,
+                    },
+                    release: {
+                        from: 'main',
+                        context: 'shared context',
+                        messageLimit: 15,
+                    },
+                });
+            });
+
+            it('should handle all commit-related options', () => {
+                const cliArgs: Input = {
+                    add: true,
+                    cached: false,
+                    sendit: true,
+                    context: 'commit context',
+                    messageLimit: 5,
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result.commit).toEqual({
+                    add: true,
+                    cached: false,
+                    sendit: true,
+                    context: 'commit context',
+                    messageLimit: 5,
+                });
+            });
+
+            it('should handle all release-related options', () => {
+                const cliArgs: Input = {
+                    from: 'develop',
+                    to: 'feature-branch',
+                    context: 'release context',
+                    messageLimit: 25,
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result.release).toEqual({
+                    from: 'develop',
+                    to: 'feature-branch',
+                    context: 'release context',
+                    messageLimit: 25,
+                });
+            });
+
+            it('should handle excludedPatterns correctly', () => {
+                const cliArgs: Input = {
+                    excludedPatterns: ['*.test.js', 'coverage/*'],
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result.excludedPatterns).toEqual(['*.test.js', 'coverage/*']);
+            });
+        });
+
+        describe('validateCommand edge cases', () => {
+            it('should handle empty string as invalid', () => {
+                expect(() => validateCommand('')).toThrow();
+            });
+
+            it('should handle whitespace as invalid', () => {
+                expect(() => validateCommand('  ')).toThrow();
+                expect(() => validateCommand('\t')).toThrow();
+                expect(() => validateCommand('\n')).toThrow();
+            });
+
+            it('should be case sensitive for all allowed commands', () => {
+                ALLOWED_COMMANDS.forEach(cmd => {
+                    expect(() => validateCommand(cmd.toUpperCase())).toThrow();
+                    expect(() => validateCommand(cmd.charAt(0).toUpperCase() + cmd.slice(1))).toThrow();
+                });
+            });
+        });
+
+        describe('validateContextDirectories edge cases', () => {
+            it('should handle mixed readable and error scenarios', async () => {
+                mockStorage.isDirectoryReadable
+                    .mockResolvedValueOnce(true)  // dir1 readable
+                    .mockRejectedValueOnce(new Error('Network error')) // dir2 error
+                    .mockResolvedValueOnce(false) // dir3 not readable
+                    .mockResolvedValueOnce(true); // dir4 readable
+
+                const inputDirs = ['dir1', 'dir2', 'dir3', 'dir4'];
+                const result = await validateContextDirectories(inputDirs);
+
+                expect(result).toEqual(['dir1', 'dir4']);
+                expect(mockLogger.warn).toHaveBeenCalledTimes(2); // Once for error, once for not readable
+            });
+
+            it('should handle very long directory lists', async () => {
+                const longDirList = Array.from({ length: 100 }, (_, i) => `dir${i}`);
+                mockStorage.isDirectoryReadable.mockResolvedValue(true);
+
+                const result = await validateContextDirectories(longDirList);
+
+                expect(result).toEqual(longDirList);
+                expect(mockStorage.isDirectoryReadable).toHaveBeenCalledTimes(100);
+            });
+        });
+    });
+
+    describe('integration scenarios', () => {
+        it('should handle complete configuration transformation', () => {
+            const complexCliArgs: Input = {
+                dryRun: true,
+                verbose: true,
+                debug: false,
+                overrides: true,
+                model: 'gpt-4-turbo',
+                contextDirectories: ['src', 'docs', 'tests'],
+                instructions: '/custom/instructions.md',
+                configDir: '/custom/config',
+                add: true,
+                cached: false,
+                sendit: true,
+                from: 'release/v1.0',
+                to: 'release/v2.0',
+                excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
+                context: 'Major release preparation',
+                messageLimit: 50,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                dryRun: true,
+                verbose: true,
+                debug: false,
+                overrides: true,
+                model: 'gpt-4-turbo',
+                contextDirectories: ['src', 'docs', 'tests'],
+                instructions: '/custom/instructions.md',
+                configDirectory: '/custom/config',
+                commit: {
+                    add: true,
+                    cached: false,
+                    sendit: true,
+                    context: 'Major release preparation',
+                    messageLimit: 50,
+                },
+                release: {
+                    from: 'release/v1.0',
+                    to: 'release/v2.0',
+                    context: 'Major release preparation',
+                    messageLimit: 50,
+                },
+                excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
+            };
+
+            const result = transformCliArgs(complexCliArgs);
+            expect(result).toEqual(expectedConfig);
+        });
+
+        it('should validate all allowed commands are handled by validateCommand', () => {
+            ALLOWED_COMMANDS.forEach(command => {
+                expect(() => validateCommand(command)).not.toThrow();
+                expect(validateCommand(command)).toBe(command);
+            });
+        });
+    });
 });
