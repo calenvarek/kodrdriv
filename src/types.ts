@@ -25,6 +25,7 @@ export const ConfigSchema = z.object({
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
         dependencyUpdatePatterns: z.array(z.string()).optional(),
+        requiredEnvVars: z.array(z.string()).optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });

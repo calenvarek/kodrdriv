@@ -240,6 +240,8 @@ async function validateAndProcessOptions(options: Partial<Config>): Promise<Conf
         },
         publish: {
             mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,
+            dependencyUpdatePatterns: options.publish?.dependencyUpdatePatterns,
+            requiredEnvVars: options.publish?.requiredEnvVars ?? KODRDRIV_DEFAULTS.publish.requiredEnvVars,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };
