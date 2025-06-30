@@ -14,7 +14,7 @@ This will make the `kodrdriv` command available globally on your system.
 
 ## Commands
 
-KodrDriv provides two main commands:
+KodrDriv provides four main commands:
 
 ### Commit Command
 
@@ -97,6 +97,70 @@ This command is designed for repositories that follow a pull-request-based relea
 > - **Rebase**: Creates a linear history without merge commits. The commits from the feature branch are replayed on top of the target branch. This keeps history clean while preserving individual commits.
 > 
 > Consider your team's preferences and any branch protection rules when choosing a merge method.
+
+### Link Command
+
+Manage pnpm workspace links for local development with sibling projects:
+
+```bash
+kodrdriv link
+```
+
+The `link` command automates the creation and management of pnpm workspace configurations for local development. It scans your project's dependencies and automatically discovers matching sibling packages in configured scope directories, then updates your `pnpm-workspace.yaml` file to link them for local development.
+
+This is particularly useful when working with monorepos or related packages where you want to use local versions of dependencies instead of published registry versions during development.
+
+**How it works:**
+
+1. **Dependency Analysis**: Reads your `package.json` and examines all dependencies (including devDependencies and peerDependencies)
+
+2. **Scope-based Scanning**: For each configured scope (e.g., `@company`, `@myorg`), it scans the specified root directory to find all available packages by reading their `package.json` files
+
+3. **Smart Matching**: Instead of relying on directory naming conventions, it matches dependencies by their actual package names from `package.json`, handling cases where directory names don't match package names
+
+4. **Workspace Management**: Updates or creates a `pnpm-workspace.yaml` file with the discovered local packages, preserving any existing workspace configuration
+
+**Example Scenario:**
+
+Suppose you're working on `@company/api` and it depends on `@company/logging`. Your directory structure might look like:
+
+```
+workspace/
+├── company-api/          # Contains @company/api
+├── company-logging-lib/  # Contains @company/logging (note: different directory name)
+└── other-project/
+```
+
+The link command would:
+- Scan `../` for packages with scope `@company`
+- Find `@company/logging` in `../company-logging-lib/` 
+- Update `pnpm-workspace.yaml` to include `../company-logging-lib`
+
+**Configuration Requirements:**
+
+The link command requires scope root mappings to be configured. You can provide these via:
+
+1. **Command line**: `--scope-roots '{"@company": "../", "@myorg": "../../"}'`
+2. **Configuration file**: Set `link.scopeRoots` in your `.kodrdriv/config.json`
+
+**Dry Run Support:**
+
+Use `--dry-run` to preview what packages would be linked without making changes:
+
+```bash
+kodrdriv link --scope-roots '{"@company": "../"}' --dry-run
+```
+
+> [!TIP]
+> ### Best Practices for Link Command
+> 
+> - **Use relative paths**: Configure scope roots with relative paths (like `../` or `../../`) to ensure the workspace file works across different environments
+> 
+> - **Scope organization**: Group related packages under the same scope (e.g., `@company/api`, `@company/logging`) for easier management
+> 
+> - **Version with caution**: Consider whether to commit the generated `pnpm-workspace.yaml` file. You might want to add it to `.gitignore` if it's only for local development
+> 
+> - **Multiple scopes**: You can configure multiple scope roots to handle packages from different organizations or teams in the same workspace
 
 ## Command Line Options
 
@@ -246,6 +310,50 @@ The publish command requires a `prepublishOnly` script to be defined in your `pa
 
 If this script is missing, the publish command will fail immediately with a helpful error message explaining the requirement.
 
+### Link Command Options
+
+- `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories for package discovery
+  - **Format**: `'{"@scope": "path", "@another": "path"}'`
+  - **Example**: `'{"@company": "../", "@myorg": "../../packages/"}'`
+  - **Required**: At least one scope mapping must be provided
+- `--workspace-file <workspaceFile>`: Path to the workspace file to create/update (default: 'pnpm-workspace.yaml')
+  - Can specify custom workspace file names or paths
+  - Useful if your project uses non-standard workspace file naming
+
+#### Scope Root Configuration
+
+The `--scope-roots` option accepts a JSON object mapping package scopes to their corresponding root directories. Each entry tells the link command where to look for packages with that scope.
+
+**Configuration Examples:**
+
+```bash
+# Single scope
+kodrdriv link --scope-roots '{"@company": "../"}'
+
+# Multiple scopes with different paths
+kodrdriv link --scope-roots '{"@company": "../", "@tools": "../../tools/", "@shared": "../shared-packages/"}'
+
+# Absolute paths (not recommended for portability)
+kodrdriv link --scope-roots '{"@company": "/Users/dev/projects/company-packages/"}'
+```
+
+**Path Resolution:**
+- Relative paths are resolved from the current working directory
+- Use `../` to scan the parent directory
+- Use `../../` to scan two levels up
+- Multiple levels and subdirectories are supported: `../../company/packages/`
+
+**Package Discovery Process:**
+1. For each scope root, the command lists all subdirectories
+2. It reads each subdirectory's `package.json` to get the actual package name
+3. It matches discovered package names against your project's dependencies
+4. Matching packages are added to the workspace configuration
+
+This approach handles complex scenarios where:
+- Directory names don't match package names (e.g., `logging-lib` directory contains `@company/logging`)
+- Packages are organized in different directory structures
+- Multiple related packages exist in the same scope root
+
 ### OpenAI Configuration
 
 - `--openai-api-key <key>`: OpenAI API key (can also be set via OPENAI_API_KEY environment variable)
@@ -318,6 +426,24 @@ kodrdriv publish --merge-method merge
 kodrdriv publish --merge-method rebase
 ```
 
+Link local packages for development:
+```bash
+# Basic linking with single scope
+kodrdriv link --scope-roots '{"@company": "../"}'
+
+# Multiple scopes with different root directories
+kodrdriv link --scope-roots '{"@company": "../", "@tools": "../../tools/"}'
+
+# Dry run to preview changes
+kodrdriv link --scope-roots '{"@company": "../"}' --dry-run --verbose
+
+# Custom workspace file
+kodrdriv link --scope-roots '{"@company": "../"}' --workspace-file "workspace.yaml"
+
+# Real-world example: linking @company packages from company directory
+kodrdriv link --scope-roots '{"@company": "../../company/"}'
+```
+
 ### Configuration Directory
 
 KodrDriv uses a configuration directory to store custom settings, instructions, and other configuration files. You can specify a custom location using the `--config-dir` option:
@@ -367,6 +493,14 @@ Example configuration file (`.kodrdriv/config.json`):
     "from": "main",
     "to": "HEAD",
     "messageLimit": 10
+  },
+  "link": {
+    "scopeRoots": {
+      "@company": "../",
+      "@myorg": "../../org-packages/",
+      "@tools": "../shared-tools/"
+    },
+    "workspaceFile": "pnpm-workspace.yaml"
   },
   "excludedPatterns": [
     "node_modules",

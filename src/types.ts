@@ -27,6 +27,11 @@ export const ConfigSchema = z.object({
         dependencyUpdatePatterns: z.array(z.string()).optional(),
         requiredEnvVars: z.array(z.string()).optional(),
     }).optional(),
+    link: z.object({
+        scopeRoots: z.record(z.string(), z.string()).optional(),
+        workspaceFile: z.string().optional(),
+        dryRun: z.boolean().optional(),
+    }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
 

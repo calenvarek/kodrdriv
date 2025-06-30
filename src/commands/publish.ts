@@ -31,6 +31,7 @@ const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
                     }
                 }
             }
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (error) {
             // If we can't read .npmrc, that's okay - just continue
         }
@@ -64,6 +65,7 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     // Check if we're in a git repository
     try {
         await run('git rev-parse --git-dir');
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
         throw new Error('Not in a git repository. Please run this command from within a git repository.');
     }
@@ -75,6 +77,7 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
         if (stdout.trim()) {
             throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish.');
         }
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
         throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
     }
@@ -98,6 +101,7 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     try {
         const packageJsonContents = await storage.readFile(packageJsonPath, 'utf-8');
         packageJson = JSON.parse(packageJsonContents);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error) {
         throw new Error('Failed to parse package.json. Please ensure it contains valid JSON.');
     }

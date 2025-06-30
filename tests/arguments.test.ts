@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, validateAndReadInstructions } from '../src/arguments';
+import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, validateAndReadInstructions, getCliConfig, validateAndProcessSecureOptions, validateAndProcessOptions, validateConfigDir, configure } from '../src/arguments';
 import type { Cardigantime } from '@theunwalked/cardigantime';
 import { ALLOWED_COMMANDS, KODRDRIV_DEFAULTS, DEFAULT_CHARACTER_ENCODING } from '../src/constants';
 import { CommandConfig, Config, SecureConfig } from '../src/types';
@@ -9,7 +9,14 @@ import { ZodError } from 'zod';
 
 // Mock dependencies
 vi.mock('commander');
-vi.mock('path'); // Mock path if needed for specific tests
+vi.mock('path', () => ({
+    default: {
+        isAbsolute: vi.fn((p: string) => p.startsWith('/')),
+        resolve: vi.fn((cwd: string, p: string) => p.startsWith('/') ? p : `/absolute/${p}`),
+    },
+    isAbsolute: vi.fn((p: string) => p.startsWith('/')),
+    resolve: vi.fn((cwd: string, p: string) => p.startsWith('/') ? p : `/absolute/${p}`),
+}));
 
 // Mock process.env
 const originalEnv = process.env;
@@ -19,6 +26,7 @@ const mockLogger = {
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
+    verbose: vi.fn(),
 };
 
 // Define mockStorage structure at the top level
@@ -57,6 +65,7 @@ beforeEach(async () => { // Make top-level beforeEach async
     mockLogger.warn.mockClear();
     mockLogger.error.mockClear();
     mockLogger.debug.mockClear();
+    mockLogger.verbose.mockClear();
 
     // Dynamically import dependencies needed *before* tests run, if any
     // For example, if the module under test imports logging at the top level.
@@ -151,103 +160,170 @@ describe('Argument Parsing and Configuration', () => {
     // Add more describe blocks for other functions like configure, getCliConfig, etc.
     // Example for configure (will need more mocking)
     describe('configure', () => {
-        // Use the imported type
         let mockCardigantimeInstance: Cardigantime<any>;
-        // Hold the mocked module itself if needed
-        let MockedCardigantime: any; // Keep this as any for the dynamically imported module
+        let mockProgram: Command;
+        let mockCommands: Record<string, any>;
 
-        beforeEach(async () => { // Make beforeEach async
-            // Define the mock instance structure first
+        beforeEach(() => {
+            // Reset environment
+            process.env = { ...originalEnv };
+            process.env.OPENAI_API_KEY = 'test-api-key';
+
+            // Create a proper command chain mock that matches Commander.js behavior
+            const createMockCommand = (commandName: string) => {
+                const mockCmd = {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                };
+                // Make sure the mock command returns itself for chaining
+                mockCmd.option.mockReturnValue(mockCmd);
+                mockCmd.description.mockReturnValue(mockCmd);
+                return mockCmd;
+            };
+
+            // Create command mocks for each command type
+            mockCommands = {
+                commit: createMockCommand('commit'),
+                release: createMockCommand('release'),
+                publish: createMockCommand('publish'),
+                link: createMockCommand('link'),
+            };
+
+            // Mock program with proper chaining
+            mockProgram = {
+                name: vi.fn().mockReturnThis(),
+                summary: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                version: vi.fn().mockReturnThis(),
+                command: vi.fn().mockImplementation((cmd: string) => {
+                    return mockCommands[cmd as keyof typeof mockCommands] || mockCommands.commit;
+                }),
+                option: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['commit'], // Default to commit command
+            } as unknown as Command;
+
+            // Mock cardigantime instance
             mockCardigantimeInstance = {
-                // Add explicit types to vi.fn()
-                configure: vi.fn<() => Promise<Command>>().mockResolvedValue(new Command()),
-                // Assuming read returns Promise<Partial<Config>> or similar - adjust if needed
-                read: vi.fn<() => Promise<Partial<Config>>>().mockResolvedValue({}),
-                // Assuming validate returns Promise<void>
-                validate: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-                // Add any other methods/properties expected on the instance
-            } as unknown as Cardigantime<any>; // Keep type assertion here for simplicity if needed
+                configure: vi.fn().mockResolvedValue(mockProgram),
+                read: vi.fn().mockResolvedValue({}),
+                validate: vi.fn().mockResolvedValue(undefined),
+            } as unknown as Cardigantime<any>;
 
-            // Use unstable_mockModule
-            vi.mock('@theunwalked/cardigantime', () => ({
-                // Assuming Cardigantime is the class/factory we need to mock
-                // Adjust if it's a default export or has a different name
-                Cardigantime: vi.fn().mockImplementation(() => mockCardigantimeInstance),
-                // Add any other exports from the module if they are used and need mocking
-                __esModule: true, // Indicate it's an ES module
-            }));
+            // Mock Command constructor
+            vi.mocked(Command).mockImplementation(() => mockProgram);
 
-            // Dynamically import the mocked module *after* mocking it
-            MockedCardigantime = await import('@theunwalked/cardigantime');
-
-            // Reset mocks for cardigantime before each test (already done by vi.fn() above)
-            // mockCardigantimeInstance = { ... } // Definition moved up
-
-            // Removed: vi.spyOn(Cardigantime, 'Cardigantime').mockImplementation(() => mockCardigantimeInstance);
-
-            // Mock other dependencies used within configure
-            // You'll likely need to mock getCliConfig, validateAndProcessOptions, etc.
+            // Set up default storage mocks
+            mockStorage.isDirectoryReadable.mockResolvedValue(true);
+            mockStorage.isFileReadable.mockResolvedValue(false);
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(true);
         });
 
         it('should integrate with cardigantime and merge configurations correctly', async () => {
-            // Arrange: Set up mocks for dependencies called by configure
-            // Mock getCliConfig to return controlled CLI args and command config
-            const mockCliArgs: Input = { dryRun: true, configDir: 'cli/config' };
-            const mockCommandConfig: CommandConfig = { commandName: 'commit' };
-            // We need to import and mock getCliConfig, or mock the module containing it
-            // For now, let's assume we can mock its behavior within arguments.ts if it's not exported
-            // (If it *is* exported, we can mock it directly)
-            // A common pattern is to mock the entire module and provide specific implementations
-
-            // Mock file values returned by cardigantime.read
-            const mockFileValues: Partial<Config> = { model: 'gpt-from-file', configDirectory: 'file/config' };
-
-            // @ts-ignore
-            (mockCardigantimeInstance.read as vi.Mock).mockResolvedValue(mockFileValues);
-
-            // Mock the result of validateAndProcessOptions
-            const mockProcessedConfig: Config = {
-                ...KODRDRIV_DEFAULTS, // Start with defaults
-                dryRun: true, // From CLI
-                model: 'gpt-from-file', // From file
-                configDirectory: 'cli/config', // From CLI (overrides file)
-                // ... other merged and validated properties
-                // Make sure the structure matches the final Config type
-                instructions: 'default instructions content', // Assume validated
-                contextDirectories: [], // Assume validated
-                commit: { cached: false, sendit: false }, // Defaults
-                release: { from: undefined, to: undefined } // Defaults
+            // Set up file config values
+            const fileConfig: Partial<Config> = {
+                model: 'gpt-4-from-file',
+                verbose: true,
+                contextDirectories: ['src'],
             };
-            // We need to mock validateAndProcessOptions
-            // Similar to getCliConfig, mock the module or the function directly if exported
 
-            // Mock validateAndProcessSecureOptions
-            const mockSecureConfig: SecureConfig = { openaiApiKey: 'mock-key-from-env' };
-            process.env.OPENAI_API_KEY = 'mock-key-from-env';
-            // Mock validateAndProcessSecureOptions
+            mockCardigantimeInstance.read = vi.fn().mockResolvedValue(fileConfig);
 
+            // Mock the commit command options
+            mockCommands.commit.opts.mockReturnValue({ cached: true, sendit: false });
 
-            // *** How to mock non-exported functions like getCliConfig? ***
-            // 1. Export them for testing (simplest).
-            // 2. Use vi.spyOn on the module itself if possible (can be tricky).
-            // 3. Refactor code so logic is in testable, exported functions.
-            // Let's assume for now we'd need to refactor or export them.
+            const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
 
-            // Act: Call configure
-            // Need to pass the mock instance correctly. The configure function in arguments.ts
-            // takes an instance as an argument.
-            //  const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
+            // Verify cardigantime integration
+            expect(mockCardigantimeInstance.configure).toHaveBeenCalledWith(mockProgram);
+            expect(mockCardigantimeInstance.read).toHaveBeenCalled();
+            expect(mockCardigantimeInstance.validate).toHaveBeenCalledWith(fileConfig);
 
-            // Assert: Check the results
-            // expect(mockCardigantimeInstance.configure).toHaveBeenCalled();
-            // expect(mockCardigantimeInstance.read).toHaveBeenCalledWith(mockCliArgs); // Check if read is called with CLI args
-            // expect(mockCardigantimeInstance.validate).toHaveBeenCalledWith(mockFileValues);
-            // expect(config).toEqual(mockProcessedConfig); // Check merged config
-            // expect(secureConfig).toEqual(mockSecureConfig); // Check secure config
-            // expect(commandConfig).toEqual(mockCommandConfig); // Check command config
+            // Verify merged configuration
+            expect(config.model).toBe('gpt-4-from-file'); // From file
+            expect(config.verbose).toBe(true); // From file
+            expect(config.dryRun).toBe(KODRDRIV_DEFAULTS.dryRun); // From defaults
 
-            // This test is incomplete without mocking the internal functions
-            expect(true).toBe(true); // Placeholder assertion
+            // Verify secure config
+            expect(secureConfig.openaiApiKey).toBe('test-api-key');
+
+            // Verify command config
+            expect(commandConfig.commandName).toBe('commit');
+        });
+
+        it('should handle CLI overrides of file config', async () => {
+            // File config
+            const fileConfig: Partial<Config> = {
+                model: 'gpt-4-from-file',
+                verbose: false,
+                dryRun: false,
+            };
+
+            mockCardigantimeInstance.read = vi.fn().mockResolvedValue(fileConfig);
+
+            // CLI args override
+            (mockProgram.opts as Mock).mockReturnValue({
+                model: 'gpt-4-from-cli',
+                verbose: true,
+            });
+
+            // Mock the release command options
+            mockCommands.release.opts.mockReturnValue({ from: 'main', to: 'develop' });
+            mockProgram.args = ['release'];
+
+            const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
+
+            // CLI should override file config
+            expect(config.model).toBe('gpt-4-from-cli'); // CLI override
+            expect(config.verbose).toBe(true); // CLI override
+            expect(config.dryRun).toBe(false); // From file (no CLI override)
+
+            expect(commandConfig.commandName).toBe('release');
+        });
+
+        it('should handle configuration validation errors', async () => {
+            const validationError = new Error('Invalid configuration');
+            mockCardigantimeInstance.validate = vi.fn().mockRejectedValue(validationError);
+
+            await expect(configure(mockCardigantimeInstance)).rejects.toThrow('Invalid configuration');
+        });
+
+        it('should handle missing API key', async () => {
+            delete process.env.OPENAI_API_KEY;
+
+            await expect(configure(mockCardigantimeInstance)).rejects.toThrow('OpenAI API key is required');
+        });
+
+        it('should handle complex configuration with all command types', async () => {
+            const complexFileConfig: Partial<Config> = {
+                model: 'gpt-4-turbo',
+                contextDirectories: ['src', 'docs'],
+                instructions: 'Complex instructions',
+                commit: { cached: true },
+                release: { from: 'main' },
+                publish: { mergeMethod: 'squash' },
+                link: { workspaceFile: 'workspace.yaml' },
+            };
+
+            mockCardigantimeInstance.read = vi.fn().mockResolvedValue(complexFileConfig);
+
+            // Mock link command options
+            mockCommands.link.opts.mockReturnValue({
+                scopeRoots: '{"@test": "../test"}',
+                workspaceFile: 'custom.yaml'
+            });
+            mockProgram.args = ['link'];
+
+            const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
+
+            expect(config.model).toBe('gpt-4-turbo');
+            expect(config.contextDirectories).toEqual(['src', 'docs']); // From file config, validated as readable
+            expect(config.link?.workspaceFile).toBe('custom.yaml'); // CLI overrides file
+            expect(commandConfig.commandName).toBe('link');
         });
     });
 
@@ -373,10 +449,49 @@ describe('Argument Parsing and Configuration', () => {
                 excludedPatterns: ['*.log', 'node_modules'],
                 context: 'test context',
                 messageLimit: 20,
+                mergeMethod: 'squash' as const,
+                scopeRoots: '{"@test": "../"}',
+                workspaceFile: 'workspace.yaml',
             };
 
             const result = InputSchema.parse(validInput);
             expect(result).toEqual(validInput);
+        });
+
+        it('should validate mergeMethod enum values', () => {
+            const validMergeMethods = ['merge', 'squash', 'rebase'] as const;
+
+            validMergeMethods.forEach(method => {
+                const input = { mergeMethod: method };
+                const result = InputSchema.parse(input);
+                expect(result.mergeMethod).toBe(method);
+            });
+        });
+
+        it('should reject invalid mergeMethod values', () => {
+            const invalidInput = {
+                mergeMethod: 'invalid-method',
+            };
+
+            expect(() => InputSchema.parse(invalidInput)).toThrow(ZodError);
+        });
+
+        it('should validate scopeRoots as string (JSON will be parsed later)', () => {
+            const input = {
+                scopeRoots: '{"@test": "../test", "@lib": "../lib"}',
+            };
+
+            const result = InputSchema.parse(input);
+            expect(result.scopeRoots).toBe('{"@test": "../test", "@lib": "../lib"}');
+        });
+
+        it('should validate workspaceFile as string', () => {
+            const input = {
+                workspaceFile: 'custom-workspace.yaml',
+            };
+
+            const result = InputSchema.parse(input);
+            expect(result.workspaceFile).toBe('custom-workspace.yaml');
         });
 
         it('should validate input with minimal fields', () => {
@@ -578,6 +693,52 @@ describe('Argument Parsing and Configuration', () => {
 
                 expect(result.excludedPatterns).toEqual(['*.test.js', 'coverage/*']);
             });
+
+            it('should handle publish command options', () => {
+                const cliArgs: Input = {
+                    mergeMethod: 'squash',
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result.publish).toEqual({
+                    mergeMethod: 'squash',
+                });
+            });
+
+            it('should handle link command options with valid JSON scopeRoots', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{"@test": "../test", "@lib": "../lib"}',
+                    workspaceFile: 'custom-workspace.yaml',
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result.link).toEqual({
+                    scopeRoots: { "@test": "../test", "@lib": "../lib" },
+                    workspaceFile: 'custom-workspace.yaml',
+                });
+            });
+
+            it('should throw error for invalid JSON in scopeRoots', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{"invalid": json}',
+                };
+
+                expect(() => transformCliArgs(cliArgs)).toThrow('Invalid JSON for scope-roots: {"invalid": json}');
+            });
+
+            it('should handle only workspaceFile without scopeRoots', () => {
+                const cliArgs: Input = {
+                    workspaceFile: 'pnpm-workspace.yaml',
+                };
+
+                const result = transformCliArgs(cliArgs);
+
+                expect(result.link).toEqual({
+                    workspaceFile: 'pnpm-workspace.yaml',
+                });
+            });
         });
 
         describe('validateCommand edge cases', () => {
@@ -626,8 +787,342 @@ describe('Argument Parsing and Configuration', () => {
         });
     });
 
+    describe('getCliConfig', () => {
+        let mockProgram: Command;
+        let mockCommands: Record<string, any>;
+
+        beforeEach(() => {
+            // Create mock command objects for each command type
+            mockCommands = {
+                commit: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                },
+                release: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                },
+                publish: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                },
+                link: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                },
+            };
+
+            // Make sure each command's option method returns itself for chaining
+            Object.values(mockCommands).forEach(cmd => {
+                cmd.option.mockReturnValue(cmd);
+                cmd.description.mockReturnValue(cmd);
+            });
+
+            mockProgram = {
+                command: vi.fn().mockImplementation((cmdName: string) => {
+                    return mockCommands[cmdName] || mockCommands.commit;
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: [],
+            } as unknown as Command;
+        });
+
+        it('should return default command when no args provided', () => {
+            mockProgram.args = [];
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit'); // DEFAULT_COMMAND
+            expect(cliArgs).toEqual({});
+        });
+
+        it('should handle commit command with options', () => {
+            mockProgram.args = ['commit'];
+
+            // Mock the commit command options
+            mockCommands.commit.opts.mockReturnValue({ cached: true, add: false });
+
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+        });
+
+        it('should handle release command', () => {
+            mockProgram.args = ['release'];
+
+            // Mock the release command options
+            mockCommands.release.opts.mockReturnValue({ from: 'main', to: 'develop' });
+
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('release');
+        });
+
+        it('should handle publish command', () => {
+            mockProgram.args = ['publish'];
+
+            // Mock the publish command options
+            mockCommands.publish.opts.mockReturnValue({ mergeMethod: 'squash' });
+
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('publish');
+        });
+
+        it('should handle link command', () => {
+            mockProgram.args = ['link'];
+
+            // Mock the link command options
+            mockCommands.link.opts.mockReturnValue({ scopeRoots: '{"@test": "../"}', workspaceFile: 'workspace.yaml' });
+
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('link');
+        });
+
+        it('should throw error for invalid command', () => {
+            mockProgram.args = ['invalid'];
+
+            expect(() => getCliConfig(mockProgram)).toThrow('Invalid command: invalid');
+        });
+    });
+
+    describe('validateAndProcessSecureOptions', () => {
+        beforeEach(() => {
+            process.env = { ...originalEnv };
+        });
+
+        it('should return SecureConfig with API key from environment', async () => {
+            process.env.OPENAI_API_KEY = 'test-api-key';
+
+            const result = await validateAndProcessSecureOptions();
+
+            expect(result).toEqual({
+                openaiApiKey: 'test-api-key',
+            });
+        });
+
+        it('should throw error when API key is missing', async () => {
+            delete process.env.OPENAI_API_KEY;
+
+            await expect(validateAndProcessSecureOptions()).rejects.toThrow(
+                'OpenAI API key is required, set OPENAI_API_KEY environment variable or provide --openai-api-key'
+            );
+        });
+
+        it('should handle empty string API key as missing', async () => {
+            process.env.OPENAI_API_KEY = '';
+
+            await expect(validateAndProcessSecureOptions()).rejects.toThrow(
+                'OpenAI API key is required'
+            );
+        });
+    });
+
+    describe('validateAndProcessOptions', () => {
+        beforeEach(() => {
+            // Reset all storage mocks
+            Object.values(mockStorage).forEach(mock => {
+                if (typeof mock === 'function') {
+                    mock.mockReset();
+                }
+            });
+
+            // Set up default mocks
+            mockStorage.isDirectoryReadable.mockResolvedValue(true);
+            mockStorage.isFileReadable.mockResolvedValue(false); // Default to treating instructions as content
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(true);
+        });
+
+        it('should process options with all defaults', async () => {
+            const options: Partial<Config> = {};
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.dryRun).toBe(KODRDRIV_DEFAULTS.dryRun);
+            expect(result.verbose).toBe(KODRDRIV_DEFAULTS.verbose);
+            expect(result.debug).toBe(KODRDRIV_DEFAULTS.debug);
+            expect(result.model).toBe(KODRDRIV_DEFAULTS.model);
+            expect(result.contextDirectories).toEqual([]);
+            expect(result.instructions).toBe(KODRDRIV_DEFAULTS.instructions);
+        });
+
+        it('should merge provided options with defaults', async () => {
+            const options: Partial<Config> = {
+                dryRun: true,
+                verbose: true,
+                model: 'gpt-4',
+                contextDirectories: ['src', 'tests'],
+                commit: {
+                    cached: true,
+                    sendit: false,
+                },
+                release: {
+                    from: 'main',
+                    to: 'develop',
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.dryRun).toBe(true);
+            expect(result.verbose).toBe(true);
+            expect(result.model).toBe('gpt-4');
+            expect(result.commit?.cached).toBe(true);
+            expect(result.commit?.sendit).toBe(false);
+            expect(result.release?.from).toBe('main');
+            expect(result.release?.to).toBe('develop');
+        });
+
+        it('should handle partial command configurations', async () => {
+            const options: Partial<Config> = {
+                commit: {
+                    cached: true,
+                    // other fields should use defaults
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.commit?.cached).toBe(true);
+            expect(result.commit?.add).toBe(KODRDRIV_DEFAULTS.commit.add);
+            expect(result.commit?.sendit).toBe(KODRDRIV_DEFAULTS.commit.sendit);
+        });
+
+        it('should process instructions from file content', async () => {
+            const instructionsContent = '# Custom instructions\nThis is custom content.';
+            mockStorage.isFileReadable.mockResolvedValue(true);
+            mockStorage.readFile.mockResolvedValue(instructionsContent);
+
+            const options: Partial<Config> = {
+                instructions: '/path/to/instructions.md',
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.instructions).toBe(instructionsContent);
+            expect(mockStorage.readFile).toHaveBeenCalledWith('/path/to/instructions.md', DEFAULT_CHARACTER_ENCODING);
+        });
+
+        it('should handle link command options correctly', async () => {
+            const options: Partial<Config> = {
+                link: {
+                    scopeRoots: { "@test": "../test" },
+                    workspaceFile: 'custom.yaml',
+                    dryRun: true,
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.link?.scopeRoots).toEqual({ "@test": "../test" });
+            expect(result.link?.workspaceFile).toBe('custom.yaml');
+            expect(result.link?.dryRun).toBe(true);
+        });
+
+        it('should handle publish command options correctly', async () => {
+            const options: Partial<Config> = {
+                publish: {
+                    mergeMethod: 'rebase',
+                    dependencyUpdatePatterns: ['package*.json'],
+                    requiredEnvVars: ['CUSTOM_VAR'],
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.publish?.mergeMethod).toBe('rebase');
+            expect(result.publish?.dependencyUpdatePatterns).toEqual(['package*.json']);
+            expect(result.publish?.requiredEnvVars).toEqual(['CUSTOM_VAR']);
+        });
+    });
+
+    describe('validateConfigDir', () => {
+        beforeEach(() => {
+            Object.values(mockStorage).forEach(mock => {
+                if (typeof mock === 'function') {
+                    mock.mockReset();
+                }
+            });
+        });
+
+        it('should return absolute path when directory exists and is writable', async () => {
+            const configDir = './config';
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(true);
+
+            const result = await validateConfigDir(configDir);
+
+            expect(result).toMatch(/config$/);
+            expect(mockStorage.exists).toHaveBeenCalled();
+            expect(mockStorage.isDirectory).toHaveBeenCalled();
+            expect(mockStorage.isDirectoryWritable).toHaveBeenCalled();
+        });
+
+        it('should create directory when it does not exist', async () => {
+            const configDir = './new-config';
+            mockStorage.exists.mockResolvedValue(false);
+            mockStorage.createDirectory.mockResolvedValue(undefined);
+
+            const result = await validateConfigDir(configDir);
+
+            expect(result).toMatch(/new-config$/);
+            expect(mockStorage.createDirectory).toHaveBeenCalled();
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Creating config directory'));
+        });
+
+        it('should throw error when path exists but is not a directory', async () => {
+            const configDir = './not-a-directory';
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(false);
+
+            await expect(validateConfigDir(configDir)).rejects.toThrow('Config directory is not a directory');
+        });
+
+        it('should throw error when directory is not writable', async () => {
+            const configDir = './readonly-config';
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(false);
+
+            await expect(validateConfigDir(configDir)).rejects.toThrow('Config directory is not writable');
+        });
+
+        it('should handle storage errors gracefully', async () => {
+            const configDir = './error-config';
+            const storageError = new Error('Storage system failure');
+            mockStorage.exists.mockRejectedValue(storageError);
+
+            await expect(validateConfigDir(configDir)).rejects.toThrow('Failed to validate or create config directory');
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to validate or create config directory'),
+                storageError
+            );
+        });
+
+        it('should handle absolute paths correctly', async () => {
+            const absolutePath = '/absolute/config/path';
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(true);
+
+            const result = await validateConfigDir(absolutePath);
+
+            expect(result).toBe(absolutePath);
+        });
+    });
+
     describe('integration scenarios', () => {
-        it('should handle complete configuration transformation', () => {
+        it('should handle complete configuration transformation with all command types', () => {
             const complexCliArgs: Input = {
                 dryRun: true,
                 verbose: true,
@@ -645,6 +1140,9 @@ describe('Argument Parsing and Configuration', () => {
                 excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
                 context: 'Major release preparation',
                 messageLimit: 50,
+                mergeMethod: 'rebase',
+                scopeRoots: '{"@core": "../core", "@utils": "../utils"}',
+                workspaceFile: 'custom-workspace.yaml',
             };
 
             const expectedConfig: Partial<Config> = {
@@ -668,6 +1166,13 @@ describe('Argument Parsing and Configuration', () => {
                     to: 'release/v2.0',
                     context: 'Major release preparation',
                     messageLimit: 50,
+                },
+                publish: {
+                    mergeMethod: 'rebase',
+                },
+                link: {
+                    scopeRoots: { "@core": "../core", "@utils": "../utils" },
+                    workspaceFile: 'custom-workspace.yaml',
                 },
                 excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
             };

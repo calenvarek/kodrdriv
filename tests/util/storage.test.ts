@@ -25,6 +25,9 @@ const mockMkdir = vi.fn<() => Promise<void>>();
 const mockReadFile = vi.fn<() => Promise<string>>();
 const mockWriteFile = vi.fn<() => Promise<void>>();
 const mockLstatSync = vi.fn<() => Promise<any>>();
+const mockCreateReadStream = vi.fn<() => any>();
+const mockRename = vi.fn<() => Promise<void>>();
+const mockReaddir = vi.fn<() => Promise<string[]>>();
 
 vi.mock('fs', () => ({
     __esModule: true,
@@ -34,17 +37,33 @@ vi.mock('fs', () => ({
         mkdir: mockMkdir,
         readFile: mockReadFile,
         writeFile: mockWriteFile,
-        lstatSync: mockLstatSync
+        lstatSync: mockLstatSync,
+        rename: mockRename,
+        readdir: mockReaddir
     },
     constants: {
         R_OK: 4,
         W_OK: 2
-    }
+    },
+    createReadStream: mockCreateReadStream
 }));
 
 vi.mock('glob', () => ({
     __esModule: true,
     glob: mockGlob
+}));
+
+// Mock crypto module
+const mockCrypto = {
+    createHash: vi.fn().mockReturnValue({
+        update: vi.fn().mockReturnThis(),
+        digest: vi.fn().mockReturnValue('0123456789abcdef0123456789abcdef01234567')
+    })
+};
+
+vi.mock('crypto', () => ({
+    __esModule: true,
+    default: mockCrypto
 }));
 
 // Import the storage module after mocking fs
@@ -369,6 +388,167 @@ describe('Storage Utility', () => {
             await storage.forEachFileIn('/test/dir', async (file: string) => {
                 expect(file).toMatch(/^\/test\/dir\/file[12]\.txt$/)
             });
+        });
+
+        it('should use custom pattern when provided', async () => {
+            // @ts-ignore
+            mockGlob.mockResolvedValueOnce(['file1.js', 'file2.js']);
+
+            const callback = vi.fn();
+            await storage.forEachFileIn('/test/dir', callback, { pattern: '*.js' });
+
+            expect(mockGlob).toHaveBeenCalledWith('*.js', { cwd: '/test/dir', nodir: true });
+            expect(callback).toHaveBeenCalledTimes(2);
+        });
+
+        it('should handle glob errors', async () => {
+            // @ts-ignore
+            mockGlob.mockRejectedValueOnce(new Error('Glob error'));
+
+            await expect(
+                storage.forEachFileIn('/test/dir', async () => { })
+            ).rejects.toThrow('Failed to glob pattern *.* in /test/dir: Glob error');
+        });
+
+        it('should handle array patterns', async () => {
+            // @ts-ignore
+            mockGlob.mockResolvedValueOnce(['file1.txt', 'file2.js']);
+
+            const callback = vi.fn();
+            await storage.forEachFileIn('/test/dir', callback, { pattern: ['*.txt', '*.js'] });
+
+            expect(mockGlob).toHaveBeenCalledWith(['*.txt', '*.js'], { cwd: '/test/dir', nodir: true });
+        });
+    });
+
+    describe('isDirectoryReadable', () => {
+        it('should return true if path exists, is a directory, and is readable', async () => {
+            // Setup mocks for the chain of function calls
+            mockStat.mockResolvedValueOnce({ isFile: () => false, isDirectory: () => false }); // exists
+            mockStat.mockResolvedValueOnce({ // isDirectory
+                isDirectory: () => true,
+                isFile: () => false
+            });
+            mockAccess.mockResolvedValueOnce(undefined); // isReadable
+
+            const result = await storage.isDirectoryReadable('/test/dir');
+
+            expect(result).toBe(true);
+        });
+
+        it('should return false if path does not exist', async () => {
+            mockStat.mockRejectedValueOnce(new Error('Path does not exist'));
+
+            const result = await storage.isDirectoryReadable('/test/dir');
+
+            expect(result).toBe(false);
+        });
+
+        it('should return false if path is not a directory', async () => {
+            mockStat.mockResolvedValueOnce({ isFile: () => false, isDirectory: () => false }); // exists
+            mockStat.mockResolvedValueOnce({ // isDirectory
+                isDirectory: () => false,
+                isFile: () => true
+            });
+
+            const result = await storage.isDirectoryReadable('/test/file.txt');
+
+            expect(result).toBe(false);
+        });
+
+        it('should return false if path is not readable', async () => {
+            mockStat.mockResolvedValueOnce({ isFile: () => false, isDirectory: () => false }); // exists
+            mockStat.mockResolvedValueOnce({ // isDirectory
+                isDirectory: () => true,
+                isFile: () => false
+            });
+            mockAccess.mockRejectedValueOnce(new Error('Not readable')); // isReadable
+
+            const result = await storage.isDirectoryReadable('/test/dir');
+
+            expect(result).toBe(false);
+        });
+    });
+
+    describe('readStream', () => {
+        it('should create a read stream', async () => {
+            const mockStream = { pipe: vi.fn(), on: vi.fn() };
+            mockCreateReadStream.mockReturnValueOnce(mockStream);
+
+            const result = await storage.readStream('/test/file.txt');
+
+            expect(result).toBe(mockStream);
+            expect(mockCreateReadStream).toHaveBeenCalledWith('/test/file.txt');
+        });
+    });
+
+    describe('rename', () => {
+        it('should rename file successfully', async () => {
+            mockRename.mockResolvedValueOnce(undefined);
+
+            await storage.rename('/old/path.txt', '/new/path.txt');
+
+            expect(mockRename).toHaveBeenCalledWith('/old/path.txt', '/new/path.txt');
+        });
+
+        it('should handle rename errors', async () => {
+            mockRename.mockRejectedValueOnce(new Error('Rename failed'));
+
+            await expect(storage.rename('/old/path.txt', '/new/path.txt')).rejects.toThrow('Rename failed');
+        });
+    });
+
+    describe('hashFile', () => {
+        it('should hash file content', async () => {
+            mockReadFile.mockResolvedValueOnce('file content');
+
+            const result = await storage.hashFile('/test/file.txt', 8);
+
+            expect(result).toBe('01234567');
+            expect(mockReadFile).toHaveBeenCalledWith('/test/file.txt', { encoding: 'utf8' });
+            expect(mockCrypto.createHash).toHaveBeenCalledWith('sha256');
+        });
+
+        it('should handle different hash lengths', async () => {
+            mockReadFile.mockResolvedValueOnce('different content');
+
+            const result = await storage.hashFile('/test/file.txt', 16);
+
+            expect(result).toBe('0123456789abcdef');
+            expect(mockReadFile).toHaveBeenCalledWith('/test/file.txt', { encoding: 'utf8' });
+        });
+
+        it('should handle read file errors', async () => {
+            mockReadFile.mockRejectedValueOnce(new Error('File read error'));
+
+            await expect(storage.hashFile('/test/file.txt', 8)).rejects.toThrow('File read error');
+        });
+    });
+
+    describe('listFiles', () => {
+        it('should list files in directory', async () => {
+            const mockFiles = ['file1.txt', 'file2.txt', 'subdir'];
+            mockReaddir.mockResolvedValueOnce(mockFiles);
+
+            const result = await storage.listFiles('/test/dir');
+
+            expect(result).toEqual(mockFiles);
+            expect(mockReaddir).toHaveBeenCalledWith('/test/dir');
+        });
+
+        it('should handle empty directory', async () => {
+            mockReaddir.mockResolvedValueOnce([]);
+
+            const result = await storage.listFiles('/test/empty');
+
+            expect(result).toEqual([]);
+            expect(mockReaddir).toHaveBeenCalledWith('/test/empty');
+        });
+
+        it('should handle readdir errors', async () => {
+            mockReaddir.mockRejectedValueOnce(new Error('Directory read error'));
+
+            await expect(storage.listFiles('/test/dir')).rejects.toThrow('Directory read error');
         });
     });
 });
