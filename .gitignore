@@ -6,3 +6,4 @@ node_modules
 coverage/
 pnpm-workspace.*
 RELEASE_NOTES.md
+RELEASE_TITLE.md
