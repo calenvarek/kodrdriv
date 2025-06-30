@@ -45,12 +45,14 @@ vi.mock('../../src/util/child', () => ({
 
 // Mock the logger
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn(() => ({
+    getLogger: vi.fn().mockReturnValue({
         info: vi.fn(),
-        debug: vi.fn(),
         warn: vi.fn(),
-        error: vi.fn()
-    }))
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    })
 }));
 
 describe('link command', () => {

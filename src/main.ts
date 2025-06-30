@@ -18,6 +18,7 @@ export async function main() {
         defaults: {
             configDirectory: DEFAULT_CONFIG_DIR, // Default directory for config file
         },
+        features: ['config', 'hierarchical'],
         configShape: ConfigSchema.shape as any, // Cast to any to avoid TypeScript recursion issues
         logger: getLogger(),           // Optional: Pass logger instance
     });
@@ -34,6 +35,7 @@ export async function main() {
     }
 
     const logger = getLogger();
+    cardigantime.setLogger(logger);
 
     try {
         // Get the command from Commander

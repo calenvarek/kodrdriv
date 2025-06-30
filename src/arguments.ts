@@ -111,11 +111,11 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
 
     // Get CLI arguments using the new function
     const [finalCliArgs, commandConfig]: [Input, CommandConfig] = getCliConfig(program);
-    logger.debug('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
+    logger.silly('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
 
     // Transform the flat CLI args using the new function
     const transformedCliArgs: Partial<Config> = transformCliArgs(finalCliArgs);
-    logger.debug('Transformed CLI Args for merging: %s', JSON.stringify(transformedCliArgs, null, 2));
+    logger.silly('Transformed CLI Args for merging: %s', JSON.stringify(transformedCliArgs, null, 2));
 
     // Get values from config file
     // Temporary workaround: Read config file manually due to cardigantime parsing issue
@@ -156,7 +156,23 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     // Specific validation and processing after merge
     const config: Config = await validateAndProcessOptions(partialConfig);
 
-    logger.verbose('Final configuration: %s', JSON.stringify(config, null, 2));
+    // Log effective configuration summary at verbose level
+    logger.verbose('Configuration complete. Effective settings:');
+    logger.verbose(`  Command: ${commandConfig.commandName}`);
+    logger.verbose(`  Model: ${config.model}`);
+    logger.verbose(`  Dry run: ${config.dryRun}`);
+    logger.verbose(`  Debug: ${config.debug}`);
+    logger.verbose(`  Verbose: ${config.verbose}`);
+    logger.verbose(`  Config directory: ${config.configDirectory}`);
+    logger.verbose(`  Context directories: ${config.contextDirectories?.join(', ') || 'none'}`);
+    if (config.excludedPatterns && config.excludedPatterns.length > 0) {
+        logger.verbose(`  Excluded patterns: ${config.excludedPatterns.join(', ')}`);
+    }
+    if (Object.keys(config.link?.scopeRoots || {}).length > 0) {
+        logger.verbose(`  Link scope roots: ${Object.keys(config.link!.scopeRoots!).join(', ')}`);
+    }
+
+    logger.silly('Final configuration: %s', JSON.stringify(config, null, 2));
 
     const secureConfig: SecureConfig = await validateAndProcessSecureOptions();
 
@@ -336,19 +352,26 @@ export async function validateConfigDir(configDir: string): Promise<string> {
         configDir :
         path.resolve(process.cwd(), configDir);
 
-    // Create the config directory if it doesn't exist
     try {
+        // Check if the path exists
         if (!(await storage.exists(absoluteConfigDir))) {
-            logger.info(`Creating config directory: ${absoluteConfigDir}`);
-            await storage.createDirectory(absoluteConfigDir);
-        } else if (!(await storage.isDirectory(absoluteConfigDir))) {
+            // Directory doesn't exist, warn and fall back to defaults
+            logger.warn(`Config directory does not exist: ${absoluteConfigDir}. Using default configuration.`);
+            return absoluteConfigDir; // Return the path anyway, app will use defaults
+        }
+
+        // Path exists, check if it's a directory
+        if (!(await storage.isDirectory(absoluteConfigDir))) {
             throw new Error(`Config directory is not a directory: ${absoluteConfigDir}`);
-        } else if (!(await storage.isDirectoryWritable(absoluteConfigDir))) {
+        }
+
+        // Check if it's writable
+        if (!(await storage.isDirectoryWritable(absoluteConfigDir))) {
             throw new Error(`Config directory is not writable: ${absoluteConfigDir}`);
         }
     } catch (error: any) {
-        logger.error(`Failed to validate or create config directory: ${absoluteConfigDir}`, error);
-        throw new Error(`Failed to validate or create config directory: ${absoluteConfigDir}: ${error.message}`);
+        logger.error(`Failed to validate config directory: ${absoluteConfigDir}`, error);
+        throw new Error(`Failed to validate config directory: ${absoluteConfigDir}: ${error.message}`);
     }
 
     return absoluteConfigDir;
@@ -385,11 +408,11 @@ export async function validateAndReadInstructions(instructionsPath: string): Pro
     try {
         // Assume it's a file path first
         if (await storage.isFileReadable(instructionsPath)) {
-            logger.debug(`Reading instructions from file: ${instructionsPath}`);
+            logger.verbose(`Reading instructions from file: ${instructionsPath}`);
             return storage.readFile(instructionsPath, DEFAULT_CHARACTER_ENCODING);
         } else {
             // If not a readable file, assume it might be the content itself (e.g., from config file)
-            logger.debug(`Using provided instructions string directly.`);
+            logger.verbose(`Using provided instructions string directly.`);
             return instructionsPath; // Return the string as is
         }
     } catch (error: any) {

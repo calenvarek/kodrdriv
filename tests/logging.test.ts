@@ -3,9 +3,6 @@ import { setLogLevel, getLogger, LogContext } from '../src/logging.js';
 import winston from 'winston';
 import { PROGRAM_NAME } from '../src/constants.js';
 
-// Spy on winston methods instead of mocking the entire module
-vi.spyOn(winston, 'createLogger');
-
 describe('Logging module', () => {
     beforeEach(() => {
         // Clear mock calls before each test
@@ -21,27 +18,53 @@ describe('Logging module', () => {
         expect(typeof logger.warn).toBe('function');
     });
 
-    test('setLogLevel creates a new logger with the specified level', () => {
-        const createLoggerSpy = vi.spyOn(winston, 'createLogger');
+    test('getLogger returns the same instance across multiple calls', () => {
+        const logger1 = getLogger();
+        const logger2 = getLogger();
+
+        // Should be the exact same instance
+        expect(logger1).toBe(logger2);
+    });
+
+    test('setLogLevel reconfigures the existing logger instance', () => {
+        const logger = getLogger();
+
+        // Spy on the configure method of the logger instance
+        const configureSpy = vi.spyOn(logger, 'configure');
 
         // Set log level to debug
         setLogLevel('debug');
 
-        // Verify winston.createLogger was called
-        expect(createLoggerSpy).toHaveBeenCalledTimes(1);
+        // Verify configure was called once
+        expect(configureSpy).toHaveBeenCalledTimes(1);
 
-        // Verify correct level was passed
-        const callArgs = createLoggerSpy.mock.calls[0];
+        // Verify correct configuration was passed
+        const callArgs = configureSpy.mock.calls[0];
         expect(callArgs).toBeDefined();
         if (callArgs && callArgs[0]) {
-            const callArg = callArgs[0];
-            expect(callArg.level).toBe('debug');
-            expect(callArg.defaultMeta).toEqual({ service: PROGRAM_NAME });
+            const config = callArgs[0];
+            expect(config.level).toBe('debug');
+            expect(config.defaultMeta).toEqual({ service: PROGRAM_NAME });
+            expect(config.format).toBeDefined();
+            expect(config.transports).toBeDefined();
         }
     });
 
+    test('setLogLevel maintains the same logger instance', () => {
+        const loggerBefore = getLogger();
+
+        // Change log level
+        setLogLevel('debug');
+
+        const loggerAfter = getLogger();
+
+        // Should still be the same instance
+        expect(loggerBefore).toBe(loggerAfter);
+    });
+
     test('setLogLevel with info level configures logger differently than other levels', () => {
-        const createLoggerSpy = vi.spyOn(winston, 'createLogger');
+        const logger = getLogger();
+        const configureSpy = vi.spyOn(logger, 'configure');
 
         // Set log level to info
         setLogLevel('info');
@@ -49,27 +72,24 @@ describe('Logging module', () => {
         // Set log level to debug
         setLogLevel('debug');
 
-        // Verify winston.createLogger was called twice with different configurations
-        expect(createLoggerSpy).toHaveBeenCalledTimes(2);
+        // Verify configure was called twice with different configurations
+        expect(configureSpy).toHaveBeenCalledTimes(2);
 
-        // We cannot easily test the internal format configurations,
-        // but we can verify that different log levels result in different
-        // configurations being passed to createLogger
-        const infoCalls = createLoggerSpy.mock.calls[0];
-        const debugCalls = createLoggerSpy.mock.calls[1];
+        const infoCalls = configureSpy.mock.calls[0];
+        const debugCalls = configureSpy.mock.calls[1];
 
         expect(infoCalls).toBeDefined();
         expect(debugCalls).toBeDefined();
 
         if (infoCalls && infoCalls[0] && debugCalls && debugCalls[0]) {
-            const infoCallArg = infoCalls[0];
-            const debugCallArg = debugCalls[0];
+            const infoConfig = infoCalls[0];
+            const debugConfig = debugCalls[0];
 
-            expect(infoCallArg.level).toBe('info');
-            expect(debugCallArg.level).toBe('debug');
+            expect(infoConfig.level).toBe('info');
+            expect(debugConfig.level).toBe('debug');
 
             // The format and transports should be different between the two calls
-            expect(infoCallArg.format).not.toEqual(debugCallArg.format);
+            expect(infoConfig.format).not.toEqual(debugConfig.format);
         }
     });
 
@@ -86,10 +106,6 @@ describe('Logging module', () => {
     });
 
     test('logger with context includes context in metadata', () => {
-        const createLoggerSpy = vi.spyOn(winston, 'createLogger');
-
-        // Get a fresh logger
-        setLogLevel('debug');
         const logger = getLogger();
 
         // Spy on the logger's info method
@@ -104,9 +120,10 @@ describe('Logging module', () => {
     });
 
     test('logger format functions handle meta objects correctly', () => {
+        const logger = getLogger();
+
         // Test debug level with meta data
         setLogLevel('debug');
-        let logger = getLogger();
 
         // Simply verify logging with meta doesn't throw exceptions
         expect(() => {
@@ -119,7 +136,6 @@ describe('Logging module', () => {
 
         // Test info level with meta data
         setLogLevel('info');
-        logger = getLogger();
 
         expect(() => {
             logger.info('Test message with meta in info mode', {
@@ -127,5 +143,21 @@ describe('Logging module', () => {
                 key2: 'value2'
             });
         }).not.toThrow();
+    });
+
+    test('logger level changes are immediately effective', () => {
+        const logger = getLogger();
+
+        // Set to debug level
+        setLogLevel('debug');
+        expect(logger.level).toBe('debug');
+
+        // Set to info level
+        setLogLevel('info');
+        expect(logger.level).toBe('info');
+
+        // Set to error level
+        setLogLevel('error');
+        expect(logger.level).toBe('error');
     });
 });

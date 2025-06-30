@@ -8,9 +8,12 @@ import * as Diff from '../content/diff';
 import * as Prompts from '../prompt/prompts';
 import { Config, ReleaseSummary } from '../types';
 import { createCompletion } from '../util/openai';
+import { getLogger } from '../logging';
 
 export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
+    const logger = getLogger();
     const prompts = await Prompts.create(runConfig.model as Model, runConfig);
+    const isDryRun = runConfig.dryRun || false;
 
     const log = await Log.create({ from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS, to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS });
     let logContent = '';
@@ -32,6 +35,12 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
             responseFormat: { type: 'json_object' }
         }
     );
+
+    if (isDryRun) {
+        logger.info('DRY RUN: Generated release summary:');
+        logger.info('Title: %s', (summary as ReleaseSummary).title);
+        logger.info('Body: %s', (summary as ReleaseSummary).body);
+    }
 
     return summary as ReleaseSummary;
 }

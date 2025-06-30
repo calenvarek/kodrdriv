@@ -18,7 +18,8 @@ vi.mock('../../src/content/diff', () => ({
 
 vi.mock('../../src/util/child', () => ({
     // @ts-ignore
-    run: vi.fn()
+    run: vi.fn(),
+    runWithDryRunSupport: vi.fn()
 }));
 
 vi.mock('../../src/util/openai', () => ({
@@ -52,7 +53,9 @@ vi.mock('../../src/logging', () => ({
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),
-        debug: vi.fn()
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
     })
 }));
 
@@ -476,7 +479,9 @@ describe('commit', () => {
             info: vi.fn(),
             warn: vi.fn(),
             error: vi.fn(),
-            debug: vi.fn()
+            debug: vi.fn(),
+            verbose: vi.fn(),
+            silly: vi.fn()
         };
 
         // @ts-ignore
@@ -491,7 +496,7 @@ describe('commit', () => {
         await Commit.execute(mockConfig);
 
         // Assert
-        expect(mockLogger.info).toHaveBeenCalledWith('Adding all changes to the index...');
+        expect(mockLogger.verbose).toHaveBeenCalledWith('Adding all changes to the index...');
         expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode enabled. Committing with message: \n\n%s\n\n', mockSummary);
         expect(mockLogger.info).toHaveBeenCalledWith('Commit successful!');
     });

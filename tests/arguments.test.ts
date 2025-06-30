@@ -29,6 +29,7 @@ const mockLogger = {
     error: vi.fn(),
     debug: vi.fn(),
     verbose: vi.fn(),
+    silly: vi.fn()
 };
 
 // Define mockStorage structure at the top level
@@ -74,6 +75,7 @@ beforeEach(async () => { // Make top-level beforeEach async
     mockLogger.error.mockClear();
     mockLogger.debug.mockClear();
     mockLogger.verbose.mockClear();
+    mockLogger.silly.mockClear();
 
     // Dynamically import dependencies needed *before* tests run, if any
     // For example, if the module under test imports logging at the top level.
@@ -573,6 +575,8 @@ describe('Argument Parsing and Configuration', () => {
             mockLogger.debug.mockReset();
             mockLogger.error.mockReset();
             mockLogger.warn.mockReset();
+            mockLogger.verbose.mockReset();
+            mockLogger.silly.mockReset();
         });
 
         it('should read instructions from a readable file', async () => {
@@ -587,7 +591,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result).toBe(instructionsContent);
             expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsPath);
             expect(mockStorage.readFile).toHaveBeenCalledWith(instructionsPath, DEFAULT_CHARACTER_ENCODING);
-            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Reading instructions from file'));
+            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Reading instructions from file'));
         });
 
         it('should return string content directly if file is not readable', async () => {
@@ -600,7 +604,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result).toBe(instructionsString);
             expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsString);
             expect(mockStorage.readFile).not.toHaveBeenCalled();
-            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
+            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
         });
 
         // Note: These tests are commented out due to mocking complexity with async error handling
@@ -618,7 +622,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result).toBe(instructionsContent);
             expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsContent);
             expect(mockStorage.readFile).not.toHaveBeenCalled();
-            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
+            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
         });
 
         it('should handle storage errors gracefully when default fallback succeeds', async () => {
@@ -1088,6 +1092,10 @@ describe('Argument Parsing and Configuration', () => {
                     mock.mockReset();
                 }
             });
+            // Clear logger mocks
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.verbose.mockClear();
         });
 
         it('should return absolute path when directory exists and is writable', async () => {
@@ -1104,16 +1112,18 @@ describe('Argument Parsing and Configuration', () => {
             expect(mockStorage.isDirectoryWritable).toHaveBeenCalled();
         });
 
-        it('should create directory when it does not exist', async () => {
+        it('should warn and fall back to defaults when directory does not exist', async () => {
             const configDir = './new-config';
             mockStorage.exists.mockResolvedValue(false);
-            mockStorage.createDirectory.mockResolvedValue(undefined);
 
             const result = await validateConfigDir(configDir);
 
             expect(result).toMatch(/new-config$/);
-            expect(mockStorage.createDirectory).toHaveBeenCalled();
-            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Creating config directory'));
+            expect(mockStorage.exists).toHaveBeenCalled();
+            expect(mockStorage.createDirectory).not.toHaveBeenCalled();
+            expect(mockStorage.isDirectoryWritable).not.toHaveBeenCalled();
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Config directory does not exist'));
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Using default configuration'));
         });
 
         it('should throw error when path exists but is not a directory', async () => {
@@ -1138,9 +1148,10 @@ describe('Argument Parsing and Configuration', () => {
             const storageError = new Error('Storage system failure');
             mockStorage.exists.mockRejectedValue(storageError);
 
-            await expect(validateConfigDir(configDir)).rejects.toThrow('Failed to validate or create config directory');
+            await expect(validateConfigDir(configDir)).rejects.toThrow('Failed to validate config directory');
+            expect(mockStorage.exists).toHaveBeenCalled();
             expect(mockLogger.error).toHaveBeenCalledWith(
-                expect.stringContaining('Failed to validate or create config directory'),
+                expect.stringContaining('Failed to validate config directory'),
                 storageError
             );
         });
