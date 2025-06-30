@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Model, Request, Formatter } from '@riotprompt/riotprompt';
+import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import shellescape from 'shell-escape';
@@ -10,16 +10,21 @@ import { getLogger } from '../logging';
 import * as Prompts from '../prompt/prompts';
 import { Config } from '../types';
 import { run } from '../util/child';
-import { createCompletion } from '../util/openai';
 import { stringifyJSON } from '../util/general';
+import { createCompletion } from '../util/openai';
 
 export const execute = async (runConfig: Config) => {
     const logger = getLogger();
     const prompts = Prompts.create(runConfig.model as Model, runConfig);
+    const isDryRun = runConfig.dryRun || false;
 
     if (runConfig.commit?.add) {
-        logger.info('Adding all changes to the index...');
-        await run('git add -A');
+        if (isDryRun) {
+            logger.info('DRY RUN: Would add all changes to the index with: git add -A');
+        } else {
+            logger.verbose('Adding all changes to the index...');
+            await run('git add -A');
+        }
     }
 
     let diffContent = '';
@@ -34,7 +39,7 @@ export const execute = async (runConfig: Config) => {
     }
 
     // Fix: Exit early if sendit is true but no changes are staged
-    if (runConfig.commit?.sendit && !cached) {
+    if (runConfig.commit?.sendit && !cached && !isDryRun) {
         logger.warn('SendIt mode enabled, but no changes to commit.');
         process.exit(1);
     }
@@ -53,7 +58,7 @@ export const execute = async (runConfig: Config) => {
 
     if (runConfig.debug) {
         const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);
-        logger.debug('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
+        logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
     }
 
     const request: Request = prompts.format(prompt);
@@ -61,20 +66,27 @@ export const execute = async (runConfig: Config) => {
     const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], { model: runConfig.model });
 
     if (runConfig.commit?.sendit) {
-        if (!cached) {
+        if (!cached && !isDryRun) {
             logger.error('SendIt mode enabled, but no changes to commit. Message: \n\n%s\n\n', summary);
             process.exit(1);
         }
 
-        logger.info('SendIt mode enabled. Committing with message: \n\n%s\n\n', summary);
-        try {
-            const escapedSummary = shellescape([summary]);
-            await run(`git commit -m ${escapedSummary}`);
-            logger.info('Commit successful!');
-        } catch (error) {
-            logger.error('Failed to commit:', error);
-            process.exit(1);
+        if (isDryRun) {
+            logger.info('DRY RUN: Would commit with message: \n\n%s\n\n', summary);
+            logger.info('DRY RUN: Would execute: git commit -m <generated-message>');
+        } else {
+            logger.info('SendIt mode enabled. Committing with message: \n\n%s\n\n', summary);
+            try {
+                const escapedSummary = shellescape([summary]);
+                await run(`git commit -m ${escapedSummary}`);
+                logger.info('Commit successful!');
+            } catch (error) {
+                logger.error('Failed to commit:', error);
+                process.exit(1);
+            }
         }
+    } else if (isDryRun) {
+        logger.info('DRY RUN: Generated commit message: \n\n%s\n\n', summary);
     }
 
     return summary;

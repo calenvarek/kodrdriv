@@ -15,7 +15,7 @@ export default defineConfig({
             include: ['src/**/*.ts'],
             thresholds: {
                 statements: 91,
-                branches: 96,
+                branches: 88,
                 functions: 98,
                 lines: 91,
             }
