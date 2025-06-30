@@ -50,7 +50,8 @@ export async function main() {
         if (commandName === COMMAND_COMMIT) {
             summary = await Commit.execute(runConfig);
         } else if (commandName === COMMAND_RELEASE) {
-            summary = await Release.execute(runConfig);
+            const releaseSummary = await Release.execute(runConfig);
+            summary = `${releaseSummary.title}\n\n${releaseSummary.body}`;
         } else if (commandName === COMMAND_PUBLISH) {
             await Publish.execute(runConfig);
         } else if (commandName === COMMAND_LINK) {

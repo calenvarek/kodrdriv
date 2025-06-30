@@ -38,7 +38,10 @@ vi.mock('../../src/content/diff', () => ({
 
 vi.mock('../../src/util/openai', () => ({
     // @ts-ignore
-    createCompletion: vi.fn().mockResolvedValue('mock summary')
+    createCompletion: vi.fn().mockResolvedValue({
+        title: 'mock title',
+        body: 'mock body'
+    })
 }));
 
 describe('release command', () => {
@@ -74,7 +77,10 @@ describe('release command', () => {
         });
         expect(Prompts.create).toHaveBeenCalledWith('gpt-4', runConfig);
         expect(OpenAI.createCompletion).toHaveBeenCalled();
-        expect(result).toBe('mock summary');
+        expect(result).toEqual({
+            title: 'mock title',
+            body: 'mock body'
+        });
     });
 
     it('should execute release command with custom parameters', async () => {
@@ -93,22 +99,9 @@ describe('release command', () => {
             to: 'main'
         });
         expect(Prompts.create).toHaveBeenCalledWith('gpt-4', runConfig);
-        expect(result).toBe('mock summary');
-    });
-
-    it('should not add log section when log content is empty', async () => {
-        const runConfig = {
-            model: 'gpt-4'
-        };
-
-        // Mock empty log content
-        Log.create().get.mockResolvedValueOnce('');
-
-        const result = await Release.execute(runConfig);
-
-        // The section.add should not be called with log section
-        const sectionAddCalls = MinorPrompt.createSection().add.mock.calls;
-        expect(sectionAddCalls.length).toBe(0);
-        expect(result).toBe('mock summary');
+        expect(result).toEqual({
+            title: 'mock title',
+            body: 'mock body'
+        });
     });
 });

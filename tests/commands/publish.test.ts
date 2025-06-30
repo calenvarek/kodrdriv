@@ -10,6 +10,14 @@ vi.mock('../../src/commands/release', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../../src/commands/link', () => ({
+    execute: vi.fn()
+}));
+
+vi.mock('../../src/commands/unlink', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../../src/content/diff', () => ({
     hasStagedChanges: vi.fn()
 }));
@@ -53,6 +61,8 @@ describe('publish command', () => {
     let Publish: any;
     let Commit: any;
     let Release: any;
+    let Link: any;
+    let Unlink: any;
     let Diff: any;
     let Child: any;
     let GitHub: any;
@@ -69,6 +79,8 @@ describe('publish command', () => {
         // Import modules after mocking
         Commit = await import('../../src/commands/commit');
         Release = await import('../../src/commands/release');
+        Link = await import('../../src/commands/link');
+        Unlink = await import('../../src/commands/unlink');
         Diff = await import('../../src/content/diff');
         Child = await import('../../src/util/child');
         GitHub = await import('../../src/util/github');
@@ -187,6 +199,9 @@ cache=\${CACHE_DIR}/npm
 
             // This should pass without throwing because all env vars are set
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle missing .npmrc file gracefully', async () => {
@@ -240,6 +255,9 @@ cache=\${CACHE_DIR}/npm
 
             // Should not throw even without .npmrc
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle unreadable .npmrc file gracefully', async () => {
@@ -296,6 +314,9 @@ cache=\${CACHE_DIR}/npm
 
             // Should not throw even if .npmrc is unreadable
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
     });
 
@@ -400,6 +421,9 @@ cache=\${CACHE_DIR}/npm
             General.incrementPatchVersion.mockReturnValue('1.0.1');
 
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
     });
 
@@ -647,6 +671,9 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_NOTES.md') {
                     return Promise.resolve('# Release Notes\n\nNew features...');
                 }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve('Mock Release Title');
+                }
                 return Promise.resolve('');
             });
         };
@@ -660,7 +687,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes\n\nNew features...';
+            const mockReleaseNotesBody = '# Release Notes\n\nNew features...';
+            const mockReleaseTitle = 'Mock Release Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -670,12 +698,6 @@ cache=\${CACHE_DIR}/npm
                 if (path.includes('package.json')) {
                     return Promise.resolve(true);
                 }
-                if (path.includes('pnpm-workspace.yaml') && !path.includes('.bak')) {
-                    return Promise.resolve(true); // pnpm-workspace.yaml exists
-                }
-                if (path.includes('pnpm-workspace.yaml.bak')) {
-                    return Promise.resolve(false); // backup doesn't exist initially
-                }
                 return Promise.resolve(false);
             });
 
@@ -684,14 +706,17 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run prepublishOnly' } }));
                 }
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 return Promise.resolve('');
             });
 
             Diff.hasStagedChanges.mockResolvedValue(true);
             Commit.execute.mockResolvedValue('feat: update dependencies');
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
             GitHub.createPullRequest.mockResolvedValue(mockPR);
             GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
             GitHub.mergePullRequest.mockResolvedValue(undefined);
@@ -702,12 +727,10 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             // Assert - Verify the complete workflow
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
             expect(GitHub.getCurrentBranchName).toHaveBeenCalled();
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
-            expect(mockStorage.rename).toHaveBeenCalledWith(
-                expect.stringContaining('pnpm-workspace.yaml'),
-                expect.stringContaining('pnpm-workspace.yaml.bak')
-            );
+            expect(mockStorage.rename).not.toHaveBeenCalled();
             expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
             expect(Child.run).toHaveBeenCalledWith('git add package.json pnpm-lock.yaml');
             expect(Child.run).toHaveBeenCalledWith('pnpm run prepublishOnly');
@@ -715,16 +738,18 @@ cache=\${CACHE_DIR}/npm
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
             expect(Child.run).toHaveBeenCalledWith('pnpm version patch');
             expect(Release.execute).toHaveBeenCalledWith(mockConfig);
-            expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotes, 'utf-8');
+            expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotesBody, 'utf-8');
+            expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
             expect(Child.run).toHaveBeenCalledWith('git push --follow-tags');
             expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123);
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
             expect(Child.run).toHaveBeenCalledWith('git checkout main');
             expect(Child.run).toHaveBeenCalledWith('git pull origin main');
-            expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseNotes);
+            expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
             expect(Child.run).toHaveBeenCalledWith('git checkout -b release/0.0.5');
             expect(Child.run).toHaveBeenCalledWith('git push -u origin release/0.0.5');
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle existing pull request and skip initial setup', async () => {
@@ -736,7 +761,8 @@ cache=\${CACHE_DIR}/npm
                 number: 456,
                 html_url: 'https://github.com/owner/repo/pull/456'
             };
-            const mockReleaseNotes = '# Release Notes\n\nExisting PR...';
+            const mockReleaseNotesBody = '# Release Notes\n\nExisting PR...';
+            const mockReleaseTitle = 'Mock Release Title for Existing PR';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockExistingPR);
@@ -745,7 +771,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -760,6 +789,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             // Assert - Verify it skips initial setup but continues with PR workflow
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled(); // Should skip workspace file operations
             expect(Child.run).not.toHaveBeenCalledWith('pnpm update --latest'); // Should skip dependency updates
@@ -767,7 +797,8 @@ cache=\${CACHE_DIR}/npm
             expect(GitHub.createPullRequest).not.toHaveBeenCalled(); // Should skip PR creation
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(456);
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash');
-            expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseNotes);
+            expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should skip commit when no staged changes are found', async () => {
@@ -779,7 +810,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -793,7 +825,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false); // No staged changes
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
 
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
@@ -817,7 +849,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -832,77 +867,13 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             // Assert
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).not.toHaveBeenCalled();
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
-        it('should handle case when pnpm-workspace.yaml does not exist', async () => {
-            // Arrange
-            setupPrecheckMocks();
-
-            const mockBranchName = 'release/0.0.4';
-            const mockPR = {
-                number: 123,
-                html_url: 'https://github.com/owner/repo/pull/123'
-            };
-            const mockReleaseNotes = '# Release Notes';
-
-            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
-            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
-
-            // Override storage mock - pnpm-workspace.yaml doesn't exist
-            mockStorage.exists.mockImplementation((path: string) => {
-                if (path.includes('package.json')) {
-                    return Promise.resolve(true);
-                }
-                return Promise.resolve(false); // pnpm-workspace.yaml doesn't exist
-            });
-
-            Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotes);
-
-            Child.run.mockImplementation((command: string) => {
-                if (command === 'git rev-parse --git-dir') {
-                    return Promise.resolve({ stdout: '.git' });
-                }
-                if (command === 'git status --porcelain') {
-                    return Promise.resolve({ stdout: '' });
-                }
-                if (command === 'git log -1 --pretty=%B') {
-                    return Promise.resolve({ stdout: 'Version bump' });
-                }
-                if (command === 'pnpm run prepublishOnly') {
-                    return Promise.resolve({ stdout: '' });
-                }
-                return Promise.resolve({ stdout: '' });
-            });
-
-            GitHub.createPullRequest.mockResolvedValue(mockPR);
-            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
-            GitHub.mergePullRequest.mockResolvedValue(undefined);
-
-            mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
-                }
-                if (filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
-                }
-                return Promise.resolve('');
-            });
-
-            GitHub.createRelease.mockResolvedValue(undefined);
-            General.incrementPatchVersion.mockReturnValue('0.0.5');
-
-            // Act
-            await Publish.execute(mockConfig);
-
-            // Assert
-            expect(mockStorage.rename).not.toHaveBeenCalled();
-            expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
-        });
-
-        it('should restore workspace file even if an error occurs', async () => {
+        it('should call link even if an error occurs', async () => {
             // Arrange
             const mockBranchName = 'release/0.0.4';
 
@@ -913,12 +884,6 @@ cache=\${CACHE_DIR}/npm
             mockStorage.exists.mockImplementation((path: string) => {
                 if (path.includes('package.json')) {
                     return Promise.resolve(true);
-                }
-                if (path.includes('pnpm-workspace.yaml') && !path.includes('.bak')) {
-                    return Promise.resolve(true); // workspace file exists
-                }
-                if (path.includes('pnpm-workspace.yaml.bak')) {
-                    return Promise.resolve(true); // backup exists for restoration
                 }
                 return Promise.resolve(false);
             });
@@ -946,10 +911,9 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Build failed');
-            expect(mockStorage.rename).toHaveBeenCalledWith(
-                expect.stringContaining('pnpm-workspace.yaml.bak'),
-                expect.stringContaining('pnpm-workspace.yaml')
-            );
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(mockStorage.rename).not.toHaveBeenCalled();
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should throw error when PR creation fails', async () => {
@@ -957,7 +921,8 @@ cache=\${CACHE_DIR}/npm
             setupPrecheckMocks();
 
             const mockBranchName = 'release/0.0.4';
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -970,7 +935,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
 
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
@@ -992,10 +957,12 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to create pull request.');
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle pre-flight checks failure', async () => {
-            // Arrange            
+            // Arrange
             const mockBranchName = 'release/0.0.4';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
@@ -1030,6 +997,8 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Tests failed');
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle GitHub API errors during PR checks', async () => {
@@ -1048,6 +1017,8 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('GitHub API error');
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle release creation failure', async () => {
@@ -1059,7 +1030,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
@@ -1068,7 +1040,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -1080,12 +1055,15 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Release creation failed');
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should handle file operations errors gracefully', async () => {
             // Arrange
             const mockBranchName = 'release/0.0.4';
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -1118,11 +1096,13 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
             mockStorage.writeFile.mockRejectedValue(new Error('File write failed'));
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('File write failed');
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
 
         it('should use configured merge method when merging PR', async () => {
@@ -1140,7 +1120,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'Mock Release Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
@@ -1149,7 +1130,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -1164,7 +1148,9 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithMergeMethod);
 
             // Assert - Verify merge method is passed correctly
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithMergeMethod);
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'merge');
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithMergeMethod);
         });
 
         it('should use default squash merge method when no merge method is configured', async () => {
@@ -1180,7 +1166,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
@@ -1189,7 +1176,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -1204,7 +1194,9 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithoutMergeMethod);
 
             // Assert - Verify default squash method is used
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutMergeMethod);
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutMergeMethod);
         });
 
         it('should use dependency update patterns when provided', async () => {
@@ -1220,7 +1212,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -1233,7 +1226,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
 
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
@@ -1257,7 +1250,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -1272,7 +1268,9 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithPatterns);
 
             // Assert - Verify patterns are used in pnpm update command
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
             expect(Child.run).toHaveBeenCalledWith('pnpm update --latest @company/* @myorg/*');
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
         });
 
         it('should update all dependencies when no patterns are provided', async () => {
@@ -1289,7 +1287,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -1302,7 +1301,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
 
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
@@ -1326,7 +1325,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -1341,7 +1343,9 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithoutPatterns);
 
             // Assert - Verify fallback to update all dependencies
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
             expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
         });
 
         it('should handle empty dependency update patterns array', async () => {
@@ -1357,7 +1361,8 @@ cache=\${CACHE_DIR}/npm
                 number: 123,
                 html_url: 'https://github.com/owner/repo/pull/123'
             };
-            const mockReleaseNotes = '# Release Notes';
+            const mockReleaseNotesBody = '# Release Notes';
+            const mockReleaseTitle = 'No Changes Title';
 
             GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
             GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
@@ -1370,7 +1375,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotes);
+            Release.execute.mockResolvedValue(mockReleaseNotesBody);
 
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
@@ -1394,7 +1399,10 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve(mockReleaseNotes);
+                    return Promise.resolve(mockReleaseNotesBody);
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
@@ -1409,7 +1417,9 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithEmptyPatterns);
 
             // Assert - Verify fallback to update all dependencies when empty array
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
             expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
         });
     });
-}); 
+});

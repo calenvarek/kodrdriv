@@ -26,6 +26,8 @@ export const ConfigSchema = z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
         dependencyUpdatePatterns: z.array(z.string()).optional(),
         requiredEnvVars: z.array(z.string()).optional(),
+        linkWorkspacePackages: z.boolean().optional(),
+        unlinkWorkspacePackages: z.boolean().optional(),
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
@@ -55,4 +57,20 @@ export interface PullRequest {
     labels: {
         name: string;
     }[];
+}
+
+export type ReleaseSummary = {
+    title: string;
+    body: string;
+}
+
+export type ReleaseConfig = {
+    from?: string;
+    to?: string;
+    context?: string;
+}
+
+export type PublishConfig = {
+    from?: string;
+    to?: string;
 }
