@@ -217,18 +217,18 @@ describe('dates utility', () => {
         it('handles month boundary when adding months to end-of-month dates', () => {
             const jan31 = dates.date('2023-01-31');
             const result = dates.addMonths(jan31, 1);
-            // Adding 1 month to Jan 31 - dayjs gives us Feb 27 (not 28 as expected)
+            // Adding 1 month to Jan 31 - dayjs gives us Feb 28 (current behavior)
             expect(result.getMonth()).toBe(1); // February
-            expect(result.getDate()).toBe(27); // dayjs behavior
+            expect(result.getDate()).toBe(28); // dayjs behavior
         });
 
         it('handles leap year when adding years', () => {
             const feb29 = dates.date('2020-02-29'); // Leap year
             const result = dates.addYears(feb29, 1);
-            // 2021 is not a leap year, so Feb 29 becomes Feb 27 (dayjs behavior)
+            // 2021 is not a leap year, so Feb 29 becomes Feb 28 (current dayjs behavior)
             expect(result.getFullYear()).toBe(2021);
             expect(result.getMonth()).toBe(1); // February
-            expect(result.getDate()).toBe(27); // dayjs behavior
+            expect(result.getDate()).toBe(28); // dayjs behavior
         });
 
         it('handles negative values for add operations', () => {
@@ -499,13 +499,13 @@ describe('dates utility', () => {
             const feb29 = dates.date('2020-02-29');
             const nextYear = dates.addYears(feb29, 1);
             expect(nextYear.getMonth()).toBe(1); // February
-            expect(nextYear.getDate()).toBe(27); // Feb 27 in non-leap year (dayjs behavior)
+            expect(nextYear.getDate()).toBe(28); // Feb 28 in non-leap year (current dayjs behavior)
 
             // Test adding months to Jan 31
             const jan31 = dates.date('2023-01-31');
             const feb = dates.addMonths(jan31, 1);
             expect(feb.getMonth()).toBe(1); // February
-            expect(feb.getDate()).toBe(27); // dayjs behavior for month boundaries
+            expect(feb.getDate()).toBe(28); // current dayjs behavior for month boundaries
         });
     });
 
@@ -548,7 +548,7 @@ describe('dates utility', () => {
             const result = dates.addMonths(dates.addDays(startDate, 15), 2);
 
             expect(result.getMonth()).toBe(2); // March (0-based)
-            expect(result.getDate()).toBe(15); // Jan 1 + 15 days = Jan 16, + 2 months = Mar 15
+            expect(result.getDate()).toBe(16); // Jan 1 + 15 days = Jan 16, + 2 months = Mar 16 (corrected)
             expect(result.getFullYear()).toBe(2023);
         });
 
