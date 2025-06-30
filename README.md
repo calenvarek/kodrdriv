@@ -171,6 +171,9 @@ KodrDriv provides several command line options to customize its behavior:
 - `--dry-run`: Perform a dry run without saving files (default: false)
 - `--verbose`: Enable verbose logging (default: false)
 - `--debug`: Enable debug logging (default: false)
+- `--overrides`: Enable instruction overrides (allows custom instruction files to override defaults)
+- `--config-dir <configDir>`: Specify a custom configuration directory (default: '.kodrdriv')
+- `--excluded-paths [excludedPatterns...]`: Paths to exclude from the diff (can specify multiple patterns)
 - `--version`: Display version information
 
 ### Commit Command Options
@@ -278,6 +281,40 @@ Please set these environment variables before running publish.
 - Use tools like 1Password CLI, HashiCorp Vault, or similar for local development
 - Never commit environment variables or tokens to your repository
 - Consider using `.env` files (with proper .gitignore configuration) for local development
+
+#### Workspace Package Management
+
+The publish command provides options to control whether workspace packages should be linked or unlinked during the release process. Both operations are enabled by default for backward compatibility, but can be disabled if needed.
+
+**Configuration Options:**
+
+- `linkWorkspacePackages` (boolean, default: true): Controls whether to restore linked workspace packages after the publish process completes
+- `unlinkWorkspacePackages` (boolean, default: true): Controls whether to unlink workspace packages before starting the publish process
+
+**Configuration Example:**
+```json
+{
+  "publish": {
+    "linkWorkspacePackages": false,
+    "unlinkWorkspacePackages": false,
+    "mergeMethod": "squash"
+  }
+}
+```
+
+**Use Cases:**
+
+- **Skip Unlinking**: Set `unlinkWorkspacePackages: false` if you want to publish using your current workspace configuration without switching to registry dependencies
+- **Skip Linking**: Set `linkWorkspacePackages: false` if you want to leave the project in a "release-ready" state after publishing, with registry dependencies instead of workspace links
+- **Skip Both**: Disable both options if you're managing workspace configuration manually or using a different dependency management strategy
+
+**Default Behavior:**
+When both options are enabled (default), the publish command will:
+1. Unlink workspace packages before starting (switching to registry dependencies)
+2. Perform the release process with registry dependencies
+3. Restore workspace links after completion (returning to local development mode)
+
+This ensures that releases are published with proper registry dependencies while maintaining local development convenience.
 
 #### prepublishOnly Script Requirement
 
@@ -426,6 +463,24 @@ kodrdriv publish --merge-method merge
 kodrdriv publish --merge-method rebase
 ```
 
+Use excluded paths to filter diff content:
+```bash
+# Exclude specific files or directories from diff analysis
+kodrdriv commit --excluded-paths "*.lock" "dist/" "node_modules/"
+
+# Exclude patterns from release notes
+kodrdriv release --excluded-paths "package-lock.json" "pnpm-lock.yaml"
+```
+
+Use overrides with custom instructions:
+```bash
+# Enable instruction overrides (requires custom instruction files in .kodrdriv/instructions/)
+kodrdriv commit --overrides
+
+# Use custom config directory with overrides
+kodrdriv release --config-dir ~/my-kodrdriv-config --overrides
+```
+
 Link local packages for development:
 ```bash
 # Basic linking with single scope
@@ -483,7 +538,9 @@ Example configuration file (`.kodrdriv/config.json`):
   "publish": {
     "mergeMethod": "merge",
     "dependencyUpdatePatterns": ["@company/*", "@myorg/*"],
-    "requiredEnvVars": ["NODE_AUTH_TOKEN", "CUSTOM_TOKEN"]
+    "requiredEnvVars": ["NODE_AUTH_TOKEN", "CUSTOM_TOKEN"],
+    "linkWorkspacePackages": true,
+    "unlinkWorkspacePackages": true
   },
   "commit": {
     "add": true,
@@ -698,10 +755,10 @@ Whether you're merging branches or writing books, kodrdriv is built for that end
 
 ### Release Command Options
 
-- `--from <from>`: Branch or reference to generate release notes from
-- `--to <to>`: Branch or reference to generate release notes to
+- `--from <from>`: Branch or reference to generate release notes from (default: 'main')
+- `--to <to>`: Branch or reference to generate release notes to (default: 'HEAD')
 - `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 10).
+- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 10). Reducing this number can make the summary more focused, while increasing it provides broader historical context.
 
 ### Explanation
 

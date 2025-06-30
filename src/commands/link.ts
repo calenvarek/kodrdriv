@@ -3,6 +3,7 @@ import yaml from 'js-yaml';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
+import { run } from '../util/child';
 
 interface PackageJson {
     name?: string;
@@ -11,8 +12,9 @@ interface PackageJson {
     peerDependencies?: Record<string, string>;
 }
 
-interface WorkspaceConfig {
+interface PnpmWorkspaceFile {
     packages?: string[];
+    overrides?: Record<string, string>;
 }
 
 const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<Map<string, string>> => {
@@ -60,9 +62,9 @@ const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<
     return packageMap;
 };
 
-const findPackagesByScope = async (dependencies: Record<string, string>, scopeRoots: Record<string, string>, storage: any): Promise<string[]> => {
+const findPackagesByScope = async (dependencies: Record<string, string>, scopeRoots: Record<string, string>, storage: any): Promise<Map<string, string>> => {
     const logger = getLogger();
-    const workspacePackages: string[] = [];
+    const workspacePackages = new Map<string, string>();
 
     logger.debug(`Checking dependencies against scope roots: ${JSON.stringify(scopeRoots)}`);
 
@@ -88,7 +90,7 @@ const findPackagesByScope = async (dependencies: Record<string, string>, scopeRo
 
         if (allPackages.has(depName)) {
             const packagePath = allPackages.get(depName)!;
-            workspacePackages.push(packagePath);
+            workspacePackages.set(depName, packagePath);
             logger.info(`Found sibling package: ${depName} at ${packagePath}`);
         }
     }
@@ -96,19 +98,19 @@ const findPackagesByScope = async (dependencies: Record<string, string>, scopeRo
     return workspacePackages;
 };
 
-const readCurrentWorkspaceFile = async (workspaceFilePath: string, storage: any): Promise<WorkspaceConfig> => {
+const readCurrentWorkspaceFile = async (workspaceFilePath: string, storage: any): Promise<PnpmWorkspaceFile> => {
     if (await storage.exists(workspaceFilePath)) {
         try {
             const content = await storage.readFile(workspaceFilePath, 'utf-8');
-            return yaml.load(content) as WorkspaceConfig;
+            return (yaml.load(content) as PnpmWorkspaceFile) || {};
         } catch (error) {
             throw new Error(`Failed to parse existing workspace file: ${error}`);
         }
     }
-    return { packages: [] };
+    return {};
 };
 
-const writeWorkspaceFile = async (workspaceFilePath: string, config: WorkspaceConfig, storage: any): Promise<void> => {
+const writeWorkspaceFile = async (workspaceFilePath: string, config: PnpmWorkspaceFile, storage: any): Promise<void> => {
     const yamlContent = yaml.dump(config, {
         indent: 2,
         lineWidth: -1,
@@ -122,7 +124,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
-    logger.info('Starting pnpm workspace link management...');
+    logger.info('Starting pnpm workspace link management using overrides...');
 
     // Read current package.json
     const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -165,26 +167,39 @@ export const execute = async (runConfig: Config): Promise<string> => {
     logger.info(`Found ${Object.keys(allDependencies).length} total dependencies`);
 
     // Find matching sibling packages
-    const workspacePackages = await findPackagesByScope(allDependencies, scopeRoots, storage);
+    const packagesToLink = await findPackagesByScope(allDependencies, scopeRoots, storage);
 
-    if (workspacePackages.length === 0) {
+    if (packagesToLink.size === 0) {
         logger.info('No matching sibling packages found for linking.');
         return 'No matching sibling packages found for linking.';
     }
 
-    logger.info(`Found ${workspacePackages.length} packages to link: ${workspacePackages.join(', ')}`);
+    logger.info(`Found ${packagesToLink.size} packages to link: ${[...packagesToLink.keys()].join(', ')}`);
 
     // Read existing workspace configuration
     const workspaceFilePath = path.join(process.cwd(), workspaceFileName);
     const workspaceConfig = await readCurrentWorkspaceFile(workspaceFilePath, storage);
 
-    // Merge with existing packages (avoid duplicates)
-    const existingPackages = workspaceConfig.packages || [];
-    const allPackages = [...new Set([...existingPackages, ...workspacePackages])];
+    // Create overrides
+    const newOverrides: Record<string, string> = {};
+    for (const [packageName, packagePath] of packagesToLink.entries()) {
+        newOverrides[packageName] = `link:${packagePath}`;
+    }
 
-    const updatedConfig: WorkspaceConfig = {
-        packages: allPackages.sort()
+    const updatedOverrides = { ...(workspaceConfig.overrides || {}), ...newOverrides };
+
+    const sortedOverrides = Object.keys(updatedOverrides)
+        .sort()
+        .reduce((obj, key) => {
+            obj[key] = updatedOverrides[key];
+            return obj;
+        }, {} as Record<string, string>);
+
+    const updatedConfig: PnpmWorkspaceFile = {
+        ...workspaceConfig,
+        overrides: sortedOverrides
     };
+
 
     // Write the updated workspace file
     if (isDryRun) {
@@ -192,10 +207,19 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info(yaml.dump(updatedConfig, { indent: 2 }));
     } else {
         await writeWorkspaceFile(workspaceFilePath, updatedConfig, storage);
-        logger.info(`Updated ${workspaceFileName} with ${workspacePackages.length} linked packages`);
+        logger.info(`Updated ${workspaceFileName} with ${packagesToLink.size} linked packages in overrides.`);
+
+        // Rebuild pnpm lock file and node_modules
+        logger.info('Running pnpm install to apply links...');
+        try {
+            await run('pnpm install');
+            logger.info('Successfully applied links.');
+        } catch (error) {
+            logger.warn(`Failed to run pnpm install: ${error}. You may need to run 'pnpm install' manually.`);
+        }
     }
 
-    const summary = `Successfully linked ${workspacePackages.length} sibling packages:\n${workspacePackages.map(pkg => `  - ${pkg}`).join('\n')}`;
+    const summary = `Successfully linked ${packagesToLink.size} sibling packages:\n${[...packagesToLink.entries()].map(([name, path]) => `  - ${name}: link:${path}`).join('\n')}`;
 
     return summary;
-}; 
+};
