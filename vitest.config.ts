@@ -5,6 +5,9 @@ export default defineConfig({
         globals: false,
         environment: 'node',
         include: ['tests/**/*.test.ts'],
+        env: {
+            TZ: 'America/New_York'
+        },
         coverage: {
             provider: 'v8',
             reporter: ['text', 'lcov', 'html'],
