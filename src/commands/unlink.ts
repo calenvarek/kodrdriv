@@ -148,7 +148,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
     logger.debug('Extracted isDryRun:', isDryRun);
 
     if (Object.keys(scopeRoots).length === 0) {
-        throw new Error('No scope roots configured. Please configure scope roots in your config file or via --scope-roots CLI option.');
+        logger.info('No scope roots configured. Skipping unlink management.');
+        return 'No scope roots configured. Skipping unlink management.';
     }
 
     logger.info(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);

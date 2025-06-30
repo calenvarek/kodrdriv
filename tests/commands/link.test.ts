@@ -124,7 +124,7 @@ describe('link command', () => {
             await expect(Link.execute(mockConfig)).rejects.toThrow('Failed to parse package.json');
         });
 
-        it('should throw error when no scope roots are configured', async () => {
+        it('should skip gracefully when no scope roots are configured', async () => {
             // Arrange
             const configWithoutScopes = {
                 ...mockConfig,
@@ -141,8 +141,11 @@ describe('link command', () => {
                 dependencies: { '@company/cache': '^1.0.0' }
             }));
 
-            // Act & Assert
-            await expect(Link.execute(configWithoutScopes)).rejects.toThrow('No scope roots configured');
+            // Act
+            const result = await Link.execute(configWithoutScopes);
+
+            // Assert
+            expect(result).toBe('No scope roots configured. Skipping link management.');
         });
 
         it('should handle filesystem errors gracefully during directory scanning', async () => {

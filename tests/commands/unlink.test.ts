@@ -94,7 +94,7 @@ describe('Unlink Command', () => {
         await expect(Unlink.execute(mockConfig)).rejects.toThrow('package.json not found in current directory.');
     });
 
-    it('should throw error when no scope roots configured', async () => {
+    it('should skip gracefully when no scope roots configured', async () => {
         const configWithoutScopes = {
             ...mockConfig,
             link: {
@@ -106,7 +106,9 @@ describe('Unlink Command', () => {
         mockStorage.exists.mockResolvedValue(true);
         mockStorage.readFile.mockResolvedValue('{"name": "test-package"}');
 
-        await expect(Unlink.execute(configWithoutScopes)).rejects.toThrow('No scope roots configured');
+        const result = await Unlink.execute(configWithoutScopes);
+
+        expect(result).toBe('No scope roots configured. Skipping unlink management.');
     });
 
     it('should remove overrides from pnpm-workspace.yaml', async () => {
