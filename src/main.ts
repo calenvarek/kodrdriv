@@ -3,20 +3,22 @@ import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
 import * as Arguments from './arguments';
 import * as Commit from './commands/commit';
+import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as Release from './commands/release';
-import { COMMAND_COMMIT, COMMAND_PUBLISH, COMMAND_RELEASE, DEFAULT_CONFIG_DIR } from './constants';
+import * as Unlink from './commands/unlink';
+import { COMMAND_COMMIT, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { CommandConfig } from 'types';
 import { Config, ConfigSchema, SecureConfig } from './types';
 
 export async function main() {
 
-    const cardigantime = Cardigantime.create<typeof ConfigSchema.shape>({
+    const cardigantime = Cardigantime.create({
         defaults: {
             configDirectory: DEFAULT_CONFIG_DIR, // Default directory for config file
         },
-        configShape: ConfigSchema.shape, // Pass the Zod shape for validation
+        configShape: ConfigSchema.shape as any, // Cast to any to avoid TypeScript recursion issues
         logger: getLogger(),           // Optional: Pass logger instance
     });
 
@@ -39,7 +41,7 @@ export async function main() {
         let commandName = commandConfig.commandName;
 
         // If we have a specific command argument, use that
-        if (command === 'commit' || command === 'release' || command === 'publish') {
+        if (command === 'commit' || command === 'release' || command === 'publish' || command === 'link' || command === 'unlink') {
             commandName = command;
         }
 
@@ -51,6 +53,10 @@ export async function main() {
             summary = await Release.execute(runConfig);
         } else if (commandName === COMMAND_PUBLISH) {
             await Publish.execute(runConfig);
+        } else if (commandName === COMMAND_LINK) {
+            summary = await Link.execute(runConfig);
+        } else if (commandName === COMMAND_UNLINK) {
+            summary = await Unlink.execute(runConfig);
         }
 
         // eslint-disable-next-line no-console

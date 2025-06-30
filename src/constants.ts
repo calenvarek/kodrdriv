@@ -28,7 +28,9 @@ export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 export const COMMAND_COMMIT = 'commit';
 export const COMMAND_RELEASE = 'release';
 export const COMMAND_PUBLISH = 'publish';
-export const ALLOWED_COMMANDS = [COMMAND_COMMIT, COMMAND_RELEASE, COMMAND_PUBLISH];
+export const COMMAND_LINK = 'link';
+export const COMMAND_UNLINK = 'unlink';
+export const ALLOWED_COMMANDS = [COMMAND_COMMIT, COMMAND_RELEASE, COMMAND_PUBLISH, COMMAND_LINK, COMMAND_UNLINK];
 export const DEFAULT_COMMAND = COMMAND_COMMIT;
 
 export const DEFAULT_CONFIG_DIR = `.${PROGRAM_NAME}`;
@@ -131,6 +133,11 @@ export const KODRDRIV_DEFAULTS = {
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,
         requiredEnvVars: ['GITHUB_TOKEN', 'OPENAI_API_KEY'],
+    },
+    link: {
+        scopeRoots: {},
+        workspaceFile: 'pnpm-workspace.yaml',
+        dryRun: false,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };
