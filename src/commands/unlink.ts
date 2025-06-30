@@ -12,8 +12,9 @@ interface PackageJson {
     peerDependencies?: Record<string, string>;
 }
 
-interface WorkspaceConfig {
+interface PnpmWorkspaceFile {
     packages?: string[];
+    overrides?: Record<string, string>;
 }
 
 const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<Map<string, string>> => {
@@ -87,25 +88,31 @@ const findPackagesToUnlink = async (scopeRoots: Record<string, string>, storage:
     return packagesToUnlink;
 };
 
-const readCurrentWorkspaceFile = async (workspaceFilePath: string, storage: any): Promise<WorkspaceConfig> => {
+const readCurrentWorkspaceFile = async (workspaceFilePath: string, storage: any): Promise<PnpmWorkspaceFile> => {
     if (await storage.exists(workspaceFilePath)) {
         try {
             const content = await storage.readFile(workspaceFilePath, 'utf-8');
-            return yaml.load(content) as WorkspaceConfig;
+            return (yaml.load(content) as PnpmWorkspaceFile) || {};
         } catch (error) {
             throw new Error(`Failed to parse existing workspace file: ${error}`);
         }
     }
-    return { packages: [] };
+    return {};
 };
 
-const writeWorkspaceFile = async (workspaceFilePath: string, config: WorkspaceConfig, storage: any): Promise<void> => {
-    const yamlContent = yaml.dump(config, {
+const writeWorkspaceFile = async (workspaceFilePath: string, config: PnpmWorkspaceFile, storage: any): Promise<void> => {
+    let yamlContent = yaml.dump(config, {
         indent: 2,
         lineWidth: -1,
         noRefs: true,
-        sortKeys: false
+        sortKeys: false,
+        quotingType: "'",
+        forceQuotes: true
     });
+
+    // Post-process to fix numeric values that shouldn't be quoted
+    yamlContent = yamlContent.replace(/: '(\d+(?:\.\d+)*)'/g, ': $1');
+
     await storage.writeFile(workspaceFilePath, yamlContent, 'utf-8');
 };
 
@@ -147,32 +154,51 @@ export const execute = async (runConfig: Config): Promise<string> => {
     logger.info(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);
 
     // Find packages to unlink based on scope roots
-    const packagesToUnlink = await findPackagesToUnlink(scopeRoots, storage);
+    const packagesToUnlinkPaths = await findPackagesToUnlink(scopeRoots, storage);
 
-    if (packagesToUnlink.length === 0) {
+    if (packagesToUnlinkPaths.length === 0) {
         logger.info('No packages found matching scope roots for unlinking.');
         return 'No packages found matching scope roots for unlinking.';
     }
 
-    logger.info(`Found ${packagesToUnlink.length} packages that could be unlinked: ${packagesToUnlink.join(', ')}`);
+    logger.info(`Found ${packagesToUnlinkPaths.length} packages that could be unlinked: ${packagesToUnlinkPaths.join(', ')}`);
 
     // Read existing workspace configuration
     const workspaceFilePath = path.join(process.cwd(), workspaceFileName);
     const workspaceConfig = await readCurrentWorkspaceFile(workspaceFilePath, storage);
 
-    // Filter out packages that match our scope roots
-    const existingPackages = workspaceConfig.packages || [];
-    const remainingPackages = existingPackages.filter(pkg => !packagesToUnlink.includes(pkg));
-    const actuallyRemovedPackages = existingPackages.filter(pkg => packagesToUnlink.includes(pkg));
+    if (!workspaceConfig.overrides) {
+        logger.info('No overrides found in workspace file. Nothing to do.');
+        return 'No overrides found in workspace file. Nothing to do.';
+    }
+
+    // Filter out packages that match our scope roots from overrides
+    const existingOverrides = workspaceConfig.overrides || {};
+    const remainingOverrides: Record<string, string> = {};
+    const actuallyRemovedPackages: string[] = [];
+    const packagesToUnlinkSet = new Set(packagesToUnlinkPaths.map(p => `link:${p}`));
+
+    for (const [pkgName, pkgLink] of Object.entries(existingOverrides)) {
+        if (packagesToUnlinkSet.has(pkgLink)) {
+            actuallyRemovedPackages.push(pkgName);
+        } else {
+            remainingOverrides[pkgName] = pkgLink;
+        }
+    }
 
     if (actuallyRemovedPackages.length === 0) {
         logger.info('No linked packages found in workspace file that match scope roots.');
         return 'No linked packages found in workspace file that match scope roots.';
     }
 
-    const updatedConfig: WorkspaceConfig = {
-        packages: remainingPackages.sort()
+    const updatedConfig: PnpmWorkspaceFile = {
+        ...workspaceConfig,
+        overrides: remainingOverrides
     };
+
+    if (Object.keys(remainingOverrides).length === 0) {
+        delete updatedConfig.overrides;
+    }
 
     // Write the updated workspace file
     if (isDryRun) {
@@ -181,27 +207,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info(`DRY RUN: Would remove ${actuallyRemovedPackages.length} packages: ${actuallyRemovedPackages.join(', ')}`);
     } else {
         await writeWorkspaceFile(workspaceFilePath, updatedConfig, storage);
-        logger.info(`Updated ${workspaceFileName} - removed ${actuallyRemovedPackages.length} linked packages`);
+        logger.info(`Updated ${workspaceFileName} - removed ${actuallyRemovedPackages.length} linked packages from overrides.`);
 
         // Rebuild pnpm lock file and node_modules
         logger.info('Rebuilding pnpm lock file and node_modules...');
         try {
-            // Remove existing lock file and node_modules to force clean rebuild
-            const fs = await import('fs');
-            const pnpmLockPath = path.join(process.cwd(), 'pnpm-lock.yaml');
-            const nodeModulesPath = path.join(process.cwd(), 'node_modules');
-
-            if (await storage.exists(pnpmLockPath)) {
-                await fs.promises.unlink(pnpmLockPath);
-                logger.debug('Removed existing pnpm-lock.yaml');
-            }
-
-            if (await storage.exists(nodeModulesPath) && await storage.isDirectory(nodeModulesPath)) {
-                await fs.promises.rm(nodeModulesPath, { recursive: true, force: true });
-                logger.debug('Removed existing node_modules directory');
-            }
-
-            // Install dependencies fresh
             await run('pnpm install');
             logger.info('Successfully rebuilt pnpm lock file and node_modules');
         } catch (error) {
@@ -212,4 +222,4 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const summary = `Successfully unlinked ${actuallyRemovedPackages.length} sibling packages:\n${actuallyRemovedPackages.map(pkg => `  - ${pkg}`).join('\n')}`;
 
     return summary;
-}; 
+};
