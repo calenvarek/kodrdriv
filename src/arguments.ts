@@ -1,10 +1,9 @@
-import * as Cardigantime from '@theunwalked/cardigantime';
 import { Command } from "commander";
 import path from "path";
 import { z } from "zod";
 import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, DEFAULT_INSTRUCTIONS_DIR, KODRDRIV_DEFAULTS, PROGRAM_NAME, VERSION } from "./constants";
 import { getLogger } from "./logging";
-import { CommandConfig, Config, ConfigSchema, SecureConfig } from './types'; // Import the Config type from main.ts
+import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
 
 export const InputSchema = z.object({
