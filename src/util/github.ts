@@ -152,7 +152,7 @@ export const mergePullRequest = async (prNumber: number, mergeMethod: MergeMetho
     logger.info(`Branch ${headBranch} deleted.`);
 };
 
-export const createRelease = async (tagName: string, notes: string): Promise<void> => {
+export const createRelease = async (tagName: string, title: string, notes: string): Promise<void> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
     const logger = getLogger();
@@ -162,7 +162,7 @@ export const createRelease = async (tagName: string, notes: string): Promise<voi
         owner,
         repo,
         tag_name: tagName,
-        name: tagName,
+        name: title,
         body: notes,
     });
     logger.info(`Release ${tagName} created.`);

@@ -4,6 +4,24 @@ Task #2: Provide a detailed list of changes involved in this release, and make s
 
 Task #3: Use the content in the <context> section to help you write the release notes and to help make connections with people, projects, issues, features, and other information.
 
+### Output Format
+
+Your response MUST be a valid JSON object with the following structure:
+{
+  "title": "A single-line, concise title for the release.",
+  "body": "The detailed release notes in Markdown format."
+}
+
+**Instructions for the `title` field:**
+- It must be a single line.
+- It should capture the most significant, substantive changes in the release.
+- Focus on what is noticeable to developers using the software.
+- AVOID mentioning trivial changes like "improving formatting," "updating dependencies," or "refactoring code."
+
+**Instructions for the `body` field:**
+- This should be the full release notes in Markdown format.
+- Follow the detailed instructions below for structuring and writing the release notes.
+
 ### Output Restrictions
 
 - Do not mention and people or contributors in the release notes.  For example, do not say, "Thanks to John Doe for this feature."  Release notes are to be impersonal and not focused on indiviudals.
@@ -48,12 +66,12 @@ Create release notes that:
 
 3. **Use clear, factual bullet points** under each section. Briefly describe what changed and why it's relevant — **but do not use marketing language**. Avoid vague or exaggerated terms like:
 
-   * “awesome new feature”
-   * “significant boost”
-   * “exciting changes”
-   * “revolutionary update”
+   * "awesome new feature"
+   * "significant boost"
+   * "exciting changes"
+   * "revolutionary update"
 
-4. **Keep your tone technical, neutral, and useful.** It’s okay to include references to:
+4. **Keep your tone technical, neutral, and useful.** It's okay to include references to:
 
    * Affected files or systems
    * Internal components (if relevant to the audience)
@@ -64,26 +82,9 @@ Create release notes that:
 
 ## 📝 Output Format Example
 
-**Release v1.6.0 – May 26, 2025**
-
-This release focuses on simplifying the configuration system and removing deprecated environment-specific files. Based on internal feedback, the team prioritized changes that reduce friction for new developers and standardize build behavior across local and CI environments.
-
-**Improvements**
-
-* Unified `vite.config.ts` and `webpack.config.js` into a single environment-aware module
-* Reduced config nesting depth in `tsconfig.json` to improve readability
-* Updated CI scripts to use `.env.defaults` instead of `.env.local`
-
-**Bug Fixes**
-
-* Fixed crash in config loader when optional fields were undefined
-* Resolved issue with `yarn build` failing on Windows due to missing path escape
-
-**Documentation Updates**
-
-* Rewrote setup instructions in `README.md` to reflect unified config process
-* Removed legacy instructions for `env.local.js`
-
----
-
-Let me know if you'd like a version optimized for a changelog generator plugin or a GitHub Actions pipeline.
+```json
+{
+  "title": "New Generation Types, and Updates to API",
+  "body": "This release focuses on simplifying the configuration system and removing deprecated environment-specific files. Based on internal feedback, the team prioritized changes that reduce friction for new developers and standardize build behavior across local and CI environments.\\n\\n**Improvements**\\n\\n* Unified `vite.config.ts` and `webpack.config.js` into a single environment-aware module\\n* Reduced config nesting depth in `tsconfig.json` to improve readability\\n* Updated CI scripts to use `.env.defaults` instead of `.env.local`\\n\\n**Bug Fixes**\\n\\n* Fixed crash in config loader when optional fields were undefined\\n* Resolved issue with `yarn build` failing on Windows due to missing path escape\\n\\n**Documentation Updates**\\n\\n* Rewrote setup instructions in `README.md` to reflect unified config process\\n* Removed legacy instructions for `env.local.js`"
+}
+```

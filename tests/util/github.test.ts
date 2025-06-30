@@ -274,12 +274,12 @@ describe('GitHub Utilities', () => {
 
     describe('createRelease', () => {
         it('should create a GitHub release', async () => {
-            await GitHub.createRelease('v1.0.0', 'Release notes');
+            await GitHub.createRelease('v1.0.0', 'Release v1.0.0', 'Release notes');
             expect(mockOctokit.repos.createRelease).toHaveBeenCalledWith({
                 owner: 'test-owner',
                 repo: 'test-repo',
                 tag_name: 'v1.0.0',
-                name: 'v1.0.0',
+                name: 'Release v1.0.0',
                 body: 'Release notes',
             });
         });

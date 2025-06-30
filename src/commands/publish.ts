@@ -2,15 +2,14 @@ import path from 'path';
 import * as Commit from './commit';
 import * as Diff from '../content/diff';
 import * as Release from './release';
+import * as Link from './link';
+import * as Unlink from './unlink';
 import { getLogger } from '../logging';
 import { Config, PullRequest } from '../types';
 import { run } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion } from '../util/general';
-
-const PNPM_WORKSPACE_FILE = 'pnpm-workspace.yaml';
-const PNPM_WORKSPACE_BACKUP_FILE = 'pnpm-workspace.yaml.bak';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const npmrcPath = path.join(process.cwd(), '.npmrc');
@@ -135,17 +134,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     logger.info('Starting release process...');
 
-    const workspaceFile = path.join(process.cwd(), PNPM_WORKSPACE_FILE);
-    const workspaceBackupFile = path.join(process.cwd(), PNPM_WORKSPACE_BACKUP_FILE);
-
-    const restoreWorkspaceFile = async () => {
-        if (await storage.exists(workspaceBackupFile)) {
-            logger.info('Restoring pnpm-workspace.yaml...');
-            await storage.rename(workspaceBackupFile, workspaceFile);
-        }
-    };
-
     try {
+        // Unlink all workspace packages before starting (if enabled)
+        const shouldUnlink = runConfig.publish?.unlinkWorkspacePackages !== false; // default to true
+        if (shouldUnlink) {
+            logger.info('Unlinking workspace packages...');
+            await Unlink.execute(runConfig);
+        } else {
+            logger.info('Skipping unlink workspace packages (disabled in config).');
+        }
+
         const branchName = await GitHub.getCurrentBranchName();
         let pr: PullRequest | null = await GitHub.findOpenPullRequestByHeadRef(branchName);
 
@@ -155,13 +153,6 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.info('No open pull request found, starting new release publishing process...');
             // 1. Prepare for release
             logger.info('Preparing for release: switching from workspace to remote dependencies.');
-
-            if (await storage.exists(workspaceFile)) {
-                logger.info('Renaming pnpm-workspace.yaml to prevent workspace-protocol resolution');
-                await storage.rename(workspaceFile, workspaceBackupFile);
-            } else {
-                logger.info('pnpm-workspace.yaml not found, skipping rename.');
-            }
 
             logger.info('Updating dependencies to latest versions from registry');
             const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
@@ -192,9 +183,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
             await run('pnpm version patch');
 
             logger.info('Generating release notes...');
-            const releaseNotes = await Release.execute(runConfig);
-            await storage.writeFile('RELEASE_NOTES.md', releaseNotes, 'utf-8');
-            logger.info('Release notes generated and saved to RELEASE_NOTES.md.');
+            const releaseSummary = await Release.execute(runConfig);
+            await storage.writeFile('RELEASE_NOTES.md', releaseSummary.body, 'utf-8');
+            await storage.writeFile('RELEASE_TITLE.md', releaseSummary.title, 'utf-8');
+            logger.info('Release notes and title generated and saved to RELEASE_NOTES.md and RELEASE_TITLE.md.');
 
             logger.info('Pushing to origin...');
             await run('git push --follow-tags');
@@ -223,7 +215,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
         const { version } = JSON.parse(packageJsonContents);
         const tagName = `v${version}`;
         const releaseNotesContent = await storage.readFile('RELEASE_NOTES.md', 'utf-8');
-        await GitHub.createRelease(tagName, releaseNotesContent);
+        const releaseTitle = await storage.readFile('RELEASE_TITLE.md', 'utf-8');
+        await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
 
         logger.info('Creating new release branch...');
         const nextVersion = incrementPatchVersion(version);
@@ -234,6 +227,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         logger.info('Preparation complete.');
     } finally {
-        await restoreWorkspaceFile();
+        // Restore linked packages (if enabled)
+        const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
+        if (shouldLink) {
+            logger.info('Restoring linked packages...');
+            await Link.execute(runConfig);
+        } else {
+            logger.info('Skipping restore linked packages (disabled in config).');
+        }
     }
 }; 
