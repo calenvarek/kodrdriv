@@ -44,6 +44,14 @@ export interface Utility {
     isAfter: (date: Date, other: Date) => boolean;
 }
 
+/**
+ * Helper function to safely convert dayjs back to Date with timezone awareness
+ */
+const toDateSafe = (dayjsInstance: dayjs.Dayjs) => {
+    // Use UTC conversion to ensure consistent behavior across timezones
+    return dayjsInstance.utc().toDate();
+};
+
 export const create = (parameters: { timezone: string }) => {
     const { timezone } = parameters;
     const now = () => {
@@ -62,7 +70,7 @@ export const create = (parameters: { timezone: string }) => {
             throw new Error(`Invalid date: ${date}`);
         }
 
-        return value.toDate();
+        return toDateSafe(value);
     }
 
     const parse = (date: string | number | Date | null | undefined, format: string) => {
@@ -71,19 +79,19 @@ export const create = (parameters: { timezone: string }) => {
             throw new Error(`Invalid date: ${date}, expected format: ${format}`);
         }
 
-        return value.toDate();
+        return toDateSafe(value);
     }
 
     const addDays = (date: Date, days: number) => {
-        return dayjs.tz(date, timezone).add(days, 'day').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).add(days, 'day'));
     }
 
     const addMonths = (date: Date, months: number) => {
-        return dayjs.tz(date, timezone).add(months, 'month').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).add(months, 'month'));
     }
 
     const addYears = (date: Date, years: number) => {
-        return dayjs.tz(date, timezone).add(years, 'year').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).add(years, 'year'));
     }
 
     const format = (date: Date, format: string) => {
@@ -91,31 +99,31 @@ export const create = (parameters: { timezone: string }) => {
     }
 
     const subDays = (date: Date, days: number) => {
-        return dayjs.tz(date, timezone).subtract(days, 'day').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).subtract(days, 'day'));
     }
 
     const subMonths = (date: Date, months: number) => {
-        return dayjs.tz(date, timezone).subtract(months, 'month').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).subtract(months, 'month'));
     }
 
     const subYears = (date: Date, years: number) => {
-        return dayjs.tz(date, timezone).subtract(years, 'year').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).subtract(years, 'year'));
     }
 
     const startOfMonth = (date: Date) => {
-        return dayjs.tz(date, timezone).startOf('month').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).startOf('month'));
     }
 
     const endOfMonth = (date: Date) => {
-        return dayjs.tz(date, timezone).endOf('month').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).endOf('month'));
     }
 
     const startOfYear = (date: Date) => {
-        return dayjs.tz(date, timezone).startOf('year').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).startOf('year'));
     }
 
     const endOfYear = (date: Date) => {
-        return dayjs.tz(date, timezone).endOf('year').toDate();
+        return toDateSafe(dayjs.tz(date, timezone).endOf('year'));
     }
 
     const isBefore = (date: Date, other: Date) => {
