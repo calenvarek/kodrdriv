@@ -1,6 +1,6 @@
 {
     "name": "@eldrforge/kodrdriv",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "Create Intelligent Release Notes or Change Logs from Git",
     "main": "dist/main.js",
     "type": "module",
