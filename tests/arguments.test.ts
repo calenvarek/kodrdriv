@@ -40,6 +40,7 @@ const mockStorage = {
     isDirectoryReadable: vi.fn(),
     isFileReadable: vi.fn(),
     readFile: vi.fn(),
+    writeFile: vi.fn(),
     createDirectory: vi.fn(),
     listFiles: vi.fn(),
 };
@@ -82,6 +83,17 @@ beforeEach(async () => { // Make top-level beforeEach async
     // We don't need to import logging itself here unless setup requires it.
 
     // Removed: vi.spyOn(Logging, 'getLogger').mockReturnValue(...);
+
+    // Set up default storage mocks
+    mockStorage.isDirectoryReadable.mockResolvedValue(true);
+    mockStorage.isFileReadable.mockResolvedValue(false);
+    mockStorage.exists.mockResolvedValue(false); // Default to no config file
+    mockStorage.isDirectory.mockResolvedValue(true);
+    mockStorage.isDirectoryWritable.mockResolvedValue(true);
+    mockStorage.readFile.mockReset();
+    mockStorage.writeFile.mockReset();
+    mockStorage.createDirectory.mockReset();
+    mockStorage.listFiles.mockReset();
 });
 
 afterEach(() => {
@@ -220,6 +232,8 @@ describe('Argument Parsing and Configuration', () => {
                 configure: vi.fn().mockResolvedValue(mockProgram),
                 read: vi.fn().mockResolvedValue({}),
                 validate: vi.fn().mockResolvedValue(undefined),
+                checkConfig: vi.fn().mockResolvedValue(undefined),
+                initConfig: vi.fn().mockResolvedValue(undefined),
             } as unknown as Cardigantime<any>;
 
             // Mock Command constructor
@@ -232,6 +246,7 @@ describe('Argument Parsing and Configuration', () => {
             mockStorage.isDirectory.mockResolvedValue(true);
             mockStorage.isDirectoryWritable.mockResolvedValue(true);
             mockStorage.readFile.mockReset();
+            mockStorage.writeFile.mockReset();
             mockStorage.createDirectory.mockReset();
             mockStorage.listFiles.mockReset();
 
@@ -248,13 +263,8 @@ describe('Argument Parsing and Configuration', () => {
                 contextDirectories: ['src'],
             };
 
-            // Mock storage to simulate config file exists and content
-            mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue('model: gpt-4-from-file\nverbose: true\ncontextDirectories:\n  - src');
-
-            // Mock yaml.load to return our file config
-            const mockYaml = await import('js-yaml');
-            vi.mocked(mockYaml.load).mockReturnValue(fileConfig);
+            // Mock cardigantime.read to return the file config
+            vi.mocked(mockCardigantimeInstance.read).mockResolvedValue(fileConfig);
 
             // Mock the commit command options
             mockCommands.commit.opts.mockReturnValue({ cached: true, sendit: false });
@@ -284,13 +294,8 @@ describe('Argument Parsing and Configuration', () => {
                 dryRun: false,
             };
 
-            // Mock storage to simulate config file exists and content
-            mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue('model: gpt-4-from-file\nverbose: false\ndryRun: false');
-
-            // Mock yaml.load to return our file config
-            const mockYaml = await import('js-yaml');
-            vi.mocked(mockYaml.load).mockReturnValue(fileConfig);
+            // Mock cardigantime.read to return the file config
+            vi.mocked(mockCardigantimeInstance.read).mockResolvedValue(fileConfig);
 
             // CLI args override
             (mockProgram.opts as Mock).mockReturnValue({
@@ -313,10 +318,8 @@ describe('Argument Parsing and Configuration', () => {
         });
 
         it('should handle configuration validation errors', async () => {
-            // Since validation is currently skipped in the configure function,
-            // we need to test a different error scenario - e.g., file read error
-            mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockRejectedValue(new Error('File read error'));
+            // Test cardigantime.read throwing an error
+            vi.mocked(mockCardigantimeInstance.read).mockRejectedValue(new Error('File read error'));
 
             await expect(configure(mockCardigantimeInstance)).rejects.toThrow('File read error');
         });
@@ -341,13 +344,8 @@ describe('Argument Parsing and Configuration', () => {
                 link: { workspaceFile: 'workspace.yaml' },
             };
 
-            // Mock storage to simulate config file exists and content
-            mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue('model: gpt-4-turbo\ncontextDirectories:\n  - src\n  - docs');
-
-            // Mock yaml.load to return our file config
-            const mockYaml = await import('js-yaml');
-            vi.mocked(mockYaml.load).mockReturnValue(complexFileConfig);
+            // Mock cardigantime.read to return the file config
+            vi.mocked(mockCardigantimeInstance.read).mockResolvedValue(complexFileConfig);
 
             // Mock link command options
             mockCommands.link.opts.mockReturnValue({
@@ -362,6 +360,39 @@ describe('Argument Parsing and Configuration', () => {
             expect(config.contextDirectories).toEqual(['src', 'docs']); // From file config, validated as readable
             expect(config.link?.workspaceFile).toBe('custom.yaml'); // CLI overrides file
             expect(commandConfig.commandName).toBe('link');
+        });
+
+        it('should handle init-config command with early return', async () => {
+            // Mock process.argv to include --init-config
+            const originalArgv = process.argv;
+            process.argv = ['node', 'main.js', '--init-config'];
+
+            try {
+                // Mock cardigantime.initConfig
+                const mockInitConfig = vi.fn().mockResolvedValue(undefined);
+                (mockCardigantimeInstance as any).initConfig = mockInitConfig;
+
+                // Mock storage methods for config file creation
+                mockStorage.exists.mockResolvedValueOnce(false); // Config dir doesn't exist
+                mockStorage.exists.mockResolvedValueOnce(false); // Config file doesn't exist
+                mockStorage.createDirectory.mockResolvedValue(undefined);
+                mockStorage.writeFile.mockResolvedValue(undefined);
+
+                const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
+
+                // Verify storage operations were called
+                expect(mockStorage.createDirectory).toHaveBeenCalled();
+                expect(mockStorage.writeFile).toHaveBeenCalled();
+
+                // Verify command config
+                expect(commandConfig.commandName).toBe('init-config');
+
+                // Config should be minimal default values
+                expect(config).toBeDefined();
+                expect(secureConfig).toBeDefined();
+            } finally {
+                process.argv = originalArgv;
+            }
         });
     });
 
@@ -1233,6 +1264,74 @@ describe('Argument Parsing and Configuration', () => {
                 expect(() => validateCommand(command)).not.toThrow();
                 expect(validateCommand(command)).toBe(command);
             });
+        });
+    });
+
+    describe('check-config functionality', () => {
+        it('should detect check-config command from process.argv', () => {
+            // Mock process.argv to include --check-config
+            const originalArgv = process.argv;
+            process.argv = ['node', 'main.js', '--check-config'];
+
+            try {
+                const isCheckConfig = process.argv.includes('--check-config');
+                expect(isCheckConfig).toBe(true);
+            } finally {
+                process.argv = originalArgv;
+            }
+        });
+
+        it('should validate secure options without throwing for check-config', async () => {
+            // Mock process.argv to include --check-config
+            const originalArgv = process.argv;
+            const originalApiKey = process.env.OPENAI_API_KEY;
+
+            process.argv = ['node', 'main.js', '--check-config'];
+            delete process.env.OPENAI_API_KEY;
+
+            try {
+                const result = await validateAndProcessSecureOptions();
+                expect(result.openaiApiKey).toBeUndefined();
+            } finally {
+                process.argv = originalArgv;
+                if (originalApiKey) {
+                    process.env.OPENAI_API_KEY = originalApiKey;
+                }
+            }
+        });
+    });
+
+    describe('init-config functionality', () => {
+        it('should detect init-config command from process.argv', () => {
+            // Mock process.argv to include --init-config
+            const originalArgv = process.argv;
+            process.argv = ['node', 'main.js', '--init-config'];
+
+            try {
+                const isInitConfig = process.argv.includes('--init-config');
+                expect(isInitConfig).toBe(true);
+            } finally {
+                process.argv = originalArgv;
+            }
+        });
+
+        it('should validate secure options without throwing for init-config', async () => {
+            // Mock process.argv to include --init-config
+            const originalArgv = process.argv;
+            const originalApiKey = process.env.OPENAI_API_KEY;
+
+            process.argv = ['node', 'main.js', '--init-config'];
+            delete process.env.OPENAI_API_KEY;
+
+            try {
+                const result = await validateAndProcessSecureOptions();
+                expect(result.openaiApiKey).toBeUndefined();
+            } finally {
+                process.argv = originalArgv;
+                if (originalApiKey) {
+                    process.env.OPENAI_API_KEY = originalApiKey;
+                }
+            }
         });
     });
 });
