@@ -46,7 +46,12 @@ jobs:
         run: |
           # Change to docs directory and install dependencies
           cd docs
-          pnpm install --frozen-lockfile
+          # Create lockfile if it doesn't exist
+          if [ ! -f pnpm-lock.yaml ]; then
+            pnpm install --no-frozen-lockfile
+          else
+            pnpm install --frozen-lockfile
+          fi
           
           # Copy README.md to public directory so it can be fetched
           cp ../README.md public/
