@@ -234,6 +234,7 @@ describe('Argument Parsing and Configuration', () => {
                 validate: vi.fn().mockResolvedValue(undefined),
                 checkConfig: vi.fn().mockResolvedValue(undefined),
                 initConfig: vi.fn().mockResolvedValue(undefined),
+                generateConfig: vi.fn().mockResolvedValue(undefined),
             } as unknown as Cardigantime<any>;
 
             // Mock Command constructor
@@ -368,9 +369,9 @@ describe('Argument Parsing and Configuration', () => {
             process.argv = ['node', 'main.js', '--init-config'];
 
             try {
-                // Mock cardigantime.initConfig
-                const mockInitConfig = vi.fn().mockResolvedValue(undefined);
-                (mockCardigantimeInstance as any).initConfig = mockInitConfig;
+                // Mock cardigantime.generateConfig
+                const mockGenerateConfig = vi.fn().mockResolvedValue(undefined);
+                (mockCardigantimeInstance as any).generateConfig = mockGenerateConfig;
 
                 // Mock storage methods for config file creation
                 mockStorage.exists.mockResolvedValueOnce(false); // Config dir doesn't exist
@@ -380,9 +381,8 @@ describe('Argument Parsing and Configuration', () => {
 
                 const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
 
-                // Verify storage operations were called
-                expect(mockStorage.createDirectory).toHaveBeenCalled();
-                expect(mockStorage.writeFile).toHaveBeenCalled();
+                // Verify generateConfig was called with default config directory
+                expect(mockGenerateConfig).toHaveBeenCalledWith('.kodrdriv');
 
                 // Verify command config
                 expect(commandConfig.commandName).toBe('init-config');
