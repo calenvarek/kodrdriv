@@ -1,6 +1,6 @@
 {
     "name": "@eldrforge/kodrdriv",
-    "version": "0.0.9",
+    "version": "0.0.10",
     "description": "Create Intelligent Release Notes or Change Logs from Git",
     "main": "dist/main.js",
     "type": "module",
@@ -21,7 +21,12 @@
         "lint": "eslint . --ext .ts",
         "lint:fix": "eslint . --ext .ts --fix",
         "clean": "rm -rf dist",
-        "prepublishOnly": "npm run clean && npm run lint && npm run build && npm run test"
+        "prepublishOnly": "npm run clean && npm run lint && npm run build && npm run test",
+        "docs:dev": "cd docs && cp ../README.md public/ && pnpm install && pnpm run dev",
+        "docs:build": "cd docs && cp ../README.md public/ && pnpm install && pnpm run build",
+        "docs:preview": "cd docs && pnpm run preview",
+        "docs:test": "cd docs && pnpm run test",
+        "docs:coverage": "cd docs && pnpm run coverage"
     },
     "keywords": [
         "git",
@@ -35,7 +40,7 @@
     "dependencies": {
         "@octokit/rest": "^22.0.0",
         "@riotprompt/riotprompt": "^0.0.2",
-        "@theunwalked/cardigantime": "^0.0.5",
+        "@theunwalked/cardigantime": "^0.0.12",
         "commander": "^14.0.0",
         "dayjs": "^1.11.13",
         "dotenv": "^17.0.0",
@@ -52,7 +57,7 @@
         "@eslint/eslintrc": "^3.3.1",
         "@eslint/js": "^9.30.0",
         "@rollup/plugin-replace": "^6.0.2",
-        "@swc/core": "^1.12.7",
+        "@swc/core": "^1.12.9",
         "@types/js-yaml": "^4.0.9",
         "@types/luxon": "^3.6.2",
         "@types/node": "^24.0.8",
@@ -65,7 +70,7 @@
         "esbuild": "0.25.5",
         "eslint": "^9.30.0",
         "eslint-plugin-import": "^2.32.0",
-        "globals": "^16.2.0",
+        "globals": "^16.3.0",
         "mockdate": "^3.0.5",
         "rollup-plugin-preserve-shebang": "^1.0.1",
         "rollup-plugin-visualizer": "^6.0.3",

@@ -22,10 +22,10 @@ const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<
     const packageMap = new Map<string, string>(); // packageName -> relativePath
 
     const absoluteRootDir = path.resolve(process.cwd(), rootDir);
-    logger.debug(`Scanning directory for packages: ${absoluteRootDir}`);
+    logger.verbose(`Scanning directory for packages: ${absoluteRootDir}`);
 
     if (!await storage.exists(absoluteRootDir) || !await storage.isDirectory(absoluteRootDir)) {
-        logger.debug(`Root directory does not exist or is not a directory: ${absoluteRootDir}`);
+        logger.verbose(`Root directory does not exist or is not a directory: ${absoluteRootDir}`);
         return packageMap;
     }
 
@@ -66,13 +66,13 @@ const findPackagesToUnlink = async (scopeRoots: Record<string, string>, storage:
     const logger = getLogger();
     const packagesToUnlink: string[] = [];
 
-    logger.debug(`Finding packages to unlink from scope roots: ${JSON.stringify(scopeRoots)}`);
+    logger.silly(`Finding packages to unlink from scope roots: ${JSON.stringify(scopeRoots)}`);
 
     // Scan all scope roots to build a comprehensive map of packages that should be unlinked
     const allScopePackages = new Map<string, string>(); // packageName -> relativePath
 
     for (const [scope, rootDir] of Object.entries(scopeRoots)) {
-        logger.debug(`Scanning scope ${scope} at root directory: ${rootDir}`);
+        logger.verbose(`Scanning scope ${scope} at root directory: ${rootDir}`);
         const scopePackages = await scanDirectoryForPackages(rootDir, storage);
 
         // Add packages from this scope to the overall map
@@ -120,7 +120,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
-    logger.info('Starting pnpm workspace unlink management...');
+    logger.verbose('Starting pnpm workspace unlink management...');
 
     // Read current package.json
     const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -136,40 +136,40 @@ export const execute = async (runConfig: Config): Promise<string> => {
         throw new Error(`Failed to parse package.json: ${error}`);
     }
 
-    logger.info(`Processing package: ${packageJson.name || 'unnamed'}`);
+    logger.verbose(`Processing package: ${packageJson.name || 'unnamed'}`);
 
     // Get configuration
     const scopeRoots = runConfig.link?.scopeRoots || {};
     const workspaceFileName = runConfig.link?.workspaceFile || 'pnpm-workspace.yaml';
     const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
 
-    logger.debug('Extracted scopeRoots:', JSON.stringify(scopeRoots));
+    logger.silly('Extracted scopeRoots:', JSON.stringify(scopeRoots));
     logger.debug('Extracted workspaceFileName:', workspaceFileName);
     logger.debug('Extracted isDryRun:', isDryRun);
 
     if (Object.keys(scopeRoots).length === 0) {
-        logger.info('No scope roots configured. Skipping unlink management.');
+        logger.verbose('No scope roots configured. Skipping unlink management.');
         return 'No scope roots configured. Skipping unlink management.';
     }
 
-    logger.info(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);
+    logger.silly(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);
 
     // Find packages to unlink based on scope roots
     const packagesToUnlinkPaths = await findPackagesToUnlink(scopeRoots, storage);
 
     if (packagesToUnlinkPaths.length === 0) {
-        logger.info('No packages found matching scope roots for unlinking.');
+        logger.verbose('No packages found matching scope roots for unlinking.');
         return 'No packages found matching scope roots for unlinking.';
     }
 
-    logger.info(`Found ${packagesToUnlinkPaths.length} packages that could be unlinked: ${packagesToUnlinkPaths.join(', ')}`);
+    logger.verbose(`Found ${packagesToUnlinkPaths.length} packages that could be unlinked: ${packagesToUnlinkPaths.join(', ')}`);
 
     // Read existing workspace configuration
     const workspaceFilePath = path.join(process.cwd(), workspaceFileName);
     const workspaceConfig = await readCurrentWorkspaceFile(workspaceFilePath, storage);
 
-    if (!workspaceConfig.overrides) {
-        logger.info('No overrides found in workspace file. Nothing to do.');
+    if (!workspaceConfig.overrides || Object.keys(workspaceConfig.overrides).length === 0) {
+        logger.verbose('No overrides found in workspace file. Nothing to do.');
         return 'No overrides found in workspace file. Nothing to do.';
     }
 
@@ -188,7 +188,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     }
 
     if (actuallyRemovedPackages.length === 0) {
-        logger.info('No linked packages found in workspace file that match scope roots.');
+        logger.verbose('No linked packages found in workspace file that match scope roots.');
         return 'No linked packages found in workspace file that match scope roots.';
     }
 
@@ -203,18 +203,18 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Write the updated workspace file
     if (isDryRun) {
-        logger.info('DRY RUN: Would write the following workspace configuration:');
-        logger.info(yaml.dump(updatedConfig, { indent: 2 }));
-        logger.info(`DRY RUN: Would remove ${actuallyRemovedPackages.length} packages: ${actuallyRemovedPackages.join(', ')}`);
+        logger.verbose('DRY RUN: Would write the following workspace configuration:');
+        logger.silly(yaml.dump(updatedConfig, { indent: 2 }));
+        logger.verbose(`DRY RUN: Would remove ${actuallyRemovedPackages.length} packages: ${actuallyRemovedPackages.join(', ')}`);
     } else {
         await writeWorkspaceFile(workspaceFilePath, updatedConfig, storage);
-        logger.info(`Updated ${workspaceFileName} - removed ${actuallyRemovedPackages.length} linked packages from overrides.`);
+        logger.verbose(`Updated ${workspaceFileName} - removed ${actuallyRemovedPackages.length} linked packages from overrides.`);
 
         // Rebuild pnpm lock file and node_modules
-        logger.info('Rebuilding pnpm lock file and node_modules...');
+        logger.verbose('Rebuilding pnpm lock file and node_modules...');
         try {
             await run('pnpm install');
-            logger.info('Successfully rebuilt pnpm lock file and node_modules');
+            logger.verbose('Successfully rebuilt pnpm lock file and node_modules');
         } catch (error) {
             logger.warn(`Failed to rebuild dependencies: ${error}. You may need to run 'pnpm install' manually.`);
         }

@@ -5,34 +5,9 @@ export interface LogContext {
     [key: string]: any;
 }
 
-const createLogger = (level: string = 'info') => {
-
-    let format = winston.format.combine(
-        winston.format.timestamp({ format: DATE_FORMAT_YEAR_MONTH_DAY_HOURS_MINUTES_SECONDS }),
-        winston.format.errors({ stack: true }),
-        winston.format.splat(),
-        winston.format.json()
-    );
-
-    let transports = [
-        new winston.transports.Console({
-            format: winston.format.combine(
-                winston.format.colorize(),
-                winston.format.printf(({ timestamp, level, message, ...meta }) => {
-                    const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-                    return `${timestamp} ${level}: ${message}${metaStr}`;
-                })
-            )
-        })
-    ];
-
+const createTransports = (level: string) => {
     if (level === 'info') {
-        format = winston.format.combine(
-            winston.format.errors({ stack: true }),
-            winston.format.splat(),
-        );
-
-        transports = [
+        return [
             new winston.transports.Console({
                 format: winston.format.combine(
                     winston.format.colorize(),
@@ -44,18 +19,51 @@ const createLogger = (level: string = 'info') => {
         ];
     }
 
-    return winston.createLogger({
-        level,
-        format,
-        defaultMeta: { service: PROGRAM_NAME },
-        transports,
-    });
+    return [
+        new winston.transports.Console({
+            format: winston.format.combine(
+                winston.format.colorize(),
+                winston.format.printf(({ timestamp, level, message, ...meta }) => {
+                    const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+                    return `${timestamp} ${level}: ${message}${metaStr}`;
+                })
+            )
+        })
+    ];
 };
 
-let logger = createLogger();
+const createFormat = (level: string) => {
+    if (level === 'info') {
+        return winston.format.combine(
+            winston.format.errors({ stack: true }),
+            winston.format.splat(),
+        );
+    }
+
+    return winston.format.combine(
+        winston.format.timestamp({ format: DATE_FORMAT_YEAR_MONTH_DAY_HOURS_MINUTES_SECONDS }),
+        winston.format.errors({ stack: true }),
+        winston.format.splat(),
+        winston.format.json()
+    );
+};
+
+// Create the logger instance once
+const logger = winston.createLogger({
+    level: 'info',
+    format: createFormat('info'),
+    defaultMeta: { service: PROGRAM_NAME },
+    transports: createTransports('info'),
+});
 
 export const setLogLevel = (level: string) => {
-    logger = createLogger(level);
+    // Reconfigure the existing logger instead of creating a new one
+    logger.configure({
+        level,
+        format: createFormat(level),
+        defaultMeta: { service: PROGRAM_NAME },
+        transports: createTransports(level),
+    });
 };
 
 export const getLogger = () => logger; 

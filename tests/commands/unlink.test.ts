@@ -32,12 +32,14 @@ vi.stubGlobal('process', {
 
 // Mock the dependencies
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn(() => ({
+    getLogger: vi.fn().mockReturnValue({
         info: vi.fn(),
-        debug: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),
-    })),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    })
 }));
 
 vi.mock('../../src/util/storage', () => ({

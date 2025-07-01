@@ -22,10 +22,10 @@ const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<
     const packageMap = new Map<string, string>(); // packageName -> relativePath
 
     const absoluteRootDir = path.resolve(process.cwd(), rootDir);
-    logger.debug(`Scanning directory for packages: ${absoluteRootDir}`);
+    logger.verbose(`Scanning directory for packages: ${absoluteRootDir}`);
 
     if (!await storage.exists(absoluteRootDir) || !await storage.isDirectory(absoluteRootDir)) {
-        logger.debug(`Root directory does not exist or is not a directory: ${absoluteRootDir}`);
+        logger.verbose(`Root directory does not exist or is not a directory: ${absoluteRootDir}`);
         return packageMap;
     }
 
@@ -66,13 +66,13 @@ const findPackagesByScope = async (dependencies: Record<string, string>, scopeRo
     const logger = getLogger();
     const workspacePackages = new Map<string, string>();
 
-    logger.debug(`Checking dependencies against scope roots: ${JSON.stringify(scopeRoots)}`);
+    logger.silly(`Checking dependencies against scope roots: ${JSON.stringify(scopeRoots)}`);
 
     // First, scan all scope roots to build a comprehensive map of available packages
     const allPackages = new Map<string, string>(); // packageName -> relativePath
 
     for (const [scope, rootDir] of Object.entries(scopeRoots)) {
-        logger.debug(`Scanning scope ${scope} at root directory: ${rootDir}`);
+        logger.verbose(`Scanning scope ${scope} at root directory: ${rootDir}`);
         const scopePackages = await scanDirectoryForPackages(rootDir, storage);
 
         // Add packages from this scope to the overall map
@@ -91,7 +91,7 @@ const findPackagesByScope = async (dependencies: Record<string, string>, scopeRo
         if (allPackages.has(depName)) {
             const packagePath = allPackages.get(depName)!;
             workspacePackages.set(depName, packagePath);
-            logger.info(`Found sibling package: ${depName} at ${packagePath}`);
+            logger.verbose(`Found sibling package: ${depName} at ${packagePath}`);
         }
     }
 
@@ -124,7 +124,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
-    logger.info('Starting pnpm workspace link management using overrides...');
+    logger.verbose('Starting pnpm workspace link management using overrides...');
 
     // Read current package.json
     const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -140,23 +140,23 @@ export const execute = async (runConfig: Config): Promise<string> => {
         throw new Error(`Failed to parse package.json: ${error}`);
     }
 
-    logger.info(`Processing package: ${packageJson.name || 'unnamed'}`);
+    logger.verbose(`Processing package: ${packageJson.name || 'unnamed'}`);
 
     // Get configuration
     const scopeRoots = runConfig.link?.scopeRoots || {};
     const workspaceFileName = runConfig.link?.workspaceFile || 'pnpm-workspace.yaml';
     const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
 
-    logger.debug('Extracted scopeRoots:', JSON.stringify(scopeRoots));
+    logger.silly('Extracted scopeRoots:', JSON.stringify(scopeRoots));
     logger.debug('Extracted workspaceFileName:', workspaceFileName);
     logger.debug('Extracted isDryRun:', isDryRun);
 
     if (Object.keys(scopeRoots).length === 0) {
-        logger.info('No scope roots configured. Skipping link management.');
+        logger.verbose('No scope roots configured. Skipping link management.');
         return 'No scope roots configured. Skipping link management.';
     }
 
-    logger.info(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);
+    logger.silly(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);
 
     // Collect all dependencies
     const allDependencies = {
@@ -165,17 +165,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
         ...packageJson.peerDependencies
     };
 
-    logger.info(`Found ${Object.keys(allDependencies).length} total dependencies`);
+    logger.verbose(`Found ${Object.keys(allDependencies).length} total dependencies`);
 
     // Find matching sibling packages
     const packagesToLink = await findPackagesByScope(allDependencies, scopeRoots, storage);
 
     if (packagesToLink.size === 0) {
-        logger.info('No matching sibling packages found for linking.');
+        logger.verbose('No matching sibling packages found for linking.');
         return 'No matching sibling packages found for linking.';
     }
 
-    logger.info(`Found ${packagesToLink.size} packages to link: ${[...packagesToLink.keys()].join(', ')}`);
+    logger.verbose(`Found ${packagesToLink.size} packages to link: ${[...packagesToLink.keys()].join(', ')}`);
 
     // Read existing workspace configuration
     const workspaceFilePath = path.join(process.cwd(), workspaceFileName);
@@ -204,17 +204,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Write the updated workspace file
     if (isDryRun) {
-        logger.info('DRY RUN: Would write the following workspace configuration:');
-        logger.info(yaml.dump(updatedConfig, { indent: 2 }));
+        logger.verbose('DRY RUN: Would write the following workspace configuration:');
+        logger.silly(yaml.dump(updatedConfig, { indent: 2 }));
     } else {
         await writeWorkspaceFile(workspaceFilePath, updatedConfig, storage);
-        logger.info(`Updated ${workspaceFileName} with ${packagesToLink.size} linked packages in overrides.`);
+        logger.verbose(`Updated ${workspaceFileName} with ${packagesToLink.size} linked packages in overrides.`);
 
         // Rebuild pnpm lock file and node_modules
-        logger.info('Running pnpm install to apply links...');
+        logger.verbose('Running pnpm install to apply links...');
         try {
             await run('pnpm install');
-            logger.info('Successfully applied links.');
+            logger.verbose('Successfully applied links.');
         } catch (error) {
             logger.warn(`Failed to run pnpm install: ${error}. You may need to run 'pnpm install' manually.`);
         }

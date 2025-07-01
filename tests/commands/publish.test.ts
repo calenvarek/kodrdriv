@@ -28,11 +28,14 @@ vi.mock('../../src/logging', () => ({
         error: vi.fn(),
         warn: vi.fn(),
         debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
     }))
 }));
 
 vi.mock('../../src/util/child', () => ({
-    run: vi.fn()
+    run: vi.fn(),
+    runWithDryRunSupport: vi.fn()
 }));
 
 vi.mock('../../src/util/github', () => ({
@@ -91,9 +94,11 @@ describe('publish command', () => {
         // Setup default mocks
         mockLogger = {
             info: vi.fn(),
-            error: vi.fn(),
             warn: vi.fn(),
-            debug: vi.fn()
+            error: vi.fn(),
+            debug: vi.fn(),
+            verbose: vi.fn(),
+            silly: vi.fn()
         };
 
         mockStorage = {
@@ -731,21 +736,21 @@ cache=\${CACHE_DIR}/npm
             expect(GitHub.getCurrentBranchName).toHaveBeenCalled();
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled();
-            expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
-            expect(Child.run).toHaveBeenCalledWith('git add package.json pnpm-lock.yaml');
-            expect(Child.run).toHaveBeenCalledWith('pnpm run prepublishOnly');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json pnpm-lock.yaml', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm run prepublishOnly', false);
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Child.run).toHaveBeenCalledWith('pnpm version patch');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm version patch', false);
             expect(Release.execute).toHaveBeenCalledWith(mockConfig);
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotesBody, 'utf-8');
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
-            expect(Child.run).toHaveBeenCalledWith('git push --follow-tags');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push --follow-tags', false);
             expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123);
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
-            expect(Child.run).toHaveBeenCalledWith('git checkout main');
-            expect(Child.run).toHaveBeenCalledWith('git pull origin main');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
             expect(Child.run).toHaveBeenCalledWith('git checkout -b release/0.0.5');
             expect(Child.run).toHaveBeenCalledWith('git push -u origin release/0.0.5');
@@ -982,6 +987,7 @@ cache=\${CACHE_DIR}/npm
                 return Promise.resolve('');
             });
 
+            // Mock Child.run for prechecks to succeed
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
                     return Promise.resolve({ stdout: '.git' });
@@ -989,6 +995,11 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git status --porcelain') {
                     return Promise.resolve({ stdout: '' });
                 }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            // Mock runWithDryRunSupport to fail for prepublishOnly
+            Child.runWithDryRunSupport.mockImplementation((command: string) => {
                 if (command === 'pnpm run prepublishOnly') {
                     return Promise.reject(new Error('Tests failed'));
                 }
@@ -1092,6 +1103,11 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'pnpm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            // Mock runWithDryRunSupport to succeed until the writeFile failure
+            Child.runWithDryRunSupport.mockImplementation((command: string) => {
                 return Promise.resolve({ stdout: '' });
             });
 
@@ -1244,6 +1260,11 @@ cache=\${CACHE_DIR}/npm
                 return Promise.resolve({ stdout: '' });
             });
 
+            // Mock runWithDryRunSupport to succeed
+            Child.runWithDryRunSupport.mockImplementation((command: string) => {
+                return Promise.resolve({ stdout: '' });
+            });
+
             GitHub.createPullRequest.mockResolvedValue(mockPR);
             GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
             GitHub.mergePullRequest.mockResolvedValue(undefined);
@@ -1269,7 +1290,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify patterns are used in pnpm update command
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
-            expect(Child.run).toHaveBeenCalledWith('pnpm update --latest @company/* @myorg/*');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest @company/* @myorg/*', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
         });
 
@@ -1319,6 +1340,11 @@ cache=\${CACHE_DIR}/npm
                 return Promise.resolve({ stdout: '' });
             });
 
+            // Mock runWithDryRunSupport to succeed
+            Child.runWithDryRunSupport.mockImplementation((command: string) => {
+                return Promise.resolve({ stdout: '' });
+            });
+
             GitHub.createPullRequest.mockResolvedValue(mockPR);
             GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
             GitHub.mergePullRequest.mockResolvedValue(undefined);
@@ -1344,7 +1370,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify fallback to update all dependencies
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
-            expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
         });
 
@@ -1375,7 +1401,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             Diff.hasStagedChanges.mockResolvedValue(false);
-            Release.execute.mockResolvedValue(mockReleaseNotesBody);
+            Release.execute.mockResolvedValue({ title: mockReleaseTitle, body: mockReleaseNotesBody });
 
             Child.run.mockImplementation((command: string) => {
                 if (command === 'git rev-parse --git-dir') {
@@ -1390,6 +1416,11 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'pnpm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            // Mock runWithDryRunSupport to succeed
+            Child.runWithDryRunSupport.mockImplementation((command: string) => {
                 return Promise.resolve({ stdout: '' });
             });
 
@@ -1418,7 +1449,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify fallback to update all dependencies when empty array
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
-            expect(Child.run).toHaveBeenCalledWith('pnpm update --latest');
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
         });
     });
