@@ -166,4 +166,73 @@ export const createRelease = async (tagName: string, title: string, notes: strin
         body: notes,
     });
     logger.info(`Release ${tagName} created.`);
+};
+
+export const getOpenIssues = async (limit: number = 20): Promise<string> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Fetching up to ${limit} open GitHub issues...`);
+
+        const response = await octokit.issues.listForRepo({
+            owner,
+            repo,
+            state: 'open',
+            per_page: Math.min(limit, 100), // GitHub API limit
+            sort: 'updated',
+            direction: 'desc',
+        });
+
+        const issues = response.data.filter(issue => !issue.pull_request); // Filter out PRs
+
+        if (issues.length === 0) {
+            logger.debug('No open issues found');
+            return '';
+        }
+
+        const issueStrings = issues.slice(0, limit).map(issue => {
+            const labels = issue.labels.map(label =>
+                typeof label === 'string' ? label : label.name
+            ).join(', ');
+
+            return [
+                `Issue #${issue.number}: ${issue.title}`,
+                `Labels: ${labels || 'none'}`,
+                `Created: ${issue.created_at}`,
+                `Updated: ${issue.updated_at}`,
+                `Body: ${issue.body?.substring(0, 500) || 'No description'}${issue.body && issue.body.length > 500 ? '...' : ''}`,
+                '---'
+            ].join('\n');
+        });
+
+        logger.debug(`Fetched ${issues.length} open issues`);
+        return issueStrings.join('\n\n');
+    } catch (error: any) {
+        logger.warn('Failed to fetch GitHub issues: %s', error.message);
+        return '';
+    }
+};
+
+export const createIssue = async (
+    title: string,
+    body: string,
+    labels?: string[]
+): Promise<{ number: number; html_url: string }> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+
+    const response = await octokit.issues.create({
+        owner,
+        repo,
+        title,
+        body,
+        labels: labels || [],
+    });
+
+    return {
+        number: response.data.number,
+        html_url: response.data.html_url,
+    };
 }; 

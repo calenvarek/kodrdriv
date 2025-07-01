@@ -22,6 +22,7 @@ export interface Utility {
     isDirectoryWritable: (path: string) => Promise<boolean>;
     isDirectoryReadable: (path: string) => Promise<boolean>;
     createDirectory: (path: string) => Promise<void>;
+    ensureDirectory: (path: string) => Promise<void>;
     readFile: (path: string, encoding: string) => Promise<string>;
     readStream: (path: string) => Promise<fs.ReadStream>;
     writeFile: (path: string, data: string | Buffer, encoding: string) => Promise<void>;
@@ -29,6 +30,7 @@ export interface Utility {
     forEachFileIn: (directory: string, callback: (path: string) => Promise<void>, options?: { pattern: string }) => Promise<void>;
     hashFile: (path: string, length: number) => Promise<string>;
     listFiles: (directory: string) => Promise<string[]>;
+    removeDirectory: (path: string) => Promise<void>;
 }
 
 export const create = (params: { log?: (message: string, ...args: any[]) => void }): Utility => {
@@ -104,6 +106,22 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
         }
     }
 
+    const ensureDirectory = async (path: string): Promise<void> => {
+        if (!(await exists(path))) {
+            await createDirectory(path);
+        }
+    }
+
+    const removeDirectory = async (path: string): Promise<void> => {
+        try {
+            if (await exists(path)) {
+                await fs.promises.rm(path, { recursive: true, force: true });
+            }
+        } catch (rmError: any) {
+            throw new Error(`Failed to remove directory ${path}: ${rmError.message} ${rmError.stack}`);
+        }
+    }
+
     const readFile = async (path: string, encoding: string): Promise<string> => {
         return await fs.promises.readFile(path, { encoding: encoding as BufferEncoding });
     }
@@ -150,6 +168,7 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
         isDirectoryWritable,
         isDirectoryReadable,
         createDirectory,
+        ensureDirectory,
         readFile,
         readStream,
         writeFile,
@@ -157,5 +176,6 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
         forEachFileIn,
         hashFile,
         listFiles,
+        removeDirectory,
     };
 }

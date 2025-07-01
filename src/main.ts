@@ -2,12 +2,15 @@
 import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
 import * as Arguments from './arguments';
+import * as AudioCommit from './commands/audio-commit';
+import * as AudioReview from './commands/audio-review';
+import * as Clean from './commands/clean';
 import * as Commit from './commands/commit';
 import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as Release from './commands/release';
 import * as Unlink from './commands/unlink';
-import { COMMAND_CHECK_CONFIG, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { CommandConfig } from 'types';
 import { Config, ConfigSchema, SecureConfig } from './types';
@@ -88,7 +91,7 @@ export async function main() {
         let commandName = commandConfig.commandName;
 
         // If we have a specific command argument, use that
-        if (command === 'commit' || command === 'release' || command === 'publish' || command === 'link' || command === 'unlink') {
+        if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean') {
             commandName = command;
         }
 
@@ -96,6 +99,8 @@ export async function main() {
 
         if (commandName === COMMAND_COMMIT) {
             summary = await Commit.execute(runConfig);
+        } else if (commandName === COMMAND_AUDIO_COMMIT) {
+            summary = await AudioCommit.execute(runConfig);
         } else if (commandName === COMMAND_RELEASE) {
             const releaseSummary = await Release.execute(runConfig);
             summary = `${releaseSummary.title}\n\n${releaseSummary.body}`;
@@ -105,6 +110,11 @@ export async function main() {
             summary = await Link.execute(runConfig);
         } else if (commandName === COMMAND_UNLINK) {
             summary = await Unlink.execute(runConfig);
+        } else if (commandName === COMMAND_AUDIO_REVIEW) {
+            summary = await AudioReview.execute(runConfig);
+        } else if (commandName === COMMAND_CLEAN) {
+            await Clean.execute(runConfig);
+            summary = 'Output directory cleaned successfully.';
         }
 
         // eslint-disable-next-line no-console

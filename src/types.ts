@@ -9,6 +9,7 @@ export const ConfigSchema = z.object({
     instructions: z.string().optional(),
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
+    outputDirectory: z.string().optional(),
     commit: z.object({
         add: z.boolean().optional(),
         cached: z.boolean().optional(),
@@ -21,6 +22,18 @@ export const ConfigSchema = z.object({
         to: z.string().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+    }).optional(),
+    audioReview: z.object({
+        includeCommitHistory: z.boolean().optional(),
+        includeRecentDiffs: z.boolean().optional(),
+        includeReleaseNotes: z.boolean().optional(),
+        includeGithubIssues: z.boolean().optional(),
+        commitHistoryLimit: z.number().optional(),
+        diffHistoryLimit: z.number().optional(),
+        releaseNotesLimit: z.number().optional(),
+        githubIssuesLimit: z.number().optional(),
+        context: z.string().optional(),
+        sendit: z.boolean().optional(),
     }).optional(),
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -68,6 +81,19 @@ export type ReleaseConfig = {
     from?: string;
     to?: string;
     context?: string;
+}
+
+export type AudioReviewConfig = {
+    includeCommitHistory?: boolean;
+    includeRecentDiffs?: boolean;
+    includeReleaseNotes?: boolean;
+    includeGithubIssues?: boolean;
+    commitHistoryLimit?: number;
+    diffHistoryLimit?: number;
+    releaseNotesLimit?: number;
+    githubIssuesLimit?: number;
+    context?: string;
+    sendit?: boolean;
 }
 
 export type PublishConfig = {

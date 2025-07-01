@@ -1,3 +1,5 @@
+import path from 'path';
+
 // Utility function for deep merging two objects.
 export function deepMerge(target: any, source: any): any {
     for (const key in source) {
@@ -83,4 +85,26 @@ export const incrementPatchVersion = (version: string): string => {
     }
     parts[2] = (patch + 1).toString();
     return parts.join('.');
+};
+
+export const getOutputPath = (outputDirectory: string, filename: string): string => {
+    return path.join(outputDirectory, filename);
+};
+
+export const getTimestampedFilename = (baseName: string, extension: string = '.json'): string => {
+    const now = new Date();
+    const timestamp = now.toISOString()
+        .replace(/:/g, '-')  // Replace colons with hyphens (filename safe)
+        .replace(/\./g, '-') // Replace dots with hyphens
+        .slice(0, -1);       // Remove the trailing 'Z'
+
+    return `${timestamp}-${baseName}${extension}`;
+};
+
+export const getTimestampedRequestFilename = (baseName: string): string => {
+    return getTimestampedFilename(baseName, '.request.json');
+};
+
+export const getTimestampedResponseFilename = (baseName: string): string => {
+    return getTimestampedFilename(baseName, '.response.json');
 };
