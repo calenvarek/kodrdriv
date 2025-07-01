@@ -3,15 +3,16 @@ import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import shellescape from 'shell-escape';
-import { DEFAULT_EXCLUDED_PATTERNS } from '../constants';
+import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Diff from '../content/diff';
 import * as Log from '../content/log';
 import { getLogger } from '../logging';
 import * as Prompts from '../prompt/prompts';
 import { Config } from '../types';
 import { run } from '../util/child';
-import { stringifyJSON } from '../util/general';
+import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename } from '../util/general';
 import { createCompletion } from '../util/openai';
+import { create as createStorage } from '../util/storage';
 
 export const execute = async (runConfig: Config) => {
     const logger = getLogger();
@@ -63,7 +64,18 @@ export const execute = async (runConfig: Config) => {
 
     const request: Request = prompts.format(prompt);
 
-    const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], { model: runConfig.model });
+    if (runConfig.debug) {
+        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const storage = createStorage({ log: logger.info });
+        await storage.ensureDirectory(outputDirectory);
+    }
+
+    const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], {
+        model: runConfig.model,
+        debug: runConfig.debug,
+        debugRequestFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')) : undefined,
+        debugResponseFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')) : undefined,
+    });
 
     if (runConfig.commit?.sendit) {
         if (!cached && !isDryRun) {
