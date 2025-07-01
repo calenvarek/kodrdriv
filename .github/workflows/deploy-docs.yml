@@ -44,20 +44,22 @@ jobs:
         
       - name: Build documentation site
         run: |
+          # Temporarily disable workspace for docs build
+          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
+          
           # Change to docs directory and install dependencies
           cd docs
-          # Create lockfile if it doesn't exist
-          if [ ! -f pnpm-lock.yaml ]; then
-            pnpm install --no-frozen-lockfile
-          else
-            pnpm install --frozen-lockfile
-          fi
+          pnpm install --no-frozen-lockfile
           
           # Copy README.md to public directory so it can be fetched
           cp ../README.md public/
           
           # Build the Vite documentation site
           pnpm run build
+          
+          # Restore workspace file
+          cd ..
+          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
