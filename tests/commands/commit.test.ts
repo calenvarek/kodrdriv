@@ -61,7 +61,10 @@ vi.mock('../../src/logging', () => ({
 
 vi.mock('../../src/util/general', () => ({
     // @ts-ignore
-    stringifyJSON: vi.fn()
+    stringifyJSON: vi.fn(),
+    getOutputPath: vi.fn(),
+    getTimestampedRequestFilename: vi.fn(),
+    getTimestampedResponseFilename: vi.fn()
 }));
 
 vi.mock('shell-escape', () => ({

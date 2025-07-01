@@ -52,12 +52,14 @@ vi.mock('../../src/util/storage', () => ({
         exists: vi.fn(),
         rename: vi.fn(),
         writeFile: vi.fn(),
-        readFile: vi.fn()
+        readFile: vi.fn(),
+        ensureDirectory: vi.fn()
     }))
 }));
 
 vi.mock('../../src/util/general', () => ({
-    incrementPatchVersion: vi.fn()
+    incrementPatchVersion: vi.fn(),
+    getOutputPath: vi.fn()
 }));
 
 describe('publish command', () => {
@@ -105,10 +107,16 @@ describe('publish command', () => {
             exists: vi.fn(),
             rename: vi.fn(),
             writeFile: vi.fn(),
-            readFile: vi.fn()
+            readFile: vi.fn(),
+            ensureDirectory: vi.fn()
         };
 
         Storage.create.mockReturnValue(mockStorage);
+
+        // Set up General.getOutputPath mock to return expected file paths
+        General.getOutputPath.mockImplementation((outputDirectory: string, filename: string) => {
+            return filename; // For tests, just return the filename
+        });
     });
 
     afterEach(() => {
@@ -171,13 +179,13 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
-                if (filename.includes('.npmrc')) {
+                if (filename && filename.includes('.npmrc')) {
                     return Promise.resolve(npmrcContent);
                 }
                 return Promise.resolve('');
@@ -239,7 +247,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
@@ -295,13 +303,13 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
-                if (filename.includes('.npmrc')) {
+                if (filename && filename.includes('.npmrc')) {
                     throw new Error('Permission denied');
                 }
                 return Promise.resolve('');
@@ -356,7 +364,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
@@ -402,7 +410,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
@@ -546,7 +554,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve('{ invalid json }');
                 }
                 return Promise.resolve('');
@@ -578,7 +586,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0',
                         scripts: {
@@ -616,7 +624,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
                         version: '1.0.0'
                         // No scripts section
@@ -670,7 +678,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify(mockPackageJson));
                 }
                 if (filename === 'RELEASE_NOTES.md') {
@@ -707,7 +715,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run prepublishOnly' } }));
                 }
                 if (filename === 'RELEASE_NOTES.md') {
@@ -781,7 +789,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -859,7 +867,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -894,7 +902,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -981,7 +989,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run clean && pnpm run lint && pnpm run build && pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1056,7 +1064,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1087,7 +1095,7 @@ cache=\${CACHE_DIR}/npm
             });
 
             mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1151,7 +1159,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1197,7 +1205,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1276,7 +1284,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1356,7 +1364,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');
@@ -1435,7 +1443,7 @@ cache=\${CACHE_DIR}/npm
                 if (filename === 'RELEASE_TITLE.md') {
                     return Promise.resolve(mockReleaseTitle);
                 }
-                if (filename.includes('package.json')) {
+                if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
                 }
                 return Promise.resolve('');

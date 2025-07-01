@@ -104,9 +104,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         finalCliArgs.commitHistoryLimit !== undefined ||
         finalCliArgs.diffHistoryLimit !== undefined ||
         finalCliArgs.releaseNotesLimit !== undefined ||
-        finalCliArgs.githubIssuesLimit !== undefined ||
-        finalCliArgs.context !== undefined ||
-        finalCliArgs.sendit !== undefined) {
+        finalCliArgs.githubIssuesLimit !== undefined) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.audioReview.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -116,6 +114,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.diffHistoryLimit !== undefined) transformedCliArgs.audioReview.diffHistoryLimit = finalCliArgs.diffHistoryLimit;
         if (finalCliArgs.releaseNotesLimit !== undefined) transformedCliArgs.audioReview.releaseNotesLimit = finalCliArgs.releaseNotesLimit;
         if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.audioReview.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
+        // Only add context and sendit if we already have an audioReview object from the specific properties above
         if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
     }
