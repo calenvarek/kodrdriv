@@ -30,6 +30,8 @@ export const COMMAND_RELEASE = 'release';
 export const COMMAND_PUBLISH = 'publish';
 export const COMMAND_LINK = 'link';
 export const COMMAND_UNLINK = 'unlink';
+export const COMMAND_CHECK_CONFIG = 'check-config';
+export const COMMAND_INIT_CONFIG = 'init-config';
 export const ALLOWED_COMMANDS = [COMMAND_COMMIT, COMMAND_RELEASE, COMMAND_PUBLISH, COMMAND_LINK, COMMAND_UNLINK];
 export const DEFAULT_COMMAND = COMMAND_COMMIT;
 

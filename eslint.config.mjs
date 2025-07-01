@@ -19,6 +19,7 @@ const compat = new FlatCompat({
 export default defineConfig([
     globalIgnores([
         "dist/**",
+        "docs/**",
         "node_modules/**",
         "**/*.test.ts",
     ]),

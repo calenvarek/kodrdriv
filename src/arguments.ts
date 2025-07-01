@@ -11,6 +11,8 @@ export const InputSchema = z.object({
     verbose: z.boolean().optional(),
     debug: z.boolean().optional(),
     overrides: z.boolean().optional(),
+    checkConfig: z.boolean().optional(),
+    initConfig: z.boolean().optional(),
     openaiApiKey: z.string().optional(),
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
@@ -94,6 +96,8 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     return transformedCliArgs;
 }
 
+
+
 // Update configure signature to accept cardigantime
 export const configure = async (cardigantime: any): Promise<[Config, SecureConfig, CommandConfig]> => {
     const logger = getLogger();
@@ -109,34 +113,58 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     // Let cardigantime add its arguments first
     program = await cardigantime.configure(program);
 
+    // Check if --check-config is in process.argv early
+    if (process.argv.includes('--check-config')) {
+        // For check-config, use CardiganTime's built-in checkConfig method
+        program.parse();
+        const cliArgs: Input = program.opts<Input>();
+
+        // Transform the flat CLI args
+        const transformedCliArgs: Partial<Config> = transformCliArgs(cliArgs);
+
+        // Use CardiganTime's built-in checkConfig method which displays
+        // hierarchical configuration information in a well-formatted way
+        await cardigantime.checkConfig(transformedCliArgs);
+
+        // Return minimal config for consistency, but main processing is done
+        const config: Config = await validateAndProcessOptions({});
+        const secureConfig: SecureConfig = await validateAndProcessSecureOptions();
+        const commandConfig: CommandConfig = { commandName: 'check-config' };
+
+        return [config, secureConfig, commandConfig];
+    }
+
+    // Check if --init-config is in process.argv early
+    if (process.argv.includes('--init-config')) {
+        // For init-config, use CardiganTime's built-in generateConfig method
+        program.parse();
+        const cliArgs: Input = program.opts<Input>();
+
+        // Transform the flat CLI args
+        const transformedCliArgs: Partial<Config> = transformCliArgs(cliArgs);
+
+
+        // Use CardiganTime's built-in generateConfig method
+        await cardigantime.generateConfig(transformedCliArgs.configDirectory || KODRDRIV_DEFAULTS.configDirectory);
+
+        // Return minimal config for consistency, but main processing is done
+        const config: Config = await validateAndProcessOptions({});
+        const secureConfig: SecureConfig = await validateAndProcessSecureOptions();
+        const commandConfig: CommandConfig = { commandName: 'init-config' };
+
+        return [config, secureConfig, commandConfig];
+    }
+
     // Get CLI arguments using the new function
     const [finalCliArgs, commandConfig]: [Input, CommandConfig] = getCliConfig(program);
-    logger.debug('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
+    logger.silly('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
 
     // Transform the flat CLI args using the new function
     const transformedCliArgs: Partial<Config> = transformCliArgs(finalCliArgs);
-    logger.debug('Transformed CLI Args for merging: %s', JSON.stringify(transformedCliArgs, null, 2));
+    logger.silly('Transformed CLI Args for merging: %s', JSON.stringify(transformedCliArgs, null, 2));
 
-    // Get values from config file
-    // Temporary workaround: Read config file manually due to cardigantime parsing issue
-    let fileValues: Partial<Config> = {};
-
-    // Force manual config reading for now
-    const configPath = path.join(process.cwd(), '.kodrdriv', 'config.yaml');
-    const storage = Storage.create({ log: logger.info });
-    const exists = await storage.exists(configPath);
-    if (exists) {
-        const yaml = await import('js-yaml');
-        const configContent = await storage.readFile(configPath, 'utf-8');
-        fileValues = yaml.load(configContent) as Partial<Config>;
-        // Add the configDirectory since it's not in the config file but is required
-        if (!fileValues.configDirectory) {
-            fileValues.configDirectory = '.kodrdriv';
-        }
-    }
-
-    // Temporarily skip cardigantime validation due to parsing issues
-    // await cardigantime.validate(fileValues);
+    // Get values from config file using Cardigantime's hierarchical configuration
+    const fileValues: Partial<Config> = await cardigantime.read(transformedCliArgs) as Partial<Config>;
 
     // Merge configurations: Defaults -> File -> CLI
     // Properly merge the link section to preserve scope roots from config file
@@ -156,7 +184,23 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     // Specific validation and processing after merge
     const config: Config = await validateAndProcessOptions(partialConfig);
 
-    logger.verbose('Final configuration: %s', JSON.stringify(config, null, 2));
+    // Log effective configuration summary at verbose level
+    logger.verbose('Configuration complete. Effective settings:');
+    logger.verbose(`  Command: ${commandConfig.commandName}`);
+    logger.verbose(`  Model: ${config.model}`);
+    logger.verbose(`  Dry run: ${config.dryRun}`);
+    logger.verbose(`  Debug: ${config.debug}`);
+    logger.verbose(`  Verbose: ${config.verbose}`);
+    logger.verbose(`  Config directory: ${config.configDirectory}`);
+    logger.verbose(`  Context directories: ${config.contextDirectories?.join(', ') || 'none'}`);
+    if (config.excludedPatterns && config.excludedPatterns.length > 0) {
+        logger.verbose(`  Excluded patterns: ${config.excludedPatterns.join(', ')}`);
+    }
+    if (Object.keys(config.link?.scopeRoots || {}).length > 0) {
+        logger.verbose(`  Link scope roots: ${Object.keys(config.link!.scopeRoots!).join(', ')}`);
+    }
+
+    logger.silly('Final configuration: %s', JSON.stringify(config, null, 2));
 
     const secureConfig: SecureConfig = await validateAndProcessSecureOptions();
 
@@ -178,6 +222,9 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             .option('--config-dir <configDir>', 'configuration directory') // Keep config-dir for specifying location
             .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff');
     }
+
+    // Add global options to the main program
+    // (cardigantime already adds most global options like --verbose, --debug, --config-dir)
 
     // Add subcommands
     const commitCommand = program
@@ -228,9 +275,8 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
 
     if (program.args.length > 0) {
         commandName = program.args[0];
+        validateCommand(commandName);
     }
-
-    validateCommand(commandName);
 
     // Only proceed with command-specific options if validation passed
     if (ALLOWED_COMMANDS.includes(commandName)) {
@@ -254,11 +300,16 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
 }
 
 export async function validateAndProcessSecureOptions(): Promise<SecureConfig> {
-    if (!process.env.OPENAI_API_KEY) {
+    // For check-config and init-config commands, we don't want to throw an error for missing API key
+    const isCheckConfig = process.argv.includes('--check-config');
+    const isInitConfig = process.argv.includes('--init-config');
+
+    if (!process.env.OPENAI_API_KEY && !isCheckConfig && !isInitConfig) {
         throw new Error('OpenAI API key is required, set OPENAI_API_KEY environment variable or provide --openai-api-key');
     }
-    // Prefer CLI key if provided, otherwise use env var
-    const openaiApiKey = process.env.OPENAI_API_KEY as string;
+
+    // Prefer CLI key if provided, otherwise use env var (might be undefined for check-config/init-config)
+    const openaiApiKey = process.env.OPENAI_API_KEY;
 
     const secureConfig: SecureConfig = {
         openaiApiKey: openaiApiKey,
@@ -274,7 +325,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
     const instructionsPathOrContent = options.instructions || KODRDRIV_DEFAULTS.instructions;
     const instructions = await validateAndReadInstructions(instructionsPathOrContent);
     const configDir = options.configDirectory || KODRDRIV_DEFAULTS.configDirectory;
-    await validateConfigDir(configDir); // Keep validation, but maybe remove return if not used elsewhere
+    // Skip config directory validation since Cardigantime handles hierarchical lookup
 
     // Ensure all required fields are present and have correct types after merging
     const finalConfig: Config = {
@@ -336,19 +387,26 @@ export async function validateConfigDir(configDir: string): Promise<string> {
         configDir :
         path.resolve(process.cwd(), configDir);
 
-    // Create the config directory if it doesn't exist
     try {
+        // Check if the path exists
         if (!(await storage.exists(absoluteConfigDir))) {
-            logger.info(`Creating config directory: ${absoluteConfigDir}`);
-            await storage.createDirectory(absoluteConfigDir);
-        } else if (!(await storage.isDirectory(absoluteConfigDir))) {
+            // Directory doesn't exist, warn and fall back to defaults
+            logger.warn(`Config directory does not exist: ${absoluteConfigDir}. Using default configuration.`);
+            return absoluteConfigDir; // Return the path anyway, app will use defaults
+        }
+
+        // Path exists, check if it's a directory
+        if (!(await storage.isDirectory(absoluteConfigDir))) {
             throw new Error(`Config directory is not a directory: ${absoluteConfigDir}`);
-        } else if (!(await storage.isDirectoryWritable(absoluteConfigDir))) {
+        }
+
+        // Check if it's writable
+        if (!(await storage.isDirectoryWritable(absoluteConfigDir))) {
             throw new Error(`Config directory is not writable: ${absoluteConfigDir}`);
         }
     } catch (error: any) {
-        logger.error(`Failed to validate or create config directory: ${absoluteConfigDir}`, error);
-        throw new Error(`Failed to validate or create config directory: ${absoluteConfigDir}: ${error.message}`);
+        logger.error(`Failed to validate config directory: ${absoluteConfigDir}`, error);
+        throw new Error(`Failed to validate config directory: ${absoluteConfigDir}: ${error.message}`);
     }
 
     return absoluteConfigDir;
@@ -385,11 +443,11 @@ export async function validateAndReadInstructions(instructionsPath: string): Pro
     try {
         // Assume it's a file path first
         if (await storage.isFileReadable(instructionsPath)) {
-            logger.debug(`Reading instructions from file: ${instructionsPath}`);
+            logger.verbose(`Reading instructions from file: ${instructionsPath}`);
             return storage.readFile(instructionsPath, DEFAULT_CHARACTER_ENCODING);
         } else {
             // If not a readable file, assume it might be the content itself (e.g., from config file)
-            logger.debug(`Using provided instructions string directly.`);
+            logger.verbose(`Using provided instructions string directly.`);
             return instructionsPath; // Return the string as is
         }
     } catch (error: any) {

@@ -7,20 +7,52 @@ import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as Release from './commands/release';
 import * as Unlink from './commands/unlink';
-import { COMMAND_COMMIT, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import { COMMAND_CHECK_CONFIG, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { CommandConfig } from 'types';
 import { Config, ConfigSchema, SecureConfig } from './types';
 
+/**
+ * Configure early logging based on command line flags.
+ * 
+ * Hey we need this because we need to be able to debug CardiganTime.
+ * This method checks for --verbose and --debug flags early in the process
+ * before CardiganTime is configured, allowing us to capture debug output
+ * from the CardiganTime initialization itself.
+ */
+function configureEarlyLogging(): void {
+    const hasVerbose = process.argv.includes('--verbose');
+    const hasDebug = process.argv.includes('--debug');
+
+    // Set log level based on early flag detection
+    if (hasDebug) {
+        setLogLevel('debug');
+    } else if (hasVerbose) {
+        setLogLevel('verbose');
+    }
+}
+
 export async function main() {
+    // Configure logging early, before CardiganTime initialization
+    configureEarlyLogging();
 
     const cardigantime = Cardigantime.create({
         defaults: {
-            configDirectory: DEFAULT_CONFIG_DIR, // Default directory for config file
+            configDirectory: DEFAULT_CONFIG_DIR,
+            // Move pathResolution INSIDE defaults
+            pathResolution: {
+                resolvePathArray: ['contextDirectories'], // Resolve contextDirectories array elements as paths
+            },
+            // Use fieldOverlaps instead of mergeStrategy, INSIDE defaults
+            fieldOverlaps: {
+                'contextDirectories': 'prepend', // Use prepend strategy for contextDirectories array
+                // Add other field overlap configurations as needed
+            },
         },
-        configShape: ConfigSchema.shape as any, // Cast to any to avoid TypeScript recursion issues
-        logger: getLogger(),           // Optional: Pass logger instance
-    });
+        features: ['config', 'hierarchical'],
+        configShape: ConfigSchema.shape, // No need for 'as any' now
+        logger: getLogger(),
+    }); // No need for 'as any' at the end
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [runConfig, secureConfig, commandConfig]: [Config, SecureConfig, CommandConfig] = await Arguments.configure(cardigantime); // Pass cardigantime instance
@@ -34,8 +66,23 @@ export async function main() {
     }
 
     const logger = getLogger();
+    cardigantime.setLogger(logger);
 
     try {
+        // Handle check-config command first
+        if (commandConfig.commandName === COMMAND_CHECK_CONFIG) {
+            // CardiganTime's checkConfig has already been called in Arguments.configure()
+            // No additional processing needed here
+            return;
+        }
+
+        // Handle init-config command
+        if (commandConfig.commandName === COMMAND_INIT_CONFIG) {
+            // CardiganTime's initConfig has already been called in Arguments.configure()
+            // No additional processing needed here
+            return;
+        }
+
         // Get the command from Commander
         const command = process.argv[2];
         let commandName = commandConfig.commandName;
