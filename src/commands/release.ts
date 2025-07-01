@@ -9,7 +9,7 @@ import * as Prompts from '../prompt/prompts';
 import { Config, ReleaseSummary } from '../types';
 import { createCompletion } from '../util/openai';
 import { getLogger } from '../logging';
-import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename } from '../util/general';
+import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
 
 export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
@@ -46,6 +46,25 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
             debugResponseFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('release')) : undefined,
         }
     );
+
+    // Save timestamped copy of release notes to output directory
+    try {
+        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const storage = createStorage({ log: logger.info });
+        await storage.ensureDirectory(outputDirectory);
+
+        const timestampedFilename = getTimestampedReleaseNotesFilename();
+        const outputPath = getOutputPath(outputDirectory, timestampedFilename);
+
+        // Format the release notes as markdown
+        const releaseSummary = summary as ReleaseSummary;
+        const releaseNotesContent = `# ${releaseSummary.title}\n\n${releaseSummary.body}`;
+
+        await storage.writeFile(outputPath, releaseNotesContent, 'utf-8');
+        logger.debug('Saved timestamped release notes: %s', outputPath);
+    } catch (error: any) {
+        logger.warn('Failed to save timestamped release notes: %s', error.message);
+    }
 
     if (isDryRun) {
         logger.info('DRY RUN: Generated release summary:');
