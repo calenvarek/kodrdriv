@@ -13,7 +13,7 @@ export class OpenAIError extends Error {
     }
 }
 
-export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugRequestFile?: string, debugResponseFile?: string } = { model: "gpt-4o-mini" }): Promise<string | any> {
+export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string } = { model: "gpt-4o-mini" }): Promise<string | any> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
     try {
@@ -29,15 +29,16 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         logger.debug('Sending prompt to OpenAI: %j', messages);
 
         // Save request debug file if enabled
-        if (options.debug && options.debugRequestFile) {
+        if (options.debug && (options.debugRequestFile || options.debugFile)) {
             const requestData = {
                 model: options.model || "gpt-4o-mini",
                 messages,
                 max_completion_tokens: 10000,
                 response_format: options.responseFormat,
             };
-            await storage.writeFile(options.debugRequestFile, JSON.stringify(requestData, null, 2), 'utf8');
-            logger.debug('Wrote request debug file to %s', options.debugRequestFile);
+            const debugFile = options.debugRequestFile || options.debugFile;
+            await storage.writeFile(debugFile!, JSON.stringify(requestData, null, 2), 'utf8');
+            logger.debug('Wrote request debug file to %s', debugFile);
         }
 
         const completion = await openai.chat.completions.create({
@@ -48,9 +49,10 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         });
 
         // Save response debug file if enabled
-        if (options.debug && options.debugResponseFile) {
-            await storage.writeFile(options.debugResponseFile, JSON.stringify(completion, null, 2), 'utf8');
-            logger.debug('Wrote response debug file to %s', options.debugResponseFile);
+        if (options.debug && (options.debugResponseFile || options.debugFile)) {
+            const debugFile = options.debugResponseFile || options.debugFile;
+            await storage.writeFile(debugFile!, JSON.stringify(completion, null, 2), 'utf8');
+            logger.debug('Wrote response debug file to %s', debugFile);
         }
 
         const response = completion.choices[0]?.message?.content?.trim();
@@ -71,7 +73,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
     }
 }
 
-export async function transcribeAudio(filePath: string, options: { model?: string, debug?: boolean, debugRequestFile?: string, debugResponseFile?: string } = { model: "whisper-1" }): Promise<Transcription> {
+export async function transcribeAudio(filePath: string, options: { model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string } = { model: "whisper-1" }): Promise<Transcription> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
     try {
@@ -87,14 +89,15 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         logger.debug('Transcribing audio file: %s', filePath);
 
         // Save request debug file if enabled
-        if (options.debug && options.debugRequestFile) {
+        if (options.debug && (options.debugRequestFile || options.debugFile)) {
             const requestData = {
                 model: options.model || "whisper-1",
                 file: filePath, // Can't serialize the stream, so just save the file path
                 response_format: "json",
             };
-            await storage.writeFile(options.debugRequestFile, JSON.stringify(requestData, null, 2), 'utf8');
-            logger.debug('Wrote request debug file to %s', options.debugRequestFile);
+            const debugFile = options.debugRequestFile || options.debugFile;
+            await storage.writeFile(debugFile!, JSON.stringify(requestData, null, 2), 'utf8');
+            logger.debug('Wrote request debug file to %s', debugFile);
         }
 
         const audioStream = await storage.readStream(filePath);
@@ -105,9 +108,10 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         });
 
         // Save response debug file if enabled
-        if (options.debug && options.debugResponseFile) {
-            await storage.writeFile(options.debugResponseFile, JSON.stringify(transcription, null, 2), 'utf8');
-            logger.debug('Wrote response debug file to %s', options.debugResponseFile);
+        if (options.debug && (options.debugResponseFile || options.debugFile)) {
+            const debugFile = options.debugResponseFile || options.debugFile;
+            await storage.writeFile(debugFile!, JSON.stringify(transcription, null, 2), 'utf8');
+            logger.debug('Wrote response debug file to %s', debugFile);
         }
 
         const response = transcription;
