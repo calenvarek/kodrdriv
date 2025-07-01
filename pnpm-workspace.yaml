@@ -1,0 +1,7 @@
+packages:
+  - '.'
+  - '!docs'
+
+overrides:
+  '@riotprompt/riotprompt': link:../../StJustReckoning/riotprompt
+  '@theunwalked/cardigantime': link:../../SemicolonAmbulance/cardigantime
