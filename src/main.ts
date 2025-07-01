@@ -54,6 +54,7 @@ export async function main() {
         logger: getLogger(),
     }); // No need for 'as any' at the end
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [runConfig, secureConfig, commandConfig]: [Config, SecureConfig, CommandConfig] = await Arguments.configure(cardigantime); // Pass cardigantime instance
 
     // Set log level based on verbose flag
