@@ -2,13 +2,15 @@
 import { Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
-import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_FROM_COMMIT_ALIAS, DEFAULT_TO_COMMIT_ALIAS } from '../constants';
+import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_FROM_COMMIT_ALIAS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as Prompts from '../prompt/prompts';
 import { Config, ReleaseSummary } from '../types';
 import { createCompletion } from '../util/openai';
 import { getLogger } from '../logging';
+import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
+import { create as createStorage } from '../util/storage';
 
 export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const logger = getLogger();
@@ -28,13 +30,41 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
 
     const request: Request = prompts.format(prompt);
 
+    if (runConfig.debug) {
+        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const storage = createStorage({ log: logger.info });
+        await storage.ensureDirectory(outputDirectory);
+    }
+
     const summary = await createCompletion(
         request.messages as ChatCompletionMessageParam[],
         {
             model: runConfig.model,
-            responseFormat: { type: 'json_object' }
+            responseFormat: { type: 'json_object' },
+            debug: runConfig.debug,
+            debugRequestFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('release')) : undefined,
+            debugResponseFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('release')) : undefined,
         }
     );
+
+    // Save timestamped copy of release notes to output directory
+    try {
+        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const storage = createStorage({ log: logger.info });
+        await storage.ensureDirectory(outputDirectory);
+
+        const timestampedFilename = getTimestampedReleaseNotesFilename();
+        const outputPath = getOutputPath(outputDirectory, timestampedFilename);
+
+        // Format the release notes as markdown
+        const releaseSummary = summary as ReleaseSummary;
+        const releaseNotesContent = `# ${releaseSummary.title}\n\n${releaseSummary.body}`;
+
+        await storage.writeFile(outputPath, releaseNotesContent, 'utf-8');
+        logger.debug('Saved timestamped release notes: %s', outputPath);
+    } catch (error: any) {
+        logger.warn('Failed to save timestamped release notes: %s', error.message);
+    }
 
     if (isDryRun) {
         logger.info('DRY RUN: Generated release summary:');

@@ -29,6 +29,14 @@ export const InputSchema = z.object({
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
     workspaceFile: z.string().optional(),
+    includeCommitHistory: z.boolean().optional(),
+    includeRecentDiffs: z.boolean().optional(),
+    includeReleaseNotes: z.boolean().optional(),
+    includeGithubIssues: z.boolean().optional(),
+    commitHistoryLimit: z.number().optional(),
+    diffHistoryLimit: z.number().optional(),
+    releaseNotesLimit: z.number().optional(),
+    githubIssuesLimit: z.number().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -86,6 +94,29 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
             }
         }
         if (finalCliArgs.workspaceFile !== undefined) transformedCliArgs.link.workspaceFile = finalCliArgs.workspaceFile;
+    }
+
+    // Nested mappings for 'audio-review' options
+    if (finalCliArgs.includeCommitHistory !== undefined ||
+        finalCliArgs.includeRecentDiffs !== undefined ||
+        finalCliArgs.includeReleaseNotes !== undefined ||
+        finalCliArgs.includeGithubIssues !== undefined ||
+        finalCliArgs.commitHistoryLimit !== undefined ||
+        finalCliArgs.diffHistoryLimit !== undefined ||
+        finalCliArgs.releaseNotesLimit !== undefined ||
+        finalCliArgs.githubIssuesLimit !== undefined) {
+        transformedCliArgs.audioReview = {};
+        if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
+        if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.audioReview.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
+        if (finalCliArgs.includeReleaseNotes !== undefined) transformedCliArgs.audioReview.includeReleaseNotes = finalCliArgs.includeReleaseNotes;
+        if (finalCliArgs.includeGithubIssues !== undefined) transformedCliArgs.audioReview.includeGithubIssues = finalCliArgs.includeGithubIssues;
+        if (finalCliArgs.commitHistoryLimit !== undefined) transformedCliArgs.audioReview.commitHistoryLimit = finalCliArgs.commitHistoryLimit;
+        if (finalCliArgs.diffHistoryLimit !== undefined) transformedCliArgs.audioReview.diffHistoryLimit = finalCliArgs.diffHistoryLimit;
+        if (finalCliArgs.releaseNotesLimit !== undefined) transformedCliArgs.audioReview.releaseNotesLimit = finalCliArgs.releaseNotesLimit;
+        if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.audioReview.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
+        // Only add context and sendit if we already have an audioReview object from the specific properties above
+        if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
+        if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
     }
 
     if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
@@ -237,6 +268,15 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
         .description('Generate commit notes');
     addSharedOptions(commitCommand);
 
+    const audioCommitCommand = program
+        .command('audio-commit')
+        .option('--cached', 'use cached diff')
+        .option('--add', 'add all changes before committing')
+        .option('--sendit', 'Commit with the message generated. No review.')
+        .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
+        .description('Record audio to provide context, then generate and optionally commit with AI-generated message');
+    addSharedOptions(audioCommitCommand);
+
     const releaseCommand = program
         .command('release')
         .option('--from <from>', 'branch to generate release notes from')
@@ -265,6 +305,30 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
         .description('Remove pnpm workspace links and rebuild dependencies');
     addSharedOptions(unlinkCommand);
 
+    const audioReviewCommand = program
+        .command('audio-review')
+        .option('--include-commit-history', 'include recent commit log messages in context (default: true)')
+        .option('--no-include-commit-history', 'exclude commit log messages from context')
+        .option('--include-recent-diffs', 'include recent commit diffs in context (default: true)')
+        .option('--no-include-recent-diffs', 'exclude recent diffs from context')
+        .option('--include-release-notes', 'include recent release notes in context (default: false)')
+        .option('--no-include-release-notes', 'exclude release notes from context')
+        .option('--include-github-issues', 'include open GitHub issues in context (default: true)')
+        .option('--no-include-github-issues', 'exclude GitHub issues from context')
+        .option('--commit-history-limit <limit>', 'number of recent commits to include', parseInt)
+        .option('--diff-history-limit <limit>', 'number of recent commit diffs to include', parseInt)
+        .option('--release-notes-limit <limit>', 'number of recent release notes to include', parseInt)
+        .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
+        .option('--context <context>', 'additional context for the audio review')
+        .option('--sendit', 'Create GitHub issues automatically without confirmation')
+        .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
+    addSharedOptions(audioReviewCommand);
+
+    const cleanCommand = program
+        .command('clean')
+        .description('Remove the output directory and all generated files');
+    addSharedOptions(cleanCommand);
+
     program.parse();
 
     const cliArgs: Input = program.opts<Input>(); // Get all opts initially
@@ -282,6 +346,8 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
     if (ALLOWED_COMMANDS.includes(commandName)) {
         if (commandName === 'commit' && commitCommand.opts) {
             commandOptions = commitCommand.opts<Partial<Input>>();
+        } else if (commandName === 'audio-commit' && audioCommitCommand.opts) {
+            commandOptions = audioCommitCommand.opts<Partial<Input>>();
         } else if (commandName === 'release' && releaseCommand.opts) {
             commandOptions = releaseCommand.opts<Partial<Input>>();
         } else if (commandName === 'publish' && publishCommand.opts) {
@@ -290,6 +356,10 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             commandOptions = linkCommand.opts<Partial<Input>>();
         } else if (commandName === 'unlink' && unlinkCommand.opts) {
             commandOptions = unlinkCommand.opts<Partial<Input>>();
+        } else if (commandName === 'audio-review' && audioReviewCommand.opts) {
+            commandOptions = audioReviewCommand.opts<Partial<Input>>();
+        } else if (commandName === 'clean' && cleanCommand.opts) {
+            commandOptions = cleanCommand.opts<Partial<Input>>();
         }
     }
 
@@ -350,6 +420,18 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             to: options.release?.to ?? KODRDRIV_DEFAULTS.release.to,
             messageLimit: options.release?.messageLimit ?? KODRDRIV_DEFAULTS.release.messageLimit,
             context: options.release?.context,
+        },
+        audioReview: {
+            includeCommitHistory: options.audioReview?.includeCommitHistory ?? KODRDRIV_DEFAULTS.audioReview.includeCommitHistory,
+            includeRecentDiffs: options.audioReview?.includeRecentDiffs ?? KODRDRIV_DEFAULTS.audioReview.includeRecentDiffs,
+            includeReleaseNotes: options.audioReview?.includeReleaseNotes ?? KODRDRIV_DEFAULTS.audioReview.includeReleaseNotes,
+            includeGithubIssues: options.audioReview?.includeGithubIssues ?? KODRDRIV_DEFAULTS.audioReview.includeGithubIssues,
+            commitHistoryLimit: options.audioReview?.commitHistoryLimit ?? KODRDRIV_DEFAULTS.audioReview.commitHistoryLimit,
+            diffHistoryLimit: options.audioReview?.diffHistoryLimit ?? KODRDRIV_DEFAULTS.audioReview.diffHistoryLimit,
+            releaseNotesLimit: options.audioReview?.releaseNotesLimit ?? KODRDRIV_DEFAULTS.audioReview.releaseNotesLimit,
+            githubIssuesLimit: options.audioReview?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.audioReview.githubIssuesLimit,
+            context: options.audioReview?.context,
+            sendit: options.audioReview?.sendit ?? KODRDRIV_DEFAULTS.audioReview.sendit,
         },
         publish: {
             mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,

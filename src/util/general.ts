@@ -1,3 +1,5 @@
+import path from 'path';
+
 // Utility function for deep merging two objects.
 export function deepMerge(target: any, source: any): any {
     for (const key in source) {
@@ -83,4 +85,39 @@ export const incrementPatchVersion = (version: string): string => {
     }
     parts[2] = (patch + 1).toString();
     return parts.join('.');
+};
+
+export const getOutputPath = (outputDirectory: string, filename: string): string => {
+    return path.join(outputDirectory, filename);
+};
+
+export const getTimestampedFilename = (baseName: string, extension: string = '.json'): string => {
+    const now = new Date();
+
+    // Format as YYMMdd-HHmm (e.g., 250701-1030)
+    const yy = now.getFullYear().toString().slice(-2);
+    const mm = (now.getMonth() + 1).toString().padStart(2, '0');
+    const dd = now.getDate().toString().padStart(2, '0');
+    const hh = now.getHours().toString().padStart(2, '0');
+    const min = now.getMinutes().toString().padStart(2, '0');
+
+    const timestamp = `${yy}${mm}${dd}-${hh}${min}`;
+
+    return `${timestamp}-${baseName}${extension}`;
+};
+
+export const getTimestampedRequestFilename = (baseName: string): string => {
+    return getTimestampedFilename(baseName, '.request.json');
+};
+
+export const getTimestampedResponseFilename = (baseName: string): string => {
+    return getTimestampedFilename(baseName, '.response.json');
+};
+
+export const getTimestampedCommitFilename = (): string => {
+    return getTimestampedFilename('commit-message', '.md');
+};
+
+export const getTimestampedReleaseNotesFilename = (): string => {
+    return getTimestampedFilename('release-notes', '.md');
 };

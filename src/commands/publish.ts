@@ -9,7 +9,8 @@ import { Config, PullRequest } from '../types';
 import { run, runWithDryRunSupport } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
-import { incrementPatchVersion } from '../util/general';
+import { incrementPatchVersion, getOutputPath } from '../util/general';
+import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const npmrcPath = path.join(process.cwd(), '.npmrc');
@@ -233,11 +234,17 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const releaseSummary = await Release.execute(runConfig);
 
             if (isDryRun) {
-                logger.info('DRY RUN: Would write release notes to RELEASE_NOTES.md and RELEASE_TITLE.md');
+                logger.info('DRY RUN: Would write release notes to RELEASE_NOTES.md and RELEASE_TITLE.md in output directory');
             } else {
-                await storage.writeFile('RELEASE_NOTES.md', releaseSummary.body, 'utf-8');
-                await storage.writeFile('RELEASE_TITLE.md', releaseSummary.title, 'utf-8');
-                logger.info('Release notes and title generated and saved to RELEASE_NOTES.md and RELEASE_TITLE.md.');
+                const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+                await storage.ensureDirectory(outputDirectory);
+
+                const releaseNotesPath = getOutputPath(outputDirectory, 'RELEASE_NOTES.md');
+                const releaseTitlePath = getOutputPath(outputDirectory, 'RELEASE_TITLE.md');
+
+                await storage.writeFile(releaseNotesPath, releaseSummary.body, 'utf-8');
+                await storage.writeFile(releaseTitlePath, releaseSummary.title, 'utf-8');
+                logger.info(`Release notes and title generated and saved to ${releaseNotesPath} and ${releaseTitlePath}.`);
             }
 
             logger.info(isDryRun ? 'DRY RUN: Would push to origin...' : 'Pushing to origin...');
@@ -280,8 +287,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
             const { version } = JSON.parse(packageJsonContents);
             const tagName = `v${version}`;
-            const releaseNotesContent = await storage.readFile('RELEASE_NOTES.md', 'utf-8');
-            const releaseTitle = await storage.readFile('RELEASE_TITLE.md', 'utf-8');
+
+            const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+            const releaseNotesPath = getOutputPath(outputDirectory, 'RELEASE_NOTES.md');
+            const releaseTitlePath = getOutputPath(outputDirectory, 'RELEASE_TITLE.md');
+
+            const releaseNotesContent = await storage.readFile(releaseNotesPath, 'utf-8');
+            const releaseTitle = await storage.readFile(releaseTitlePath, 'utf-8');
             await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
         }
 
