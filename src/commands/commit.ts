@@ -10,7 +10,7 @@ import { getLogger } from '../logging';
 import * as Prompts from '../prompt/prompts';
 import { Config } from '../types';
 import { run } from '../util/child';
-import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename } from '../util/general';
+import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { createCompletion } from '../util/openai';
 import { create as createStorage } from '../util/storage';
 
@@ -76,6 +76,21 @@ export const execute = async (runConfig: Config) => {
         debugRequestFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')) : undefined,
         debugResponseFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')) : undefined,
     });
+
+    // Save timestamped copy of commit message to output directory
+    try {
+        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const storage = createStorage({ log: logger.info });
+        await storage.ensureDirectory(outputDirectory);
+
+        const timestampedFilename = getTimestampedCommitFilename();
+        const outputPath = getOutputPath(outputDirectory, timestampedFilename);
+
+        await storage.writeFile(outputPath, summary, 'utf-8');
+        logger.debug('Saved timestamped commit message: %s', outputPath);
+    } catch (error: any) {
+        logger.warn('Failed to save timestamped commit message: %s', error.message);
+    }
 
     if (runConfig.commit?.sendit) {
         if (!cached && !isDryRun) {
