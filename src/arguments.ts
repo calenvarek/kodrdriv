@@ -145,7 +145,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
 
 
         // Use CardiganTime's built-in generateConfig method
-        await cardigantime.generateConfig(transformedCliArgs.configDirectory);
+        await cardigantime.generateConfig(transformedCliArgs.configDirectory || KODRDRIV_DEFAULTS.configDirectory);
 
         // Return minimal config for consistency, but main processing is done
         const config: Config = await validateAndProcessOptions({});
