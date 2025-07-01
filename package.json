@@ -21,7 +21,12 @@
         "lint": "eslint . --ext .ts",
         "lint:fix": "eslint . --ext .ts --fix",
         "clean": "rm -rf dist",
-        "prepublishOnly": "npm run clean && npm run lint && npm run build && npm run test"
+        "prepublishOnly": "npm run clean && npm run lint && npm run build && npm run test",
+        "docs:dev": "cd docs && cp ../README.md public/ && pnpm install && pnpm run dev",
+        "docs:build": "cd docs && cp ../README.md public/ && pnpm install && pnpm run build",
+        "docs:preview": "cd docs && pnpm run preview",
+        "docs:test": "cd docs && pnpm run test",
+        "docs:coverage": "cd docs && pnpm run coverage"
     },
     "keywords": [
         "git",
@@ -35,7 +40,7 @@
     "dependencies": {
         "@octokit/rest": "^22.0.0",
         "@riotprompt/riotprompt": "^0.0.2",
-        "@theunwalked/cardigantime": "^0.0.6",
+        "@theunwalked/cardigantime": "^0.0.12",
         "commander": "^14.0.0",
         "dayjs": "^1.11.13",
         "dotenv": "^17.0.0",

@@ -1,0 +1,62 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="62" fill="#000000" stroke="#333333" stroke-width="2"/>
+  
+  <!-- Thor's hammer handle (vertical shaft) -->
+  <rect x="58" y="45" width="12" height="55" fill="#ffffff" rx="2"/>
+  
+  <!-- Hammer head (main block) -->
+  <rect x="35" y="25" width="58" height="25" fill="#ffffff" rx="3"/>
+  
+  <!-- Hammer head detail lines -->
+  <rect x="40" y="30" width="48" height="2" fill="#000000"/>
+  <rect x="40" y="35" width="48" height="2" fill="#000000"/>
+  <rect x="40" y="40" width="48" height="2" fill="#000000"/>
+  
+  <!-- Digital bytes/binary elements around the hammer -->
+  <!-- Top left -->
+  <rect x="20" y="15" width="3" height="3" fill="#ffffff"/>
+  <rect x="25" y="15" width="3" height="3" fill="#ffffff"/>
+  <rect x="25" y="20" width="3" height="3" fill="#ffffff"/>
+  
+  <!-- Top right -->
+  <rect x="100" y="15" width="3" height="3" fill="#ffffff"/>
+  <rect x="105" y="15" width="3" height="3" fill="#ffffff"/>
+  <rect x="100" y="20" width="3" height="3" fill="#ffffff"/>
+  
+  <!-- Bottom left -->
+  <rect x="15" y="100" width="3" height="3" fill="#ffffff"/>
+  <rect x="20" y="105" width="3" height="3" fill="#ffffff"/>
+  <rect x="25" y="100" width="3" height="3" fill="#ffffff"/>
+  
+  <!-- Bottom right -->
+  <rect x="100" y="105" width="3" height="3" fill="#ffffff"/>
+  <rect x="105" y="100" width="3" height="3" fill="#ffffff"/>
+  <rect x="110" y="105" width="3" height="3" fill="#ffffff"/>
+  
+  <!-- Circuit-like lines connecting to hammer -->
+  <path d="M 30 45 L 35 45" stroke="#ffffff" stroke-width="2" fill="none"/>
+  <path d="M 93 45 L 98 45" stroke="#ffffff" stroke-width="2" fill="none"/>
+  
+  <!-- Binary numbers around the hammer -->
+  <text x="15" y="65" fill="#ffffff" font-family="monospace" font-size="8">01</text>
+  <text x="105" y="65" fill="#ffffff" font-family="monospace" font-size="8">10</text>
+  <text x="60" y="20" fill="#000000" font-family="monospace" font-size="6">11</text>
+  <text x="60" y="115" fill="#ffffff" font-family="monospace" font-size="8">00</text>
+  
+  <!-- Hammer striking effect (lightning/energy) -->
+  <path d="M 64 50 L 60 55 L 68 55 L 64 60" fill="#ffffff"/>
+  
+  <!-- Corner circuit elements -->
+  <rect x="10" y="10" width="8" height="1" fill="#ffffff"/>
+  <rect x="10" y="10" width="1" height="8" fill="#ffffff"/>
+  
+  <rect x="110" y="10" width="8" height="1" fill="#ffffff"/>
+  <rect x="117" y="10" width="1" height="8" fill="#ffffff"/>
+  
+  <rect x="10" y="117" width="8" height="1" fill="#ffffff"/>
+  <rect x="10" y="110" width="1" height="8" fill="#ffffff"/>
+  
+  <rect x="110" y="117" width="8" height="1" fill="#ffffff"/>
+  <rect x="117" y="110" width="1" height="8" fill="#ffffff"/>
+</svg> 

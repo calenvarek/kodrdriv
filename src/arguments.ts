@@ -11,6 +11,8 @@ export const InputSchema = z.object({
     verbose: z.boolean().optional(),
     debug: z.boolean().optional(),
     overrides: z.boolean().optional(),
+    checkConfig: z.boolean().optional(),
+    initConfig: z.boolean().optional(),
     openaiApiKey: z.string().optional(),
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
@@ -94,6 +96,8 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     return transformedCliArgs;
 }
 
+
+
 // Update configure signature to accept cardigantime
 export const configure = async (cardigantime: any): Promise<[Config, SecureConfig, CommandConfig]> => {
     const logger = getLogger();
@@ -109,6 +113,48 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     // Let cardigantime add its arguments first
     program = await cardigantime.configure(program);
 
+    // Check if --check-config is in process.argv early
+    if (process.argv.includes('--check-config')) {
+        // For check-config, use CardiganTime's built-in checkConfig method
+        program.parse();
+        const cliArgs: Input = program.opts<Input>();
+
+        // Transform the flat CLI args
+        const transformedCliArgs: Partial<Config> = transformCliArgs(cliArgs);
+
+        // Use CardiganTime's built-in checkConfig method which displays
+        // hierarchical configuration information in a well-formatted way
+        await cardigantime.checkConfig(transformedCliArgs);
+
+        // Return minimal config for consistency, but main processing is done
+        const config: Config = await validateAndProcessOptions({});
+        const secureConfig: SecureConfig = await validateAndProcessSecureOptions();
+        const commandConfig: CommandConfig = { commandName: 'check-config' };
+
+        return [config, secureConfig, commandConfig];
+    }
+
+    // Check if --init-config is in process.argv early
+    if (process.argv.includes('--init-config')) {
+        // For init-config, use CardiganTime's built-in generateConfig method
+        program.parse();
+        const cliArgs: Input = program.opts<Input>();
+
+        // Transform the flat CLI args
+        const transformedCliArgs: Partial<Config> = transformCliArgs(cliArgs);
+
+
+        // Use CardiganTime's built-in generateConfig method
+        await cardigantime.generateConfig(transformedCliArgs.configDirectory);
+
+        // Return minimal config for consistency, but main processing is done
+        const config: Config = await validateAndProcessOptions({});
+        const secureConfig: SecureConfig = await validateAndProcessSecureOptions();
+        const commandConfig: CommandConfig = { commandName: 'init-config' };
+
+        return [config, secureConfig, commandConfig];
+    }
+
     // Get CLI arguments using the new function
     const [finalCliArgs, commandConfig]: [Input, CommandConfig] = getCliConfig(program);
     logger.silly('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
@@ -117,26 +163,8 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     const transformedCliArgs: Partial<Config> = transformCliArgs(finalCliArgs);
     logger.silly('Transformed CLI Args for merging: %s', JSON.stringify(transformedCliArgs, null, 2));
 
-    // Get values from config file
-    // Temporary workaround: Read config file manually due to cardigantime parsing issue
-    let fileValues: Partial<Config> = {};
-
-    // Force manual config reading for now
-    const configPath = path.join(process.cwd(), '.kodrdriv', 'config.yaml');
-    const storage = Storage.create({ log: logger.info });
-    const exists = await storage.exists(configPath);
-    if (exists) {
-        const yaml = await import('js-yaml');
-        const configContent = await storage.readFile(configPath, 'utf-8');
-        fileValues = yaml.load(configContent) as Partial<Config>;
-        // Add the configDirectory since it's not in the config file but is required
-        if (!fileValues.configDirectory) {
-            fileValues.configDirectory = '.kodrdriv';
-        }
-    }
-
-    // Temporarily skip cardigantime validation due to parsing issues
-    // await cardigantime.validate(fileValues);
+    // Get values from config file using Cardigantime's hierarchical configuration
+    const fileValues: Partial<Config> = await cardigantime.read(transformedCliArgs) as Partial<Config>;
 
     // Merge configurations: Defaults -> File -> CLI
     // Properly merge the link section to preserve scope roots from config file
@@ -195,6 +223,9 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff');
     }
 
+    // Add global options to the main program
+    // (cardigantime already adds most global options like --verbose, --debug, --config-dir)
+
     // Add subcommands
     const commitCommand = program
         .command('commit')
@@ -244,9 +275,8 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
 
     if (program.args.length > 0) {
         commandName = program.args[0];
+        validateCommand(commandName);
     }
-
-    validateCommand(commandName);
 
     // Only proceed with command-specific options if validation passed
     if (ALLOWED_COMMANDS.includes(commandName)) {
@@ -270,11 +300,16 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
 }
 
 export async function validateAndProcessSecureOptions(): Promise<SecureConfig> {
-    if (!process.env.OPENAI_API_KEY) {
+    // For check-config and init-config commands, we don't want to throw an error for missing API key
+    const isCheckConfig = process.argv.includes('--check-config');
+    const isInitConfig = process.argv.includes('--init-config');
+
+    if (!process.env.OPENAI_API_KEY && !isCheckConfig && !isInitConfig) {
         throw new Error('OpenAI API key is required, set OPENAI_API_KEY environment variable or provide --openai-api-key');
     }
-    // Prefer CLI key if provided, otherwise use env var
-    const openaiApiKey = process.env.OPENAI_API_KEY as string;
+
+    // Prefer CLI key if provided, otherwise use env var (might be undefined for check-config/init-config)
+    const openaiApiKey = process.env.OPENAI_API_KEY;
 
     const secureConfig: SecureConfig = {
         openaiApiKey: openaiApiKey,
@@ -290,7 +325,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
     const instructionsPathOrContent = options.instructions || KODRDRIV_DEFAULTS.instructions;
     const instructions = await validateAndReadInstructions(instructionsPathOrContent);
     const configDir = options.configDirectory || KODRDRIV_DEFAULTS.configDirectory;
-    await validateConfigDir(configDir); // Keep validation, but maybe remove return if not used elsewhere
+    // Skip config directory validation since Cardigantime handles hierarchical lookup
 
     // Ensure all required fields are present and have correct types after merging
     const finalConfig: Config = {
