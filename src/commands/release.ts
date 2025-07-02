@@ -26,33 +26,25 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     diffContent = await diff.get();
     logContent = await log.get();
 
-    const prompt = await prompts.createReleasePrompt(logContent, diffContent, runConfig.release?.context);
+    const prompt = await prompts.createReleasePrompt({ logContent, diffContent }, { context: runConfig.release?.context });
 
     const request: Request = prompts.format(prompt);
 
-    if (runConfig.debug) {
-        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-        const storage = createStorage({ log: logger.info });
-        await storage.ensureDirectory(outputDirectory);
-    }
+    // Always ensure output directory exists for request/response files
+    const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+    const storage = createStorage({ log: logger.info });
+    await storage.ensureDirectory(outputDirectory);
 
-    const summary = await createCompletion(
-        request.messages as ChatCompletionMessageParam[],
-        {
-            model: runConfig.model,
-            responseFormat: { type: 'json_object' },
-            debug: runConfig.debug,
-            debugRequestFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('release')) : undefined,
-            debugResponseFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('release')) : undefined,
-        }
-    );
+    const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], {
+        model: runConfig.model,
+        responseFormat: { type: 'json_object' },
+        debug: runConfig.debug,
+        debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release')),
+        debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
+    });
 
     // Save timestamped copy of release notes to output directory
     try {
-        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-        const storage = createStorage({ log: logger.info });
-        await storage.ensureDirectory(outputDirectory);
-
         const timestampedFilename = getTimestampedReleaseNotesFilename();
         const outputPath = getOutputPath(outputDirectory, timestampedFilename);
 

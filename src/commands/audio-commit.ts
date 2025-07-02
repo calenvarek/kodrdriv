@@ -1,52 +1,326 @@
 #!/usr/bin/env node
-import path from 'path';
 import fs from 'fs/promises';
-import { Formatter, Model, Request } from '@riotprompt/riotprompt';
-import { ChatCompletionMessageParam } from 'openai/resources';
-import shellescape from 'shell-escape';
+import path from 'path';
+import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { transcribeAudio, createCompletion } from '../util/openai';
-import * as Prompts from '../prompt/prompts';
 import { run } from '../util/child';
-import * as Log from '../content/log';
-import * as Diff from '../content/diff';
-import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
-import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, stringifyJSON } from '../util/general';
+import { getOutputPath, getTimestampedAudioFilename, getTimestampedTranscriptFilename } from '../util/general';
+import { transcribeAudio } from '../util/openai';
 import { create as createStorage } from '../util/storage';
+import { execute as executeCommit } from './commit';
+
+const detectBestAudioDevice = async (): Promise<string> => {
+    try {
+        // Get list of audio devices - this command always "fails" but gives us the device list
+        try {
+            await run('ffmpeg -f avfoundation -list_devices true -i ""');
+        } catch (result: any) {
+            // ffmpeg returns error code but we get the device list in stderr
+            const output = result.stderr || result.stdout || '';
+
+            // Parse audio devices from output
+            const audioDevicesSection = output.split('AVFoundation audio devices:')[1];
+            if (!audioDevicesSection) return '1'; // Default fallback
+
+            const deviceLines = audioDevicesSection.split('\n')
+                .filter((line: string) => line.includes('[') && line.includes(']'))
+                .map((line: string) => line.trim());
+
+            // Prefer AirPods, then built-in microphone over virtual/external devices
+            const preferredDevices = [
+                'AirPods',
+                'MacBook Pro Microphone',
+                'MacBook Air Microphone',
+                'Built-in Microphone',
+                'Internal Microphone'
+            ];
+
+            for (const deviceLine of deviceLines) {
+                for (const preferred of preferredDevices) {
+                    if (deviceLine.toLowerCase().includes(preferred.toLowerCase())) {
+                        // Extract device index
+                        const match = deviceLine.match(/\[(\d+)\]/);
+                        if (match) {
+                            return match[1];
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no preferred device found, use device 1 as default (usually better than 0)
+        return '1';
+    } catch (error) {
+        // Fallback to device 1
+        return '1';
+    }
+};
+
+const parseAudioDevices = async (): Promise<Array<{ index: string; name: string }>> => {
+    try {
+        try {
+            await run('ffmpeg -f avfoundation -list_devices true -i ""');
+        } catch (result: any) {
+            const output = result.stderr || result.stdout || '';
+            const audioDevicesSection = output.split('AVFoundation audio devices:')[1];
+
+            if (audioDevicesSection) {
+                const deviceLines = audioDevicesSection.split('\n')
+                    .filter((line: string) => line.includes('[') && line.includes(']'))
+                    .map((line: string) => line.trim());
+
+                return deviceLines.map((line: string) => {
+                    const match = line.match(/\[(\d+)\]\s+(.+)/);
+                    if (match) {
+                        return { index: match[1], name: match[2] };
+                    }
+                    return null;
+                }).filter(Boolean) as Array<{ index: string; name: string }>;
+            }
+        }
+        return [];
+    } catch (error) {
+        return [];
+    }
+};
+
+const selectAudioDeviceInteractively = async (runConfig: Config): Promise<string | null> => {
+    const logger = getLogger();
+
+    logger.info('🎙️  Available audio devices:');
+    const devices = await parseAudioDevices();
+
+    if (devices.length === 0) {
+        logger.error('❌ No audio devices found. Make sure ffmpeg is installed and audio devices are available.');
+        return null;
+    }
+
+    // Display devices
+    devices.forEach((device, i) => {
+        logger.info(`   ${i + 1}. [${device.index}] ${device.name}`);
+    });
+
+    logger.info('');
+    logger.info('📋 Select an audio device by entering its number (1-' + devices.length + '):');
+
+    return new Promise((resolve) => {
+        // Set up keyboard input
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+
+        let inputBuffer = '';
+
+        const keyHandler = (key: string) => {
+            const keyCode = key.charCodeAt(0);
+
+            if (keyCode === 13) { // ENTER key
+                const selectedIndex = parseInt(inputBuffer) - 1;
+
+                if (selectedIndex >= 0 && selectedIndex < devices.length) {
+                    const selectedDevice = devices[selectedIndex];
+                    logger.info(`✅ Selected: [${selectedDevice.index}] ${selectedDevice.name}`);
+
+                    // Save to configuration
+                    saveAudioDeviceToConfig(runConfig, selectedDevice.index, selectedDevice.name)
+                        .then(() => {
+                            logger.info('💾 Audio device saved to configuration');
+                        })
+                        .catch((error) => {
+                            logger.warn('⚠️  Failed to save audio device to configuration: %s', error.message);
+                        });
+
+                    // Cleanup and resolve
+                    process.stdin.setRawMode(false);
+                    process.stdin.pause();
+                    process.stdin.removeListener('data', keyHandler);
+                    resolve(selectedDevice.index);
+                } else {
+                    logger.error('❌ Invalid selection. Please enter a number between 1 and ' + devices.length);
+                    inputBuffer = '';
+                    process.stdout.write('📋 Select an audio device: ');
+                }
+            } else if (keyCode === 3) { // Ctrl+C
+                logger.info('\n❌ Selection cancelled');
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
+                process.stdin.removeListener('data', keyHandler);
+                resolve(null);
+            } else if (keyCode >= 48 && keyCode <= 57) { // Numbers 0-9
+                inputBuffer += key;
+                process.stdout.write(key);
+            } else if (keyCode === 127) { // Backspace
+                if (inputBuffer.length > 0) {
+                    inputBuffer = inputBuffer.slice(0, -1);
+                    process.stdout.write('\b \b');
+                }
+            }
+        };
+
+        process.stdin.on('data', keyHandler);
+        process.stdout.write('📋 Select an audio device: ');
+    });
+};
+
+const saveAudioDeviceToConfig = async (runConfig: Config, deviceIndex: string, deviceName: string): Promise<void> => {
+    const logger = getLogger();
+    const storage = createStorage({ log: logger.info });
+
+    try {
+        const configDir = runConfig.configDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        await storage.ensureDirectory(configDir);
+
+        const configPath = getOutputPath(configDir, 'audio-config.json');
+
+        // Read existing config or create new one
+        let audioConfig: any = {};
+        try {
+            const existingConfig = await storage.readFile(configPath, 'utf-8');
+            audioConfig = JSON.parse(existingConfig);
+        } catch (error) {
+            // File doesn't exist or is invalid, start with empty config
+            audioConfig = {};
+        }
+
+        // Update audio device
+        audioConfig.audioDevice = deviceIndex;
+        audioConfig.audioDeviceName = deviceName;
+        audioConfig.lastUpdated = new Date().toISOString();
+
+        // Save updated config
+        await storage.writeFile(configPath, JSON.stringify(audioConfig, null, 2), 'utf-8');
+        logger.debug('Saved audio configuration to: %s', configPath);
+
+    } catch (error: any) {
+        logger.error('Failed to save audio configuration: %s', error.message);
+        throw error;
+    }
+};
+
+const loadAudioDeviceFromConfig = async (runConfig: Config): Promise<string | null> => {
+    const logger = getLogger();
+    const storage = createStorage({ log: logger.info });
+
+    try {
+        const configDir = runConfig.configDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const configPath = getOutputPath(configDir, 'audio-config.json');
+
+        const configContent = await storage.readFile(configPath, 'utf-8');
+        const audioConfig = JSON.parse(configContent);
+
+        if (audioConfig.audioDevice) {
+            logger.debug('Loaded audio device from config: [%s] %s', audioConfig.audioDevice, audioConfig.audioDeviceName || 'Unknown');
+            return audioConfig.audioDevice;
+        }
+
+        return null;
+    } catch (error) {
+        // Config file doesn't exist or is invalid
+        logger.debug('No saved audio device configuration found');
+        return null;
+    }
+};
+
+const listAudioDevices = async (): Promise<void> => {
+    const logger = getLogger();
+    try {
+        try {
+            await run('ffmpeg -f avfoundation -list_devices true -i ""');
+        } catch (result: any) {
+            const output = result.stderr || result.stdout || '';
+            const audioDevicesSection = output.split('AVFoundation audio devices:')[1];
+
+            if (audioDevicesSection) {
+                logger.info('🎙️  Available audio devices:');
+                const deviceLines = audioDevicesSection.split('\n')
+                    .filter((line: string) => line.includes('[') && line.includes(']'))
+                    .map((line: string) => line.trim());
+
+                deviceLines.forEach((line: string) => {
+                    const match = line.match(/\[(\d+)\]\s+(.+)/);
+                    if (match) {
+                        logger.info(`   [${match[1]}] ${match[2]}`);
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        logger.debug('Could not list audio devices');
+    }
+};
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
-    const prompts = Prompts.create(runConfig.model as Model, runConfig);
     const isDryRun = runConfig.dryRun || false;
+
+    // Handle audio device selection if requested
+    if (runConfig.audioCommit?.selectAudioDevice) {
+        logger.info('🎛️  Starting audio device selection...');
+        const selectedDevice = await selectAudioDeviceInteractively(runConfig);
+
+        if (selectedDevice === null) {
+            logger.error('❌ Audio device selection cancelled or failed');
+            process.exit(1);
+        }
+
+        logger.info('✅ Audio device selection complete');
+        logger.info('');
+        logger.info('You can now run the audio-commit command without --select-audio-device to use your saved device');
+        return 'Audio device configured successfully';
+    }
 
     if (isDryRun) {
         logger.info('DRY RUN: Would start audio recording for commit context');
         logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+        logger.info('DRY RUN: Would then delegate to regular commit command');
 
-        if (runConfig.commit?.add) {
-            logger.info('DRY RUN: Would add all changes to the index with: git add -A');
-        }
-
-        if (runConfig.commit?.sendit) {
-            logger.info('DRY RUN: Would automatically commit with generated message');
-        }
-
-        return 'DRY RUN: Audio-commit command would record audio, transcribe it, and generate commit message using the transcription as context';
+        // In dry run, just call the regular commit command with empty audio context
+        return executeCommit({
+            ...runConfig,
+            commit: {
+                ...runConfig.commit,
+                direction: runConfig.commit?.direction || ''
+            }
+        });
     }
 
-    // Handle add option first
-    if (runConfig.commit?.add) {
-        logger.verbose('Adding all changes to the index...');
-        await run('git add -A');
-    }
-
-    // Start audio recording
+    // Start audio recording and transcription
     logger.info('Starting audio recording for commit context...');
     logger.info('This command will use your system\'s default audio recording tool');
+    logger.info('💡 Tip: Use --select-audio-device to choose a specific microphone');
     logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
 
-    // Create temporary file for audio recording
+    const audioContext = await recordAndTranscribeAudio(runConfig);
+
+    // Now delegate to the regular commit command with the audio context
+    logger.info('🤖 Generating commit message using audio context...');
+    const result = await executeCommit({
+        ...runConfig,
+        commit: {
+            ...runConfig.commit,
+            direction: audioContext.trim() || runConfig.commit?.direction || ''
+        }
+    });
+
+    // Final cleanup to ensure process can exit
+    try {
+        if (process.stdin.setRawMode) {
+            process.stdin.setRawMode(false);
+            process.stdin.pause();
+            process.stdin.removeAllListeners();
+        }
+        process.removeAllListeners('SIGINT');
+        process.removeAllListeners('SIGTERM');
+    } catch (error) {
+        // Ignore cleanup errors
+    }
+
+    return result;
+};
+
+const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
+    const logger = getLogger();
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
     const storage = createStorage({ log: logger.info });
     await storage.ensureDirectory(outputDirectory);
@@ -54,29 +328,130 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const tempDir = await fs.mkdtemp(path.join(outputDirectory, '.temp-audio-'));
     const audioFilePath = path.join(tempDir, 'recording.wav');
 
-    let audioContext = '';
+    // Declare variables at function scope for cleanup access
+    let recordingProcess: any = null;
+    let recordingFinished = false;
+    let recordingCancelled = false;
+    let countdownInterval: NodeJS.Timeout | null = null;
+    let remainingSeconds = 30;
+    let intendedRecordingTime = 30;
+    const maxRecordingTime = runConfig.audioCommit?.maxRecordingTime || 300; // 5 minutes default
+    const extensionTime = 30; // 30 seconds per extension
 
     try {
         // Use system recording tool - cross-platform approach
         logger.info('🎤 Starting recording... Speak now!');
-        logger.info('Recording will stop automatically after 30 seconds or when you press Ctrl+C');
+        logger.info('📋 Controls: ENTER=done, E=extend+30s, C/Ctrl+C=cancel');
 
-        let recordingProcess: any;
-        let recordingFinished = false;
+        // List available audio devices in debug mode
+        if (runConfig.debug) {
+            await listAudioDevices();
+        }
 
-        // Determine which recording command to use based on platform
+        // Start countdown display
+        const startCountdown = () => {
+            // Show initial countdown
+            updateCountdownDisplay();
+
+            countdownInterval = setInterval(() => {
+                remainingSeconds--;
+                if (remainingSeconds > 0) {
+                    updateCountdownDisplay();
+                } else {
+                    process.stdout.write('\r⏱️  Recording: Time\'s up!                                        \n');
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
+                    }
+                    // Auto-stop when intended time is reached
+                    stopRecording();
+                }
+            }, 1000);
+        };
+
+        const updateCountdownDisplay = () => {
+            const maxMinutes = Math.floor(maxRecordingTime / 60);
+            const intendedMinutes = Math.floor(intendedRecordingTime / 60);
+            const intendedSeconds = intendedRecordingTime % 60;
+            process.stdout.write(`\r⏱️  Recording: ${remainingSeconds}s left (${intendedMinutes}:${intendedSeconds.toString().padStart(2, '0')}/${maxMinutes}:00 max) [ENTER=done, E=+30s, C=cancel]`);
+        };
+
+        const extendRecording = () => {
+            const newTotal = intendedRecordingTime + extensionTime;
+            if (newTotal <= maxRecordingTime) {
+                intendedRecordingTime = newTotal;
+                remainingSeconds += extensionTime;
+                logger.info(`🔄 Extended recording by ${extensionTime}s (total: ${Math.floor(intendedRecordingTime / 60)}:${(intendedRecordingTime % 60).toString().padStart(2, '0')})`);
+                updateCountdownDisplay();
+            } else {
+                const canExtend = maxRecordingTime - intendedRecordingTime;
+                if (canExtend > 0) {
+                    intendedRecordingTime = maxRecordingTime;
+                    remainingSeconds += canExtend;
+                    logger.info(`🔄 Extended recording by ${canExtend}s (maximum reached: ${Math.floor(maxRecordingTime / 60)}:${(maxRecordingTime % 60).toString().padStart(2, '0')})`);
+                    updateCountdownDisplay();
+                } else {
+                    logger.warn(`⚠️  Cannot extend: maximum recording time (${Math.floor(maxRecordingTime / 60)}:${(maxRecordingTime % 60).toString().padStart(2, '0')}) reached`);
+                }
+            }
+        };
+
+        // Set up keyboard input handling
+        const setupKeyboardHandling = () => {
+            process.stdin.setRawMode(true);
+            process.stdin.resume();
+            process.stdin.setEncoding('utf8');
+
+            const keyHandler = (key: string) => {
+                const keyCode = key.charCodeAt(0);
+
+                if (keyCode === 13) { // ENTER key
+                    // Immediate feedback
+                    process.stdout.write('\r✅ ENTER pressed - stopping recording...                          \n');
+                    process.stdin.setRawMode(false);
+                    process.stdin.pause();
+                    process.stdin.removeListener('data', keyHandler);
+                    stopRecording();
+                } else if (key.toLowerCase() === 'e') { // 'e' or 'E' key
+                    extendRecording();
+                } else if (key.toLowerCase() === 'c' || keyCode === 3) { // 'c', 'C', or Ctrl+C
+                    // Immediate feedback
+                    process.stdout.write('\r❌ Cancelling recording...                                       \n');
+                    process.stdin.setRawMode(false);
+                    process.stdin.pause();
+                    process.stdin.removeListener('data', keyHandler);
+                    cancelRecording();
+                }
+            };
+
+            process.stdin.on('data', keyHandler);
+        };
+
+        // Determine which recording command to use based on platform (using max time)
         let recordCommand: string;
         if (process.platform === 'darwin') {
             // macOS - try ffmpeg first, then fall back to manual recording
             try {
                 // Check if ffmpeg is available
                 await run('which ffmpeg');
-                recordCommand = `ffmpeg -f avfoundation -i ":0" -t 30 -y "${audioFilePath}"`;
+
+                // Get the best audio device (from saved config, CLI config, or auto-detected)
+                const savedDevice = await loadAudioDeviceFromConfig(runConfig);
+                const audioDevice = runConfig.audioCommit?.audioDevice || savedDevice || await detectBestAudioDevice();
+                recordCommand = `ffmpeg -f avfoundation -i ":${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
+
+                if (runConfig.audioCommit?.audioDevice) {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (from CLI configuration)`);
+                } else if (savedDevice) {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (from saved configuration)`);
+                } else {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (auto-detected)`);
+                }
             } catch {
                 // ffmpeg not available, try sox/rec
                 try {
                     await run('which rec');
-                    recordCommand = `rec -r 44100 -c 1 -t wav "${audioFilePath}" trim 0 30`;
+                    recordCommand = `rec -r 44100 -c 1 -t wav "${audioFilePath}" trim 0 ${maxRecordingTime}`;
                 } catch {
                     // Neither available, use manual fallback
                     throw new Error('MANUAL_RECORDING_NEEDED');
@@ -86,7 +461,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Windows - use ffmpeg if available, otherwise fallback
             try {
                 await run('where ffmpeg');
-                recordCommand = `ffmpeg -f dshow -i audio="Microphone" -t 30 -y "${audioFilePath}"`;
+                recordCommand = `ffmpeg -f dshow -i audio="Microphone" -t ${maxRecordingTime} -y "${audioFilePath}"`;
             } catch {
                 throw new Error('MANUAL_RECORDING_NEEDED');
             }
@@ -94,18 +469,18 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Linux - use arecord (ALSA) or ffmpeg
             try {
                 await run('which arecord');
-                recordCommand = `arecord -f cd -t wav -d 30 "${audioFilePath}"`;
+                recordCommand = `arecord -f cd -t wav -d ${maxRecordingTime} "${audioFilePath}"`;
             } catch {
                 try {
                     await run('which ffmpeg');
-                    recordCommand = `ffmpeg -f alsa -i default -t 30 -y "${audioFilePath}"`;
+                    recordCommand = `ffmpeg -f alsa -i default -t ${maxRecordingTime} -y "${audioFilePath}"`;
                 } catch {
                     throw new Error('MANUAL_RECORDING_NEEDED');
                 }
             }
         }
 
-        // Start recording as a background process
+        // Start recording as a background process (with max time, we'll stop it early if needed)
         try {
             recordingProcess = run(recordCommand);
         } catch (error: any) {
@@ -135,18 +510,24 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 logger.warn('');
                 logger.warn('⌨️  Press ENTER when you have saved the audio file...');
 
-                // Wait for user input
+                // Wait for user input (disable our keyboard handling for this)
                 await new Promise(resolve => {
+                    const originalRawMode = process.stdin.setRawMode;
                     process.stdin.setRawMode(true);
                     process.stdin.resume();
-                    process.stdin.on('data', (key) => {
+                    const enterHandler = (key: Buffer) => {
                         if (key[0] === 13) { // Enter key
                             process.stdin.setRawMode(false);
                             process.stdin.pause();
+                            process.stdin.removeListener('data', enterHandler);
                             resolve(void 0);
                         }
-                    });
+                    };
+                    process.stdin.on('data', enterHandler);
                 });
+
+                // Skip the automatic recording and keyboard handling for manual recording
+                recordingProcess = null;
             } else {
                 throw error;
             }
@@ -154,34 +535,123 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         // Set up graceful shutdown
         const stopRecording = async () => {
-            if (!recordingFinished) {
+            if (!recordingFinished && !recordingCancelled) {
                 recordingFinished = true;
-                if (recordingProcess && recordingProcess.kill) {
-                    recordingProcess.kill();
+
+                // Clear countdown
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
                 }
-                logger.info('🛑 Recording stopped');
+
+                // Clear the countdown line and show recording stopped
+                process.stdout.write('\r⏱️  Recording finished!                                  \n');
+
+                if (recordingProcess && recordingProcess.kill) {
+                    recordingProcess.kill('SIGTERM');
+                }
+                logger.info('🛑 Recording stopped - proceeding with commit');
             }
         };
 
-        // Listen for Ctrl+C
-        process.on('SIGINT', stopRecording);
+        // Set up cancellation
+        const cancelRecording = async () => {
+            if (!recordingFinished && !recordingCancelled) {
+                recordingCancelled = true;
 
-        // Wait for recording to finish (either timeout or manual stop)
-        if (recordingProcess) {
-            try {
-                await recordingProcess;
-                logger.info('✅ Recording completed automatically');
-            } catch (error: any) {
-                if (!recordingFinished && error.signal === 'SIGTERM') {
-                    logger.info('✅ Recording stopped by user');
-                } else if (!recordingFinished) {
-                    logger.warn('Recording process ended unexpectedly: %s', error.message);
+                // Clear countdown
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
                 }
+
+                // Clear the countdown line and show cancellation
+                process.stdout.write('\r❌ Recording cancelled!                                 \n');
+
+                if (recordingProcess && recordingProcess.kill) {
+                    recordingProcess.kill('SIGTERM');
+                }
+
+                logger.info('❌ Audio commit cancelled by user');
+                process.exit(0);
+            }
+        };
+
+        // Remove the old SIGINT handler and use our new keyboard handling
+        // Note: We'll still handle SIGINT for cleanup, but route it through cancelRecording
+        process.on('SIGINT', cancelRecording);
+
+        // Start keyboard handling and countdown if we have a recording process
+        if (recordingProcess) {
+            setupKeyboardHandling();
+            startCountdown();
+
+            // Create a promise that resolves when user manually stops recording
+            const manualStopPromise = new Promise<void>((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (recordingFinished || recordingCancelled) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+            });
+
+            // Wait for either the recording to finish naturally or manual stop
+            try {
+                await Promise.race([recordingProcess, manualStopPromise]);
+
+                // If manually stopped, force kill the process if it's still running
+                if (recordingFinished && recordingProcess && !recordingProcess.killed) {
+                    recordingProcess.kill('SIGKILL');
+                    // Give it a moment to die
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+
+                // Only show completion message if not manually finished
+                if (!recordingCancelled && !recordingFinished) {
+                    // Clear countdown on successful completion
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
+                    }
+
+                    process.stdout.write('\r⏱️  Recording completed!                               \n');
+                    logger.info('✅ Recording completed automatically');
+                }
+            } catch (error: any) {
+                // Only handle errors if not cancelled and not manually finished
+                if (!recordingCancelled && !recordingFinished) {
+                    // Clear countdown on error
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
+                    }
+
+                    if (error.signal === 'SIGTERM' || error.signal === 'SIGKILL') {
+                        // This is expected when we kill the process
+                        logger.debug('Recording process terminated as expected');
+                    } else {
+                        logger.warn('Recording process ended unexpectedly: %s', error.message);
+                    }
+                }
+            }
+
+            // Always clean up keyboard input
+            if (process.stdin.setRawMode) {
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
             }
         }
 
-        // Ensure recording is stopped
-        await stopRecording();
+        // If recording was cancelled, exit early
+        if (recordingCancelled) {
+            return '';
+        }
+
+        // Wait a moment for the recording file to be fully written
+        if (recordingFinished) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
 
         // Check if audio file exists
         try {
@@ -197,96 +667,82 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         // Transcribe the audio
         logger.info('🎯 Transcribing audio...');
+        logger.info('⏳ This may take a few seconds depending on audio length...');
         const transcription = await transcribeAudio(audioFilePath);
-        audioContext = transcription.text;
+        const audioContext = transcription.text;
         logger.info('✅ Audio transcribed successfully');
         logger.debug('Transcription: %s', audioContext);
 
+        // Save audio file and transcript to output directory
+        logger.info('💾 Saving audio file and transcript...');
+        try {
+            const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+            const storage = createStorage({ log: logger.info });
+            await storage.ensureDirectory(outputDirectory);
+
+            // Save audio file copy
+            const audioOutputFilename = getTimestampedAudioFilename();
+            const audioOutputPath = getOutputPath(outputDirectory, audioOutputFilename);
+            await fs.copyFile(audioFilePath, audioOutputPath);
+            logger.debug('Saved audio file: %s', audioOutputPath);
+
+            // Save transcript
+            if (audioContext.trim()) {
+                const transcriptOutputFilename = getTimestampedTranscriptFilename();
+                const transcriptOutputPath = getOutputPath(outputDirectory, transcriptOutputFilename);
+                const transcriptContent = `# Audio Transcript\n\n**Recorded:** ${new Date().toISOString()}\n\n**Transcript:**\n\n${audioContext}`;
+                await storage.writeFile(transcriptOutputPath, transcriptContent, 'utf-8');
+                logger.debug('Saved transcript: %s', transcriptOutputPath);
+            }
+        } catch (error: any) {
+            logger.warn('Failed to save audio/transcript files: %s', error.message);
+        }
+
         if (!audioContext.trim()) {
             logger.warn('No audio content was transcribed. Proceeding without audio context.');
+            return '';
         } else {
             logger.info('📝 Using transcribed audio as commit context');
+            return audioContext;
         }
 
     } catch (error: any) {
         logger.error('Audio recording/transcription failed: %s', error.message);
         logger.info('Proceeding with commit generation without audio context...');
-        audioContext = '';
+        return '';
     } finally {
-        // Clean up temporary directory
+        // Comprehensive cleanup to ensure program can exit
         try {
+            // Clear any remaining countdown interval
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+
+            // Ensure stdin is properly reset
+            if (process.stdin.setRawMode) {
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
+                process.stdin.removeAllListeners('data');
+            }
+
+            // Remove process event listeners that we added
+            process.removeAllListeners('SIGINT');
+            process.removeAllListeners('SIGTERM');
+
+            // Force kill any remaining recording process
+            if (recordingProcess && !recordingProcess.killed) {
+                try {
+                    recordingProcess.kill('SIGKILL');
+                } catch (killError) {
+                    // Ignore kill errors
+                }
+            }
+
+            // Clean up temporary directory
             await fs.rm(tempDir, { recursive: true, force: true });
-        } catch (error: any) {
-            logger.debug('Failed to clean up temporary directory: %s', error.message);
+        } catch (cleanupError: any) {
+            logger.debug('Cleanup warning: %s', cleanupError.message);
         }
     }
-
-    // Now proceed with commit logic using the transcribed audio as context
-    let cached = runConfig.commit?.cached;
-    // If `add` is used, we should always look at staged changes.
-    if (runConfig.commit?.add) {
-        cached = true;
-    } else if (cached === undefined) {
-        // If cached is undefined? We're going to look for a staged commit; otherwise, we'll use the supplied setting.
-        cached = await Diff.hasStagedChanges();
-    }
-
-    // Fix: Exit early if sendit is true but no changes are staged
-    if (runConfig.commit?.sendit && !cached) {
-        logger.warn('SendIt mode enabled, but no changes to commit.');
-        process.exit(1);
-    }
-
-    const options = { cached, excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS };
-    const diff = await Diff.create(options);
-    const diffContent = await diff.get();
-
-    const logOptions = {
-        limit: runConfig.commit?.messageLimit,
-    };
-    const log = await Log.create(logOptions);
-    const logContent = await log.get();
-
-    // Use the transcribed audio as context, fallback to any configured context
-    const commitContext = audioContext.trim() || runConfig.commit?.context || '';
-
-    const prompt = await prompts.createCommitPrompt(diffContent, logContent, commitContext);
-
-    if (runConfig.debug) {
-        const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);
-        logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
-    }
-
-    const request: Request = prompts.format(prompt);
-
-    if (runConfig.debug) {
-        const storage = createStorage({ log: logger.info });
-        await storage.ensureDirectory(outputDirectory);
-    }
-
-    const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], {
-        model: runConfig.model,
-        debug: runConfig.debug,
-        debugRequestFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedRequestFilename('audio-commit')) : undefined,
-        debugResponseFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedResponseFilename('audio-commit')) : undefined,
-    });
-
-    if (runConfig.commit?.sendit) {
-        if (!cached) {
-            logger.error('SendIt mode enabled, but no changes to commit. Message: \n\n%s\n\n', summary);
-            process.exit(1);
-        }
-
-        logger.info('SendIt mode enabled. Committing with message: \n\n%s\n\n', summary);
-        try {
-            const escapedSummary = shellescape([summary]);
-            await run(`git commit -m ${escapedSummary}`);
-            logger.info('Commit successful!');
-        } catch (error) {
-            logger.error('Failed to commit:', error);
-            process.exit(1);
-        }
-    }
-
-    return summary;
-} 
+};

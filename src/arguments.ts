@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Command } from "commander";
 import path from "path";
 import { z } from "zod";
@@ -5,6 +6,7 @@ import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, DEFAULT_
 import { getLogger } from "./logging";
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
+import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({
     dryRun: z.boolean().optional(),
@@ -18,6 +20,7 @@ export const InputSchema = z.object({
     contextDirectories: z.array(z.string()).optional(),
     instructions: z.string().optional(),
     configDir: z.string().optional(),
+    outputDir: z.string().optional(),
     cached: z.boolean().optional(),
     add: z.boolean().optional(),
     sendit: z.boolean().optional(),
@@ -25,6 +28,8 @@ export const InputSchema = z.object({
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     context: z.string().optional(),
+    note: z.string().optional(), // For review command positional argument/STDIN
+    direction: z.string().optional(),
     messageLimit: z.number().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
@@ -37,6 +42,7 @@ export const InputSchema = z.object({
     diffHistoryLimit: z.number().optional(),
     releaseNotesLimit: z.number().optional(),
     githubIssuesLimit: z.number().optional(),
+    selectAudioDevice: z.boolean().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -57,6 +63,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     // Map configDir (CLI) to configDirectory (Cardigantime standard)
     if (finalCliArgs.configDir !== undefined) transformedCliArgs.configDirectory = finalCliArgs.configDir;
 
+    // Map outputDir (CLI) to outputDirectory (Config standard)
+    if (finalCliArgs.outputDir !== undefined) transformedCliArgs.outputDirectory = finalCliArgs.outputDir;
+
     // Nested mappings for 'commit' options
     if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
         transformedCliArgs.commit = {};
@@ -65,6 +74,13 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.commit.sendit = finalCliArgs.sendit;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
+        if (finalCliArgs.direction !== undefined) transformedCliArgs.commit.direction = finalCliArgs.direction;
+    }
+
+    // Nested mappings for 'audioCommit' options
+    if (finalCliArgs.selectAudioDevice !== undefined) {
+        transformedCliArgs.audioCommit = {};
+        transformedCliArgs.audioCommit.selectAudioDevice = finalCliArgs.selectAudioDevice;
     }
 
     // Nested mappings for 'release' options
@@ -88,7 +104,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.scopeRoots !== undefined) {
             try {
                 transformedCliArgs.link.scopeRoots = JSON.parse(finalCliArgs.scopeRoots);
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
             } catch (error) {
                 throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
             }
@@ -117,6 +133,33 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         // Only add context and sendit if we already have an audioReview object from the specific properties above
         if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
+    }
+
+    // Nested mappings for 'review' options
+    if (finalCliArgs.includeCommitHistory !== undefined ||
+        finalCliArgs.includeRecentDiffs !== undefined ||
+        finalCliArgs.includeReleaseNotes !== undefined ||
+        finalCliArgs.includeGithubIssues !== undefined ||
+        finalCliArgs.commitHistoryLimit !== undefined ||
+        finalCliArgs.diffHistoryLimit !== undefined ||
+        finalCliArgs.releaseNotesLimit !== undefined ||
+        finalCliArgs.githubIssuesLimit !== undefined ||
+        finalCliArgs.context !== undefined ||
+        finalCliArgs.sendit !== undefined ||
+        finalCliArgs.note !== undefined) {
+        transformedCliArgs.review = {};
+        if (finalCliArgs.note !== undefined) transformedCliArgs.review.note = finalCliArgs.note;
+        // Include optional review configuration options if specified
+        if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.review.includeCommitHistory = finalCliArgs.includeCommitHistory;
+        if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.review.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
+        if (finalCliArgs.includeReleaseNotes !== undefined) transformedCliArgs.review.includeReleaseNotes = finalCliArgs.includeReleaseNotes;
+        if (finalCliArgs.includeGithubIssues !== undefined) transformedCliArgs.review.includeGithubIssues = finalCliArgs.includeGithubIssues;
+        if (finalCliArgs.commitHistoryLimit !== undefined) transformedCliArgs.review.commitHistoryLimit = finalCliArgs.commitHistoryLimit;
+        if (finalCliArgs.diffHistoryLimit !== undefined) transformedCliArgs.review.diffHistoryLimit = finalCliArgs.diffHistoryLimit;
+        if (finalCliArgs.releaseNotesLimit !== undefined) transformedCliArgs.review.releaseNotesLimit = finalCliArgs.releaseNotesLimit;
+        if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.review.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
+        if (finalCliArgs.context !== undefined) transformedCliArgs.review.context = finalCliArgs.context;
+        if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
     }
 
     if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
@@ -187,7 +230,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     }
 
     // Get CLI arguments using the new function
-    const [finalCliArgs, commandConfig]: [Input, CommandConfig] = getCliConfig(program);
+    const [finalCliArgs, commandConfig]: [Input, CommandConfig] = await getCliConfig(program);
     logger.silly('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
 
     // Transform the flat CLI args using the new function
@@ -223,6 +266,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     logger.verbose(`  Debug: ${config.debug}`);
     logger.verbose(`  Verbose: ${config.verbose}`);
     logger.verbose(`  Config directory: ${config.configDirectory}`);
+    logger.verbose(`  Output directory: ${config.outputDirectory}`);
     logger.verbose(`  Context directories: ${config.contextDirectories?.join(', ') || 'none'}`);
     if (config.excludedPatterns && config.excludedPatterns.length > 0) {
         logger.verbose(`  Excluded patterns: ${config.excludedPatterns.join(', ')}`);
@@ -239,7 +283,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
 }
 
 // Function to handle CLI argument parsing and processing
-export function getCliConfig(program: Command): [Input, CommandConfig] {
+export async function getCliConfig(program: Command): Promise<[Input, CommandConfig]> {
 
     const addSharedOptions = (command: Command) => {
         command
@@ -251,6 +295,7 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             .option('-d, --context-directories [contextDirectories...]', 'directories to scan for context')
             .option('-i, --instructions <file>', 'instructions for the AI')
             .option('--config-dir <configDir>', 'configuration directory') // Keep config-dir for specifying location
+            .option('--output-dir <outputDir>', 'output directory for generated files')
             .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff');
     }
 
@@ -260,20 +305,68 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
     // Add subcommands
     const commitCommand = program
         .command('commit')
+        .argument('[direction]', 'direction or guidance for the commit message')
+        .description('Generate commit notes')
+        .option('--context <context>', 'context for the commit message')
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
-        .option('--context <context>', 'context for the commit message')
-        .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
-        .description('Generate commit notes');
+        .option('--message-limit <messageLimit>', 'limit the number of messages to generate');
+
+    // Add shared options to commit command
     addSharedOptions(commitCommand);
+
+    // Customize help output for commit command
+    commitCommand.configureHelp({
+        formatHelp: (cmd, helper) => {
+            const nameAndVersion = `${helper.commandUsage(cmd)}\n\n${helper.commandDescription(cmd)}\n`;
+
+            const commitOptions = [
+                ['--context <context>', 'context for the commit message']
+            ];
+
+            const behavioralOptions = [
+                ['--cached', 'use cached diff'],
+                ['--add', 'add all changes before committing'],
+                ['--sendit', 'Commit with the message generated. No review.'],
+                ['--message-limit <messageLimit>', 'limit the number of messages to generate']
+            ];
+
+            const globalOptions = [
+                ['--dry-run', 'perform a dry run without saving files'],
+                ['--verbose', 'enable verbose logging'],
+                ['--debug', 'enable debug logging'],
+                ['--overrides', 'enable overrides'],
+                ['--model <model>', 'OpenAI model to use'],
+                ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
+                ['-i, --instructions <file>', 'instructions for the AI'],
+                ['--config-dir <configDir>', 'configuration directory'],
+                ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
+                ['-h, --help', 'display help for command']
+            ];
+
+            const formatOptionsSection = (title: string, options: string[][]) => {
+                const maxWidth = Math.max(...options.map(([flag]) => flag.length));
+                return `${title}:\n` + options.map(([flag, desc]) =>
+                    `  ${flag.padEnd(maxWidth + 2)} ${desc}`
+                ).join('\n') + '\n';
+            };
+
+            return nameAndVersion + '\n' +
+                formatOptionsSection('Commit Message Options', commitOptions) + '\n' +
+                formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
+                formatOptionsSection('Global Options', globalOptions);
+        }
+    });
 
     const audioCommitCommand = program
         .command('audio-commit')
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
+        .option('--direction <direction>', 'direction or guidance for the commit message')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
+        .option('--select-audio-device', 'interactively select audio device and save to configuration')
         .description('Record audio to provide context, then generate and optionally commit with AI-generated message');
     addSharedOptions(audioCommitCommand);
 
@@ -324,6 +417,88 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
+    const reviewCommand = program
+        .command('review')
+        .argument('[note]', 'review note to analyze for project issues')
+        .option('--include-commit-history', 'include recent commit log messages in context (default: true)')
+        .option('--no-include-commit-history', 'exclude commit log messages from context')
+        .option('--include-recent-diffs', 'include recent commit diffs in context (default: true)')
+        .option('--no-include-recent-diffs', 'exclude recent diffs from context')
+        .option('--include-release-notes', 'include recent release notes in context (default: false)')
+        .option('--no-include-release-notes', 'exclude release notes from context')
+        .option('--include-github-issues', 'include open GitHub issues in context (default: true)')
+        .option('--no-include-github-issues', 'exclude GitHub issues from context')
+        .option('--commit-history-limit <limit>', 'number of recent commits to include', parseInt)
+        .option('--diff-history-limit <limit>', 'number of recent commit diffs to include', parseInt)
+        .option('--release-notes-limit <limit>', 'number of recent release notes to include', parseInt)
+        .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
+        .option('--context <context>', 'additional context for the review')
+        .option('--sendit', 'Create GitHub issues automatically without confirmation')
+        .description('Analyze review note for project issues using AI');
+    addSharedOptions(reviewCommand);
+
+    // Customize help output for review command
+    reviewCommand.configureHelp({
+        formatHelp: (cmd, helper) => {
+            const nameAndVersion = `kodrdriv review [note] [options]\n\nAnalyze review note for project issues using AI\n`;
+
+            const argumentsSection = [
+                ['note', 'review note to analyze for project issues (can also be piped via STDIN)']
+            ];
+
+            const reviewOptions = [
+                ['--context <context>', 'additional context for the review']
+            ];
+
+            const gitContextOptions = [
+                ['--include-commit-history', 'include recent commit log messages in context (default: true)'],
+                ['--no-include-commit-history', 'exclude commit log messages from context'],
+                ['--include-recent-diffs', 'include recent commit diffs in context (default: true)'],
+                ['--no-include-recent-diffs', 'exclude recent diffs from context'],
+                ['--include-release-notes', 'include recent release notes in context (default: false)'],
+                ['--no-include-release-notes', 'exclude release notes from context'],
+                ['--include-github-issues', 'include open GitHub issues in context (default: true)'],
+                ['--no-include-github-issues', 'exclude GitHub issues from context'],
+                ['--commit-history-limit <limit>', 'number of recent commits to include'],
+                ['--diff-history-limit <limit>', 'number of recent commit diffs to include'],
+                ['--release-notes-limit <limit>', 'number of recent release notes to include'],
+                ['--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)']
+            ];
+
+            const behavioralOptions = [
+                ['--sendit', 'Create GitHub issues automatically without confirmation']
+            ];
+
+            const globalOptions = [
+                ['--dry-run', 'perform a dry run without saving files'],
+                ['--verbose', 'enable verbose logging'],
+                ['--debug', 'enable debug logging'],
+                ['--overrides', 'enable overrides'],
+                ['--model <model>', 'OpenAI model to use'],
+                ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
+                ['-i, --instructions <file>', 'instructions for the AI'],
+                ['--config-dir <configDir>', 'configuration directory'],
+                ['--output-dir <outputDir>', 'output directory for generated files'],
+                ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
+                ['-h, --help', 'display help for command']
+            ];
+
+            const formatOptionsSection = (title: string, options: string[][]) => {
+                const maxWidth = Math.max(...options.map(([flag]) => flag.length));
+                return `${title}:\n` + options.map(([flag, desc]) =>
+                    `  ${flag.padEnd(maxWidth + 2)} ${desc}`
+                ).join('\n') + '\n';
+            };
+
+            return nameAndVersion + '\n' +
+                formatOptionsSection('Arguments', argumentsSection) + '\n' +
+                formatOptionsSection('Options', reviewOptions) + '\n' +
+                formatOptionsSection('Git Context Parameters', gitContextOptions) + '\n' +
+                formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
+                formatOptionsSection('Global Options', globalOptions);
+        }
+    });
+
     const cleanCommand = program
         .command('clean')
         .description('Remove the output directory and all generated files');
@@ -346,6 +521,17 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
     if (ALLOWED_COMMANDS.includes(commandName)) {
         if (commandName === 'commit' && commitCommand.opts) {
             commandOptions = commitCommand.opts<Partial<Input>>();
+            // Handle positional argument for direction
+            const args = commitCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                commandOptions.direction = args[0];
+            }
+
+            // Check for STDIN input for direction (takes precedence over positional argument)
+            const stdinInput = await readStdin();
+            if (stdinInput) {
+                commandOptions.direction = stdinInput;
+            }
         } else if (commandName === 'audio-commit' && audioCommitCommand.opts) {
             commandOptions = audioCommitCommand.opts<Partial<Input>>();
         } else if (commandName === 'release' && releaseCommand.opts) {
@@ -358,6 +544,19 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             commandOptions = unlinkCommand.opts<Partial<Input>>();
         } else if (commandName === 'audio-review' && audioReviewCommand.opts) {
             commandOptions = audioReviewCommand.opts<Partial<Input>>();
+        } else if (commandName === 'review' && reviewCommand.opts) {
+            commandOptions = reviewCommand.opts<Partial<Input>>();
+            // Handle positional argument for note
+            const args = reviewCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                commandOptions.note = args[0];
+            }
+
+            // Check for STDIN input for note (takes precedence over positional argument)
+            const stdinInput = await readStdin();
+            if (stdinInput) {
+                commandOptions.note = stdinInput;
+            }
         } else if (commandName === 'clean' && cleanCommand.opts) {
             commandOptions = cleanCommand.opts<Partial<Input>>();
         }
@@ -407,6 +606,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         instructions: instructions, // Use processed instructions content
         contextDirectories: contextDirectories,
         configDirectory: configDir,
+        outputDirectory: options.outputDirectory ?? KODRDRIV_DEFAULTS.outputDirectory,
         // Command-specific options with defaults
         commit: {
             add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
@@ -414,6 +614,12 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             sendit: options.commit?.sendit ?? KODRDRIV_DEFAULTS.commit.sendit,
             messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
             context: options.commit?.context,
+            direction: options.commit?.direction,
+        },
+        audioCommit: {
+            maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
+            audioDevice: options.audioCommit?.audioDevice ?? KODRDRIV_DEFAULTS.audioCommit.audioDevice,
+            selectAudioDevice: options.audioCommit?.selectAudioDevice,
         },
         release: {
             from: options.release?.from ?? KODRDRIV_DEFAULTS.release.from,
@@ -432,6 +638,19 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             githubIssuesLimit: options.audioReview?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.audioReview.githubIssuesLimit,
             context: options.audioReview?.context,
             sendit: options.audioReview?.sendit ?? KODRDRIV_DEFAULTS.audioReview.sendit,
+        },
+        review: {
+            includeCommitHistory: options.review?.includeCommitHistory ?? KODRDRIV_DEFAULTS.review.includeCommitHistory,
+            includeRecentDiffs: options.review?.includeRecentDiffs ?? KODRDRIV_DEFAULTS.review.includeRecentDiffs,
+            includeReleaseNotes: options.review?.includeReleaseNotes ?? KODRDRIV_DEFAULTS.review.includeReleaseNotes,
+            includeGithubIssues: options.review?.includeGithubIssues ?? KODRDRIV_DEFAULTS.review.includeGithubIssues,
+            commitHistoryLimit: options.review?.commitHistoryLimit ?? KODRDRIV_DEFAULTS.review.commitHistoryLimit,
+            diffHistoryLimit: options.review?.diffHistoryLimit ?? KODRDRIV_DEFAULTS.review.diffHistoryLimit,
+            releaseNotesLimit: options.review?.releaseNotesLimit ?? KODRDRIV_DEFAULTS.review.releaseNotesLimit,
+            githubIssuesLimit: options.review?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.review.githubIssuesLimit,
+            context: options.review?.context,
+            sendit: options.review?.sendit ?? KODRDRIV_DEFAULTS.review.sendit,
+            note: options.review?.note,
         },
         publish: {
             mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,
@@ -544,3 +763,4 @@ export async function validateAndReadInstructions(instructionsPath: string): Pro
         throw new Error(`Failed to read instructions from ${instructionsPath} or default location.`);
     }
 }
+

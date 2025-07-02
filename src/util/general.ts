@@ -121,3 +121,11 @@ export const getTimestampedCommitFilename = (): string => {
 export const getTimestampedReleaseNotesFilename = (): string => {
     return getTimestampedFilename('release-notes', '.md');
 };
+
+export const getTimestampedAudioFilename = (): string => {
+    return getTimestampedFilename('audio-recording', '.wav');
+};
+
+export const getTimestampedTranscriptFilename = (): string => {
+    return getTimestampedFilename('audio-transcript', '.md');
+};

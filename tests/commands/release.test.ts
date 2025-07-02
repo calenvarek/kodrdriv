@@ -72,7 +72,7 @@ describe('release command', () => {
         const result = await Release.execute(runConfig);
 
         expect(Log.create).toHaveBeenCalledWith({
-            from: 'main',
+            from: 'origin/HEAD',
             to: 'HEAD'
         });
         expect(Prompts.create).toHaveBeenCalledWith('gpt-4', runConfig);

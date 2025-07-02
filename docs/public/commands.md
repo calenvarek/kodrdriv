@@ -12,6 +12,26 @@ kodrdriv commit
 
 The commit command analyzes your changes and generates contextual commit messages using AI. It can work with both staged and unstaged changes.
 
+### Providing Direction
+
+You can provide direction for the commit message in two ways:
+
+**Positional argument:**
+```bash
+kodrdriv commit "fix performance issues"
+```
+
+**STDIN (takes precedence over positional argument):**
+```bash
+echo "fix performance issues" | kodrdriv commit
+cat my_thoughts.txt | kodrdriv commit
+```
+
+STDIN input is particularly useful for:
+- Scripting and automation
+- Voice-driven workflows (when combined with speech-to-text)
+- Complex directions that might contain special characters
+
 > [!TIP]
 > ### Working with Staged Changes
 > 
