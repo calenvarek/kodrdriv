@@ -454,7 +454,7 @@ export class AudioProcessor {
                 const homeDeviceConfig = options.preferencesDirectory ?
                     await loadAudioDeviceFromHomeConfig(options.preferencesDirectory) : null;
                 const audioDevice = options.audioDevice || homeDeviceConfig?.audioDevice || await detectBestAudioDevice();
-                recordCommand = `ffmpeg -f avfoundation -i "${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
+                recordCommand = `ffmpeg -f avfoundation -i ":${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
 
                 if (options.audioDevice) {
                     this.logger.info(`🎙️  Using audio device ${audioDevice} (from configuration)`);
