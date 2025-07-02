@@ -8,3 +8,4 @@ output/
 RELEASE_NOTES.md
 RELEASE_TITLE.md
 .kodrdriv/audio-config.json
+tsconfig.tsbuildinfo
