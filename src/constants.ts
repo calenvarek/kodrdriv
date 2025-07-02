@@ -27,11 +27,11 @@ export const DEFAULT_DRY_RUN = false;
 export const DEFAULT_DEBUG = false;
 export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const DEFAULT_MODEL_STRONG = 'gpt-4o';
-export const DEFAULT_OUTPUT_DIRECTORY = '.kodrdriv';
+export const DEFAULT_OUTPUT_DIRECTORY = 'output/kodrdriv';
 
 export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 
-export const DEFAULT_CONFIG_DIR = DEFAULT_OUTPUT_DIRECTORY;
+export const DEFAULT_CONFIG_DIR = '.kodrdriv';
 
 export const DEFAULT_FROM_COMMIT_ALIAS = 'origin/HEAD';
 export const DEFAULT_TO_COMMIT_ALIAS = 'HEAD';
