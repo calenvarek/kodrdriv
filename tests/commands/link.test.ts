@@ -81,7 +81,6 @@ describe('link command', () => {
             debug: false,
             overrides: false,
             model: 'gpt-4o-mini',
-            instructions: '',
             contextDirectories: [],
             configDirectory: '.kodrdriv',
             commit: {

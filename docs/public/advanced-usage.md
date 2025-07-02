@@ -20,14 +20,9 @@ These instruction files contain detailed guidelines for the AI on how to format 
 
 You can override these default instructions in several ways:
 
-1. **Command Line Option**: Use the `--instructions` flag to specify a custom instructions file:
-   ```bash
-   kodrdriv --instructions ./my-custom-instructions.txt
-   ```
+1. **Default Location**: KodrDriv will automatically look for an instructions file at `./.kodrdriv/instructions.md` in your current working directory.
 
-2. **Default Location**: Even without specifying a command line option, KodrDriv will automatically look for an instructions file at `./.kodrdriv/instructions.md` in your current working directory.
-
-3. **File Format**: While the default file is named `instructions.md`, you can use any text file with any extension. The content doesn't have to be in Markdown format - any plain text content will work. This gives you flexibility to use your preferred text editor or format for writing instructions.
+2. **File Format**: While the default file is named `instructions.md`, you can use any text file with any extension. The content doesn't have to be in Markdown format - any plain text content will work. This gives you flexibility to use your preferred text editor or format for writing instructions.
 
 ### Extending Default Instructions
 
@@ -151,11 +146,11 @@ When KodrDriv sends a request to the LLM, it structures the prompt using XML-lik
 </instructions>
 
 <log>
-[Git log output if --content-types includes 'log']
+[Git log output]
 </log>
 
 <diff>
-[Git diff output if --content-types includes 'diff']
+[Git diff output]
 </diff>
 ```
 

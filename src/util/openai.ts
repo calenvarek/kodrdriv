@@ -2,6 +2,9 @@ import { OpenAI } from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import * as Storage from './storage';
 import { getLogger } from '../logging';
+// eslint-disable-next-line no-restricted-imports
+import fs from 'fs';
+
 export interface Transcription {
     text: string;
 }
@@ -16,13 +19,15 @@ export class OpenAIError extends Error {
 export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string } = { model: "gpt-4o-mini" }): Promise<string | any> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
+    let openai: OpenAI | null = null;
     try {
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) {
             throw new OpenAIError('OPENAI_API_KEY environment variable is not set');
         }
 
-        const openai = new OpenAI({
+        // Create the client which we'll close in the finally block.
+        openai = new OpenAI({
             apiKey: apiKey,
         });
 
@@ -70,19 +75,33 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
     } catch (error: any) {
         logger.error('Error calling OpenAI API: %s %s', error.message, error.stack);
         throw new OpenAIError(`Failed to create completion: ${error.message}`);
+    } finally {
+        // Ensure we close the OpenAI client to release underlying keep-alive sockets
+        try {
+            // openai.close() returns a promise; awaiting ensures proper cleanup
+            // but if it throws we silently ignore as it's best-effort.
+
+            if (openai && typeof (openai as any).close === 'function') {
+                await (openai as any).close();
+            }
+        } catch (closeErr) {
+            logger.debug('Failed to close OpenAI client: %s', (closeErr as Error).message);
+        }
     }
 }
 
 export async function transcribeAudio(filePath: string, options: { model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string } = { model: "whisper-1" }): Promise<Transcription> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
+    let openai: OpenAI | null = null;
+    let audioStream: fs.ReadStream | null = null;
     try {
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) {
             throw new OpenAIError('OPENAI_API_KEY environment variable is not set');
         }
 
-        const openai = new OpenAI({
+        openai = new OpenAI({
             apiKey: apiKey,
         });
 
@@ -100,7 +119,7 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
             logger.debug('Wrote request debug file to %s', debugFile);
         }
 
-        const audioStream = await storage.readStream(filePath);
+        audioStream = await storage.readStream(filePath);
         const transcription = await openai.audio.transcriptions.create({
             model: options.model || "whisper-1",
             file: audioStream,
@@ -125,5 +144,21 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
     } catch (error: any) {
         logger.error('Error transcribing audio file: %s %s', error.message, error.stack);
         throw new OpenAIError(`Failed to transcribe audio: ${error.message}`);
+    } finally {
+        // Ensure the audio stream is properly closed to release file handles
+        try {
+            if (audioStream) {
+                audioStream.close();
+            }
+        } catch (streamErr) {
+            logger.debug('Failed to close audio read stream: %s', (streamErr as Error).message);
+        }
+        try {
+            if (openai && typeof (openai as any).close === 'function') {
+                await (openai as any).close();
+            }
+        } catch (closeErr) {
+            logger.debug('Failed to close OpenAI client: %s', (closeErr as Error).message);
+        }
     }
 }

@@ -41,7 +41,7 @@ kodrdriv release --from v1.0.0 --to v1.1.0
 
 Include both git log and diff information:
 ```bash
-kodrdriv release --content-types log diff
+kodrdriv release
 ```
 
 Use custom context for quarterly release:
@@ -95,11 +95,6 @@ kodrdriv link --scope-roots '{"@company": "../../company/"}'
 ## Advanced Examples
 
 ### Using Custom Instructions
-
-Use custom instructions from a file:
-```bash
-kodrdriv release --instructions ./my-custom-instructions.md
-```
 
 Enable instruction overrides (requires custom instruction files in `.kodrdriv/instructions/`):
 ```bash
@@ -265,56 +260,49 @@ kodrdriv commit --context "Updating API documentation"
 
 ### Personal Configuration
 
-`.kodrdriv/config.json`:
-```json
-{
-  "model": "gpt-4o-mini",
-  "verbose": true,
-  "commit": {
-    "messageLimit": 5
-  },
-  "excludedPatterns": [
-    "*.lock",
-    "dist/",
-    ".DS_Store"
-  ]
-}
+`.kodrdriv/config.yaml`:
+```yaml
+model: gpt-4o-mini
+verbose: true
+commit:
+  messageLimit: 5
+excludedPatterns:
+  - "*.lock"
+  - dist/
+  - .DS_Store
 ```
 
 ### Team Configuration
 
-`.kodrdriv/config.json`:
-```json
-{
-  "model": "gpt-4o-mini",
-  "publish": {
-    "mergeMethod": "squash",
-    "dependencyUpdatePatterns": ["@company/*"],
-    "requiredEnvVars": ["NODE_AUTH_TOKEN", "CODECOV_TOKEN"]
-  },
-  "link": {
-    "scopeRoots": {
-      "@company": "../",
-      "@shared": "../../shared-packages/"
-    }
-  }
-}
+`.kodrdriv/config.yaml`:
+```yaml
+model: gpt-4o-mini
+publish:
+  mergeMethod: squash
+  dependencyUpdatePatterns:
+    - "@company/*"
+  requiredEnvVars:
+    - NODE_AUTH_TOKEN
+    - CODECOV_TOKEN
+link:
+  scopeRoots:
+    "@company": "../"
+    "@shared": "../../shared-packages/"
 ```
 
 ### Project-Specific Configuration
 
-```json
-{
-  "contextDirectories": ["src", "docs", "tests"],
-  "release": {
-    "messageLimit": 15
-  },
-  "excludedPatterns": [
-    "coverage/",
-    "*.generated.ts",
-    "build/"
-  ]
-}
+```yaml
+contextDirectories:
+  - src
+  - docs
+  - tests
+release:
+  messageLimit: 15
+excludedPatterns:
+  - coverage/
+  - "*.generated.ts"
+  - build/
 ```
 
 ## Error Handling Examples
