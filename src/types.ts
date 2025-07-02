@@ -19,6 +19,7 @@ export const ConfigSchema = z.object({
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
+        audioDevice: z.string().optional(),
     }).optional(),
     release: z.object({
         from: z.string().optional(),
@@ -101,6 +102,7 @@ export type AudioReviewConfig = {
 
 export type AudioCommitConfig = {
     maxRecordingTime?: number;
+    audioDevice?: string;
 }
 
 export type PublishConfig = {

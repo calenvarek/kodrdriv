@@ -10,6 +10,80 @@ import { getOutputPath, getTimestampedAudioFilename, getTimestampedTranscriptFil
 import { create as createStorage } from '../util/storage';
 import { execute as executeCommit } from './commit';
 
+const detectBestAudioDevice = async (): Promise<string> => {
+    try {
+        // Get list of audio devices - this command always "fails" but gives us the device list
+        try {
+            await run('ffmpeg -f avfoundation -list_devices true -i ""');
+        } catch (result: any) {
+            // ffmpeg returns error code but we get the device list in stderr
+            const output = result.stderr || result.stdout || '';
+
+            // Parse audio devices from output
+            const audioDevicesSection = output.split('AVFoundation audio devices:')[1];
+            if (!audioDevicesSection) return '1'; // Default fallback
+
+            const deviceLines = audioDevicesSection.split('\n')
+                .filter((line: string) => line.includes('[') && line.includes(']'))
+                .map((line: string) => line.trim());
+
+            // Prefer built-in microphone over virtual/external devices
+            const preferredDevices = [
+                'MacBook Pro Microphone',
+                'MacBook Air Microphone',
+                'Built-in Microphone',
+                'Internal Microphone'
+            ];
+
+            for (const deviceLine of deviceLines) {
+                for (const preferred of preferredDevices) {
+                    if (deviceLine.toLowerCase().includes(preferred.toLowerCase())) {
+                        // Extract device index
+                        const match = deviceLine.match(/\[(\d+)\]/);
+                        if (match) {
+                            return match[1];
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no preferred device found, use device 1 as default (usually better than 0)
+        return '1';
+    } catch (error) {
+        // Fallback to device 1
+        return '1';
+    }
+};
+
+const listAudioDevices = async (): Promise<void> => {
+    const logger = getLogger();
+    try {
+        try {
+            await run('ffmpeg -f avfoundation -list_devices true -i ""');
+        } catch (result: any) {
+            const output = result.stderr || result.stdout || '';
+            const audioDevicesSection = output.split('AVFoundation audio devices:')[1];
+
+            if (audioDevicesSection) {
+                logger.info('🎙️  Available audio devices:');
+                const deviceLines = audioDevicesSection.split('\n')
+                    .filter((line: string) => line.includes('[') && line.includes(']'))
+                    .map((line: string) => line.trim());
+
+                deviceLines.forEach((line: string) => {
+                    const match = line.match(/\[(\d+)\]\s+(.+)/);
+                    if (match) {
+                        logger.info(`   [${match[1]}] ${match[2]}`);
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        logger.debug('Could not list audio devices');
+    }
+};
+
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
@@ -85,6 +159,11 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
         // Use system recording tool - cross-platform approach
         logger.info('🎤 Starting recording... Speak now!');
         logger.info('📋 Controls: ENTER=done, E=extend+30s, C/Ctrl+C=cancel');
+
+        // List available audio devices in debug mode
+        if (runConfig.debug) {
+            await listAudioDevices();
+        }
 
         // Start countdown display
         const startCountdown = () => {
@@ -172,7 +251,11 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
             try {
                 // Check if ffmpeg is available
                 await run('which ffmpeg');
-                recordCommand = `ffmpeg -f avfoundation -i ":0" -t ${maxRecordingTime} -y "${audioFilePath}"`;
+
+                // Get the best audio device (configurable or auto-detected)
+                const audioDevice = runConfig.audioCommit?.audioDevice || await detectBestAudioDevice();
+                recordCommand = `ffmpeg -f avfoundation -i ":${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
+                logger.info(`🎙️  Using audio device ${audioDevice} for recording`);
             } catch {
                 // ffmpeg not available, try sox/rec
                 try {
