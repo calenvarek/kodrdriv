@@ -1,60 +1,58 @@
 #!/usr/bin/env node
 import path from 'path';
 import fs from 'fs/promises';
-import { Formatter, Model, Request } from '@riotprompt/riotprompt';
-import { ChatCompletionMessageParam } from 'openai/resources';
-import shellescape from 'shell-escape';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { transcribeAudio, createCompletion } from '../util/openai';
-import * as Prompts from '../prompt/prompts';
+import { transcribeAudio } from '../util/openai';
 import { run } from '../util/child';
-import * as Log from '../content/log';
-import * as Diff from '../content/diff';
-import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
-import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, stringifyJSON } from '../util/general';
+import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { create as createStorage } from '../util/storage';
+import { execute as executeCommit } from './commit';
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
-    const prompts = Prompts.create(runConfig.model as Model, runConfig);
     const isDryRun = runConfig.dryRun || false;
 
     if (isDryRun) {
         logger.info('DRY RUN: Would start audio recording for commit context');
         logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+        logger.info('DRY RUN: Would then delegate to regular commit command');
 
-        if (runConfig.commit?.add) {
-            logger.info('DRY RUN: Would add all changes to the index with: git add -A');
-        }
-
-        if (runConfig.commit?.sendit) {
-            logger.info('DRY RUN: Would automatically commit with generated message');
-        }
-
-        return 'DRY RUN: Audio-commit command would record audio, transcribe it, and generate commit message using the transcription as context';
+        // In dry run, just call the regular commit command with empty audio context
+        return executeCommit({
+            ...runConfig,
+            commit: {
+                ...runConfig.commit,
+                context: runConfig.commit?.context || ''
+            }
+        });
     }
 
-    // Handle add option first
-    if (runConfig.commit?.add) {
-        logger.verbose('Adding all changes to the index...');
-        await run('git add -A');
-    }
-
-    // Start audio recording
+    // Start audio recording and transcription
     logger.info('Starting audio recording for commit context...');
     logger.info('This command will use your system\'s default audio recording tool');
     logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
 
-    // Create temporary file for audio recording
+    const audioContext = await recordAndTranscribeAudio(runConfig);
+
+    // Now delegate to the regular commit command with the audio context
+    return executeCommit({
+        ...runConfig,
+        commit: {
+            ...runConfig.commit,
+            context: audioContext.trim() || runConfig.commit?.context || ''
+        }
+    });
+};
+
+const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
+    const logger = getLogger();
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
     const storage = createStorage({ log: logger.info });
     await storage.ensureDirectory(outputDirectory);
 
     const tempDir = await fs.mkdtemp(path.join(outputDirectory, '.temp-audio-'));
     const audioFilePath = path.join(tempDir, 'recording.wav');
-
-    let audioContext = '';
 
     try {
         // Use system recording tool - cross-platform approach
@@ -63,6 +61,27 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         let recordingProcess: any;
         let recordingFinished = false;
+        let countdownInterval: NodeJS.Timeout | null = null;
+        let remainingSeconds = 30;
+
+        // Start countdown display
+        const startCountdown = () => {
+            // Show initial countdown
+            process.stdout.write(`\r⏱️  Recording: ${remainingSeconds}s remaining`);
+
+            countdownInterval = setInterval(() => {
+                remainingSeconds--;
+                if (remainingSeconds > 0) {
+                    process.stdout.write(`\r⏱️  Recording: ${remainingSeconds}s remaining`);
+                } else {
+                    process.stdout.write('\r⏱️  Recording: Time\'s up!          \n');
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
+                    }
+                }
+            }, 1000);
+        };
 
         // Determine which recording command to use based on platform
         let recordCommand: string;
@@ -156,6 +175,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
         const stopRecording = async () => {
             if (!recordingFinished) {
                 recordingFinished = true;
+
+                // Clear countdown
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+
+                // Clear the countdown line and show recording stopped
+                process.stdout.write('\r⏱️  Recording stopped!                \n');
+
                 if (recordingProcess && recordingProcess.kill) {
                     recordingProcess.kill();
                 }
@@ -166,15 +195,34 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Listen for Ctrl+C
         process.on('SIGINT', stopRecording);
 
+        // Start countdown if we have a recording process
+        if (recordingProcess) {
+            startCountdown();
+        }
+
         // Wait for recording to finish (either timeout or manual stop)
         if (recordingProcess) {
             try {
                 await recordingProcess;
+                // Clear countdown on successful completion
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+                process.stdout.write('\r⏱️  Recording completed!               \n');
                 logger.info('✅ Recording completed automatically');
             } catch (error: any) {
+                // Clear countdown on error
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+
                 if (!recordingFinished && error.signal === 'SIGTERM') {
+                    process.stdout.write('\r⏱️  Recording stopped by user!         \n');
                     logger.info('✅ Recording stopped by user');
                 } else if (!recordingFinished) {
+                    process.stdout.write('\r⏱️  Recording error!                   \n');
                     logger.warn('Recording process ended unexpectedly: %s', error.message);
                 }
             }
@@ -198,20 +246,22 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Transcribe the audio
         logger.info('🎯 Transcribing audio...');
         const transcription = await transcribeAudio(audioFilePath);
-        audioContext = transcription.text;
+        const audioContext = transcription.text;
         logger.info('✅ Audio transcribed successfully');
         logger.debug('Transcription: %s', audioContext);
 
         if (!audioContext.trim()) {
             logger.warn('No audio content was transcribed. Proceeding without audio context.');
+            return '';
         } else {
             logger.info('📝 Using transcribed audio as commit context');
+            return audioContext;
         }
 
     } catch (error: any) {
         logger.error('Audio recording/transcription failed: %s', error.message);
         logger.info('Proceeding with commit generation without audio context...');
-        audioContext = '';
+        return '';
     } finally {
         // Clean up temporary directory
         try {
@@ -220,73 +270,4 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.debug('Failed to clean up temporary directory: %s', error.message);
         }
     }
-
-    // Now proceed with commit logic using the transcribed audio as context
-    let cached = runConfig.commit?.cached;
-    // If `add` is used, we should always look at staged changes.
-    if (runConfig.commit?.add) {
-        cached = true;
-    } else if (cached === undefined) {
-        // If cached is undefined? We're going to look for a staged commit; otherwise, we'll use the supplied setting.
-        cached = await Diff.hasStagedChanges();
-    }
-
-    // Fix: Exit early if sendit is true but no changes are staged
-    if (runConfig.commit?.sendit && !cached) {
-        logger.warn('SendIt mode enabled, but no changes to commit.');
-        process.exit(1);
-    }
-
-    const options = { cached, excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS };
-    const diff = await Diff.create(options);
-    const diffContent = await diff.get();
-
-    const logOptions = {
-        limit: runConfig.commit?.messageLimit,
-    };
-    const log = await Log.create(logOptions);
-    const logContent = await log.get();
-
-    // Use the transcribed audio as context, fallback to any configured context
-    const commitContext = audioContext.trim() || runConfig.commit?.context || '';
-
-    const prompt = await prompts.createCommitPrompt(diffContent, logContent, commitContext);
-
-    if (runConfig.debug) {
-        const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);
-        logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
-    }
-
-    const request: Request = prompts.format(prompt);
-
-    if (runConfig.debug) {
-        const storage = createStorage({ log: logger.info });
-        await storage.ensureDirectory(outputDirectory);
-    }
-
-    const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], {
-        model: runConfig.model,
-        debug: runConfig.debug,
-        debugRequestFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedRequestFilename('audio-commit')) : undefined,
-        debugResponseFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedResponseFilename('audio-commit')) : undefined,
-    });
-
-    if (runConfig.commit?.sendit) {
-        if (!cached) {
-            logger.error('SendIt mode enabled, but no changes to commit. Message: \n\n%s\n\n', summary);
-            process.exit(1);
-        }
-
-        logger.info('SendIt mode enabled. Committing with message: \n\n%s\n\n', summary);
-        try {
-            const escapedSummary = shellescape([summary]);
-            await run(`git commit -m ${escapedSummary}`);
-            logger.info('Commit successful!');
-        } catch (error) {
-            logger.error('Failed to commit:', error);
-            process.exit(1);
-        }
-    }
-
-    return summary;
-} 
+}; 
