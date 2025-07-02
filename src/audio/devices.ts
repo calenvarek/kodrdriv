@@ -295,4 +295,34 @@ export const getDeviceInputFormat = async (deviceIndex: string): Promise<string 
         logger.error(`🚨 Failed to get format for audio device [${deviceIndex}]: ${error.message}`);
         return null;
     }
+};
+
+export const getAudioDeviceInfo = async (deviceIndex: string): Promise<{ sampleRate?: number; channels?: number; channelLayout?: string }> => {
+    const logger = getLogger();
+
+    // Build quoted input string required by avfoundation
+    const inputFormat = `":${deviceIndex}"`;
+
+    // ffprobe command to fetch audio stream metadata in JSON for easier parsing
+    const probeCommand = `ffprobe -f avfoundation -i ${inputFormat} -show_streams -select_streams a -v quiet -print_format json`;
+
+    try {
+        const { stdout } = await run(probeCommand);
+        const parsed = JSON.parse(stdout || '{}');
+        const stream = parsed.streams && parsed.streams.length > 0 ? parsed.streams[0] : undefined;
+        if (!stream) {
+            logger.debug(`ffprobe returned no streams for device ${deviceIndex}`);
+            return {};
+        }
+
+        const sampleRate = stream.sample_rate ? parseInt(stream.sample_rate, 10) : undefined;
+        const channels = typeof stream.channels === 'number' ? stream.channels : undefined;
+        const channelLayout: string | undefined = stream.channel_layout || undefined;
+
+        logger.debug(`Device [${deviceIndex}] capabilities → sampleRate=${sampleRate}, channels=${channels}, layout=${channelLayout}`);
+        return { sampleRate, channels, channelLayout };
+    } catch (error: any) {
+        logger.debug(`Failed to probe audio device ${deviceIndex}: ${error.message}`);
+        return {};
+    }
 }; 

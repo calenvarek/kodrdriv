@@ -471,17 +471,22 @@ export class AudioProcessor {
                     ? inputFormat.slice(1, -1)
                     : inputFormat;
 
-                // Explicitly set audio parameters to avoid sample-rate/quality issues
-                //   -ac 1          → mono (saves bandwidth for transcription)
-                //   -c:a pcm_s16le → 16-bit PCM (standard WAV encoding)
-                //   -vn            → disable any implicit video stream
-                // NOTE: We no longer hard-code the sample-rate (previously 44.1 kHz).
-                //      Some microphones—especially Bluetooth headsets—capture at
-                //      22.05 kHz or 24 kHz.  Forcing a 44.1 kHz header caused the
-                //      resulting audio to play back at ~2× speed.  By omitting "-ar"
-                //      we let ffmpeg preserve the device's native sample-rate and
-                //      resample only when explicitly required downstream.
-                const ffmpegAudioArgs = ['-ac', '1', '-c:a', 'pcm_s16le', '-vn'];
+                // Determine audio parameters based on stored capabilities (if available)
+                const channels = options.audioDevice ? undefined : homeDeviceConfig?.channels; // user may override manually via options
+                const sampleRate = options.audioDevice ? undefined : homeDeviceConfig?.sampleRate;
+
+                const ffmpegAudioArgs: string[] = ['-c:a', 'pcm_s16le', '-vn'];
+
+                if (channels) {
+                    ffmpegAudioArgs.push('-ac', String(channels));
+                } else {
+                    // Default to mono when channel count is unknown to reduce size
+                    ffmpegAudioArgs.push('-ac', '1');
+                }
+
+                if (sampleRate) {
+                    ffmpegAudioArgs.push('-ar', String(sampleRate));
+                }
 
                 const ffmpegArgs = [
                     '-f', 'avfoundation',
