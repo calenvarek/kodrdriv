@@ -127,6 +127,8 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 const keyCode = key.charCodeAt(0);
 
                 if (keyCode === 13) { // ENTER key
+                    // Immediate feedback
+                    process.stdout.write('\r✅ ENTER pressed - stopping recording...                          \n');
                     process.stdin.setRawMode(false);
                     process.stdin.pause();
                     process.stdin.removeListener('data', keyHandler);
@@ -134,6 +136,8 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 } else if (key.toLowerCase() === 'e') { // 'e' or 'E' key
                     extendRecording();
                 } else if (key.toLowerCase() === 'c' || keyCode === 3) { // 'c', 'C', or Ctrl+C
+                    // Immediate feedback
+                    process.stdout.write('\r❌ Cancelling recording...                                       \n');
                     process.stdin.setRawMode(false);
                     process.stdin.pause();
                     process.stdin.removeListener('data', keyHandler);
