@@ -473,10 +473,15 @@ export class AudioProcessor {
 
                 // Explicitly set audio parameters to avoid sample-rate/quality issues
                 //   -ac 1          → mono (saves bandwidth for transcription)
-                //   -ar 44100      → 44.1 kHz which most devices support and Whisper handles well
                 //   -c:a pcm_s16le → 16-bit PCM (standard WAV encoding)
                 //   -vn            → disable any implicit video stream
-                const ffmpegAudioArgs = ['-ac', '1', '-ar', '44100', '-c:a', 'pcm_s16le', '-vn'];
+                // NOTE: We no longer hard-code the sample-rate (previously 44.1 kHz).
+                //      Some microphones—especially Bluetooth headsets—capture at
+                //      22.05 kHz or 24 kHz.  Forcing a 44.1 kHz header caused the
+                //      resulting audio to play back at ~2× speed.  By omitting "-ar"
+                //      we let ffmpeg preserve the device's native sample-rate and
+                //      resample only when explicitly required downstream.
+                const ffmpegAudioArgs = ['-ac', '1', '-c:a', 'pcm_s16le', '-vn'];
 
                 const ffmpegArgs = [
                     '-f', 'avfoundation',
@@ -504,7 +509,7 @@ export class AudioProcessor {
                 // Try sox/rec as fallback
                 try {
                     await run('which rec');
-                    recordCommand = `rec -r 44100 -c 1 -t wav "${audioFilePath}" trim 0 ${maxRecordingTime}`;
+                    recordCommand = `rec -c 1 -t wav "${audioFilePath}" trim 0 ${maxRecordingTime}`;
                     this.logger.info(`🔧 Executing recording command (sox fallback): ${recordCommand}`);
                 } catch {
                     throw new Error('MANUAL_RECORDING_NEEDED');
@@ -514,7 +519,7 @@ export class AudioProcessor {
             // Windows - use ffmpeg
             try {
                 await run('where ffmpeg');
-                recordCommand = `ffmpeg -f dshow -i audio="Microphone" -ac 1 -ar 44100 -c:a pcm_s16le -vn -t ${maxRecordingTime} -y "${audioFilePath}"`;
+                recordCommand = `ffmpeg -f dshow -i audio="Microphone" -ac 1 -c:a pcm_s16le -vn -t ${maxRecordingTime} -y "${audioFilePath}"`;
                 this.logger.info(`🔧 Executing recording command: ${recordCommand}`);
             } catch {
                 throw new Error('MANUAL_RECORDING_NEEDED');
@@ -528,7 +533,7 @@ export class AudioProcessor {
             } catch {
                 try {
                     await run('which ffmpeg');
-                    recordCommand = `ffmpeg -f alsa -i default -ac 1 -ar 44100 -c:a pcm_s16le -vn -t ${maxRecordingTime} -y "${audioFilePath}"`;
+                    recordCommand = `ffmpeg -f alsa -i default -ac 1 -c:a pcm_s16le -vn -t ${maxRecordingTime} -y "${audioFilePath}"`;
                     this.logger.info(`🔧 Executing recording command: ${recordCommand}`);
                 } catch {
                     throw new Error('MANUAL_RECORDING_NEEDED');
