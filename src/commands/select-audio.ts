@@ -45,10 +45,35 @@ const selectAudioDeviceInteractively = async (): Promise<{ index: string; name: 
         return null;
     }
 
-    // Display devices
-    devices.forEach((device, i) => {
-        logger.info(`   ${i + 1}. ${device.name}`);
+    // Test devices and show status
+    logger.info('🔍 Testing audio devices...');
+    const deviceStatuses = await Promise.all(
+        devices.map(async (device) => {
+            const { testAudioDevice } = await import('../audio/devices');
+            const isWorking = await testAudioDevice(device.index);
+            return { ...device, isWorking };
+        })
+    );
+
+    // Display devices with status
+    deviceStatuses.forEach((device, i) => {
+        const status = device.isWorking ? '✅' : '❌';
+        logger.info(`   ${i + 1}. ${status} ${device.name}`);
     });
+
+    const workingDevices = deviceStatuses.filter(d => d.isWorking);
+    if (workingDevices.length === 0) {
+        logger.error('❌ No working audio devices found. This may be due to:');
+        logger.error('   • Microphone permission not granted to Terminal/iTerm');
+        logger.error('   • Audio devices in use by other applications');
+        logger.error('   • ffmpeg configuration issues');
+        logger.error('');
+        logger.error('💡 Try:');
+        logger.error('   • Go to System Preferences → Security & Privacy → Privacy → Microphone');
+        logger.error('   • Make sure Terminal (or your terminal app) has microphone access');
+        logger.error('   • Close other audio applications and try again');
+        return null;
+    }
 
     logger.info('');
     logger.info('📋 Select an audio device by entering its number (1-' + devices.length + '):');
@@ -68,9 +93,16 @@ const selectAudioDeviceInteractively = async (): Promise<{ index: string; name: 
                 const selectedIndex = parseInt(inputBuffer) - 1;
 
                 if (selectedIndex >= 0 && selectedIndex < devices.length) {
-                    const selectedDevice = devices[selectedIndex];
+                    const selectedDevice = deviceStatuses[selectedIndex];
                     process.stdout.write('\n\n');
-                    logger.info(`✅ Selected: ${selectedDevice.name}`);
+
+                    if (!selectedDevice.isWorking) {
+                        logger.warn(`⚠️  Warning: Selected device "${selectedDevice.name}" failed testing`);
+                        logger.warn('   This device may not work properly for recording');
+                        logger.warn('   Consider selecting a device marked with ✅');
+                    } else {
+                        logger.info(`✅ Selected: ${selectedDevice.name}`);
+                    }
 
                     // Cleanup and resolve
                     process.stdin.setRawMode(false);

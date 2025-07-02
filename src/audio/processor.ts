@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getLogger } from '../logging';
 import { run } from '../util/child';
@@ -100,8 +101,12 @@ export class AudioProcessor {
         const storage = createStorage({ log: this.logger.info });
         await storage.ensureDirectory(outputDirectory);
 
-        const tempDir = await fs.mkdtemp(path.join(outputDirectory, '.temp-audio-'));
-        const audioFilePath = path.join(tempDir, 'recording.wav');
+        // Create a deterministic temp directory inside the configured output directory
+        const tempDir = path.join(outputDirectory, 'tmp');
+        await fs.mkdir(tempDir, { recursive: true });
+
+        // Use a timestamped filename to avoid collisions if multiple recordings run quickly
+        const audioFilePath = path.join(tempDir, `recording-${Date.now()}.wav`);
 
         // Recording state variables
         let recordingProcess: any = null;
@@ -429,7 +434,7 @@ export class AudioProcessor {
             throw error;
         } finally {
             // Cleanup is handled comprehensively in the cleanup function
-            await this.cleanup(countdownInterval, recordingProcess, tempDir);
+            await this.cleanup(countdownInterval, recordingProcess, tempDir, recordingFailed);
         }
     }
 
@@ -438,6 +443,7 @@ export class AudioProcessor {
      */
     private async setupRecording(audioFilePath: string, maxRecordingTime: number, options: AudioProcessingOptions): Promise<any> {
         let recordCommand: string;
+        let argsForSpawn: string[] | undefined;
 
         if (process.platform === 'darwin') {
             // macOS - try ffmpeg first
@@ -446,20 +452,52 @@ export class AudioProcessor {
                 const homeDeviceConfig = options.preferencesDirectory ?
                     await loadAudioDeviceFromHomeConfig(options.preferencesDirectory) : null;
                 const audioDevice = options.audioDevice || homeDeviceConfig?.audioDevice || await detectBestAudioDevice();
-                recordCommand = `ffmpeg -f avfoundation -i ":${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
+
+                // Get the correct input format for this device
+                const { getDeviceInputFormat } = await import('./devices');
+                const inputFormat = await getDeviceInputFormat(audioDevice);
+
+                if (!inputFormat) {
+                    throw new Error(`Unable to find working format for audio device ${audioDevice}`);
+                }
+
+                // Build argument list explicitly. If the detected inputFormat is wrapped in
+                // quotes (e.g. ":0"), remove those quotes for the spawn call. The shell would
+                // normally strip them, but child_process.spawn passes the string verbatim to
+                // the executable, which causes ffmpeg to treat the quotes as part of the
+                // device name leading to failures such as "Video device not found".
+
+                const strippedInputFormat = inputFormat.startsWith('"') && inputFormat.endsWith('"')
+                    ? inputFormat.slice(1, -1)
+                    : inputFormat;
+
+                const ffmpegArgs = [
+                    '-f', 'avfoundation',
+                    '-i', strippedInputFormat,
+                    '-t', String(maxRecordingTime),
+                    '-y', audioFilePath
+                ];
+
+                // Store for later spawn
+                recordCommand = `ffmpeg ${ffmpegArgs.join(' ')}`;
+                argsForSpawn = ffmpegArgs;
+
+                // Log the exact command being executed
+                this.logger.info(`🔧 Executing recording command: ${recordCommand}`);
 
                 if (options.audioDevice) {
-                    this.logger.info(`🎙️  Using audio device ${audioDevice} (from configuration)`);
+                    this.logger.info(`🎙️  Using audio device ${audioDevice} (from configuration) with format ${inputFormat}`);
                 } else if (homeDeviceConfig) {
-                    this.logger.info(`🎙️  Using audio device ${audioDevice} (${homeDeviceConfig.audioDeviceName})`);
+                    this.logger.info(`🎙️  Using audio device ${audioDevice} (${homeDeviceConfig.audioDeviceName}) with format ${inputFormat}`);
                 } else {
-                    this.logger.info(`🎙️  Using audio device ${audioDevice} (auto-detected)`);
+                    this.logger.info(`🎙️  Using audio device ${audioDevice} (auto-detected) with format ${inputFormat}`);
                 }
             } catch {
                 // Try sox/rec as fallback
                 try {
                     await run('which rec');
                     recordCommand = `rec -r 44100 -c 1 -t wav "${audioFilePath}" trim 0 ${maxRecordingTime}`;
+                    this.logger.info(`🔧 Executing recording command (sox fallback): ${recordCommand}`);
                 } catch {
                     throw new Error('MANUAL_RECORDING_NEEDED');
                 }
@@ -469,6 +507,7 @@ export class AudioProcessor {
             try {
                 await run('where ffmpeg');
                 recordCommand = `ffmpeg -f dshow -i audio="Microphone" -t ${maxRecordingTime} -y "${audioFilePath}"`;
+                this.logger.info(`🔧 Executing recording command: ${recordCommand}`);
             } catch {
                 throw new Error('MANUAL_RECORDING_NEEDED');
             }
@@ -477,10 +516,12 @@ export class AudioProcessor {
             try {
                 await run('which arecord');
                 recordCommand = `arecord -f cd -t wav -d ${maxRecordingTime} "${audioFilePath}"`;
+                this.logger.info(`🔧 Executing recording command: ${recordCommand}`);
             } catch {
                 try {
                     await run('which ffmpeg');
                     recordCommand = `ffmpeg -f alsa -i default -t ${maxRecordingTime} -y "${audioFilePath}"`;
+                    this.logger.info(`🔧 Executing recording command: ${recordCommand}`);
                 } catch {
                     throw new Error('MANUAL_RECORDING_NEEDED');
                 }
@@ -488,24 +529,58 @@ export class AudioProcessor {
         }
 
         try {
+            // Ensure the output directory exists (equivalent to `mkdir -p`)
+            await fs.mkdir(path.dirname(audioFilePath), { recursive: true });
+
             // Use spawn instead of exec for better process control
             const { spawn } = await import('child_process');
-            const args = recordCommand.split(' ');
-            const command = args.shift()!;
+
+            // If argsForSpawn was prepared (preferred path), use it; otherwise fall back to splitting
+            const command = 'ffmpeg';
+            const args = argsForSpawn ?? recordCommand.split(' ').slice(1);
+
+            this.logger.debug(`🔧 Spawning process: ${command} with args: ${JSON.stringify(args)}`);
 
             const recordingProcess = spawn(command, args, {
                 stdio: ['ignore', 'ignore', 'pipe'], // Ignore stdin/stdout, capture stderr
                 detached: false
             });
 
-            // Handle process errors
+            // Enhanced error handling and stderr capture
+            let stderrBuffer = '';
+
             recordingProcess.on('error', (error) => {
                 this.logger.error('Recording process error: %s', error.message);
+                this.logger.error('Full error details: %s', JSON.stringify(error));
             });
 
             recordingProcess.stderr?.on('data', (data) => {
+                const output = data.toString().trim();
+                stderrBuffer += output + '\n';
+
                 if (options.debug) {
-                    this.logger.debug('Recording process: %s', data.toString().trim());
+                    this.logger.debug('Recording process stderr: %s', output);
+                } else {
+                    // In non-debug mode, still capture critical errors
+                    if (output.toLowerCase().includes('error') ||
+                        output.toLowerCase().includes('failed') ||
+                        output.toLowerCase().includes('permission') ||
+                        output.toLowerCase().includes('busy') ||
+                        output.toLowerCase().includes('device')) {
+                        this.logger.warn('Recording process stderr: %s', output);
+                    }
+                }
+            });
+
+            // Enhanced exit handling with stderr output
+            recordingProcess.on('exit', (code, signal) => {
+                if (code !== 0) {
+                    this.logger.error('🚨 Recording process exited with error code %s, signal %s', code, signal);
+                    if (stderrBuffer.trim()) {
+                        this.logger.error('🚨 Recording process stderr output:\n%s', stderrBuffer);
+                    }
+                } else if (options.debug) {
+                    this.logger.debug('Recording process exited successfully with code %s', code);
                 }
             });
 
@@ -658,7 +733,7 @@ export class AudioProcessor {
     /**
      * Clean up resources
      */
-    private async cleanup(countdownInterval: NodeJS.Timeout | null, recordingProcess: any, tempDir: string): Promise<void> {
+    private async cleanup(countdownInterval: NodeJS.Timeout | null, recordingProcess: any, tempDir: string, keepTemp = false): Promise<void> {
         try {
             // Clear countdown interval
             if (countdownInterval) {
@@ -708,11 +783,15 @@ export class AudioProcessor {
                 }
             }
 
-            // Clean up temporary directory
-            try {
-                await fs.rm(tempDir, { recursive: true, force: true });
-            } catch (fsError) {
-                // Ignore filesystem cleanup errors
+            // Clean up temporary directory unless instructed to keep it (e.g., on failure)
+            if (!keepTemp) {
+                try {
+                    await fs.rm(tempDir, { recursive: true, force: true });
+                } catch (fsError) {
+                    // Ignore filesystem cleanup errors
+                }
+            } else {
+                this.logger.debug('Keeping temporary directory for inspection: %s', tempDir);
             }
         } catch (cleanupError: any) {
             this.logger.debug('Cleanup warning: %s', cleanupError.message);

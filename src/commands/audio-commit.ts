@@ -72,6 +72,13 @@ export const execute = async (runConfig: Config): Promise<string> => {
             process.exit(1);
         }
 
+        // If audio recording failed, exit instead of continuing
+        if (error.message.includes('Audio recording failed')) {
+            logger.error('❌ Audio recording failed. Cannot proceed with audio-commit command.');
+            logger.info('💡 Try running "kodrdriv select-audio" to choose a different audio device');
+            process.exit(1);
+        }
+
         logger.error('Audio processing failed: %s', error.message);
         logger.info('Proceeding with commit generation without audio context...');
         audioContext = '';
