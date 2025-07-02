@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
