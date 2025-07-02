@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { getLogger } from '../logging';
 import { run } from '../util/child';
 import { AudioDevice } from './types';

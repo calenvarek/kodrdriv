@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeReview } from './review';
