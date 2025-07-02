@@ -87,18 +87,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
     });
 
-    // Final cleanup to ensure process can exit
-    try {
-        if (process.stdin.setRawMode) {
-            process.stdin.setRawMode(false);
-            process.stdin.pause();
-            process.stdin.removeAllListeners();
-        }
-        process.removeAllListeners('SIGINT');
-        process.removeAllListeners('SIGTERM');
-    } catch (error) {
-        // Ignore cleanup errors
-    }
+    // Cleanup is handled by the audio processor
 
     return result;
 };
