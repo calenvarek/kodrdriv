@@ -18,6 +18,7 @@ export const InputSchema = z.object({
     contextDirectories: z.array(z.string()).optional(),
     instructions: z.string().optional(),
     configDir: z.string().optional(),
+    outputDir: z.string().optional(),
     cached: z.boolean().optional(),
     add: z.boolean().optional(),
     sendit: z.boolean().optional(),
@@ -59,6 +60,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
 
     // Map configDir (CLI) to configDirectory (Cardigantime standard)
     if (finalCliArgs.configDir !== undefined) transformedCliArgs.configDirectory = finalCliArgs.configDir;
+
+    // Map outputDir (CLI) to outputDirectory (Config standard)
+    if (finalCliArgs.outputDir !== undefined) transformedCliArgs.outputDirectory = finalCliArgs.outputDir;
 
     // Nested mappings for 'commit' options
     if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
@@ -250,6 +254,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     logger.verbose(`  Debug: ${config.debug}`);
     logger.verbose(`  Verbose: ${config.verbose}`);
     logger.verbose(`  Config directory: ${config.configDirectory}`);
+    logger.verbose(`  Output directory: ${config.outputDirectory}`);
     logger.verbose(`  Context directories: ${config.contextDirectories?.join(', ') || 'none'}`);
     if (config.excludedPatterns && config.excludedPatterns.length > 0) {
         logger.verbose(`  Excluded patterns: ${config.excludedPatterns.join(', ')}`);
@@ -278,6 +283,7 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             .option('-d, --context-directories [contextDirectories...]', 'directories to scan for context')
             .option('-i, --instructions <file>', 'instructions for the AI')
             .option('--config-dir <configDir>', 'configuration directory') // Keep config-dir for specifying location
+            .option('--output-dir <outputDir>', 'output directory for generated files')
             .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff');
     }
 
@@ -509,6 +515,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         instructions: instructions, // Use processed instructions content
         contextDirectories: contextDirectories,
         configDirectory: configDir,
+        outputDirectory: options.outputDirectory ?? KODRDRIV_DEFAULTS.outputDirectory,
         // Command-specific options with defaults
         commit: {
             add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
