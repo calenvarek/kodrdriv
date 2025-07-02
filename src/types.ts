@@ -6,7 +6,6 @@ export const ConfigSchema = z.object({
     verbose: z.boolean().optional(),
     debug: z.boolean().optional(),
     overrides: z.boolean().optional(),
-    instructions: z.string().optional(),
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
     outputDirectory: z.string().optional(),

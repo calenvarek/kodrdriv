@@ -473,7 +473,6 @@ All commands support these global options:
 - `--output-dir <outputDir>`: Output directory for generated files
 - `--preferences-dir <preferencesDir>`: Preferences directory for personal settings
 - `-d, --context-directories [dirs...]`: Additional directories to scan for context
-- `-i, --instructions <file>`: Custom instructions file for the AI
 - `--excluded-paths [patterns...]`: Paths to exclude from analysis
 
 ### Global Examples

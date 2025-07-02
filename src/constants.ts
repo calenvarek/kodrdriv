@@ -146,7 +146,6 @@ export const KODRDRIV_DEFAULTS = {
     debug: DEFAULT_DEBUG,
     overrides: DEFAULT_OVERRIDES,
     model: DEFAULT_MODEL,
-    instructions: DEFAULT_INSTRUCTIONS_DIR,
     contextDirectories: DEFAULT_CONTEXT_DIRECTORIES,
     commandName: DEFAULT_COMMAND,
     configDirectory: DEFAULT_CONFIG_DIR,
@@ -194,6 +193,8 @@ export const KODRDRIV_DEFAULTS = {
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,
         requiredEnvVars: ['GITHUB_TOKEN', 'OPENAI_API_KEY'],
+        linkWorkspacePackages: true,
+        unlinkWorkspacePackages: true,
     },
     link: {
         scopeRoots: {},

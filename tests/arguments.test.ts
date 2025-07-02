@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, validateAndReadInstructions, getCliConfig, validateAndProcessSecureOptions, validateAndProcessOptions, validateConfigDir, configure } from '../src/arguments';
+import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, getCliConfig, validateAndProcessSecureOptions, validateAndProcessOptions, validateConfigDir, configure } from '../src/arguments';
 import { readStdin } from '../src/util/stdin';
 import type { Cardigantime } from '@theunwalked/cardigantime';
 import { ALLOWED_COMMANDS, KODRDRIV_DEFAULTS, DEFAULT_CHARACTER_ENCODING } from '../src/constants';
@@ -118,13 +118,12 @@ describe('Argument Parsing and Configuration', () => {
                 overrides: false,
                 model: 'gpt-4',
                 contextDirectories: ['src', 'lib'],
-                instructions: 'path/to/instructions.md',
                 configDir: '/custom/config',
                 cached: true,
                 sendit: false,
                 from: 'main',
                 to: 'v1.0',
-                // openaiApiKey is deliberately omitted as it's handled separately
+                // openaiApiKey is handled separately via environment variable only
             };
 
             const expectedConfig: Partial<Config> = {
@@ -134,7 +133,6 @@ describe('Argument Parsing and Configuration', () => {
                 overrides: false,
                 model: 'gpt-4',
                 contextDirectories: ['src', 'lib'],
-                instructions: 'path/to/instructions.md',
                 configDirectory: '/custom/config',
                 commit: {
                     cached: true,
@@ -358,7 +356,6 @@ describe('Argument Parsing and Configuration', () => {
             const complexFileConfig: Partial<Config> = {
                 model: 'gpt-4-turbo',
                 contextDirectories: ['src', 'docs'],
-                instructions: 'Complex instructions',
                 commit: { cached: true },
                 release: { from: 'main' },
                 publish: { mergeMethod: 'squash' },
@@ -525,10 +522,9 @@ describe('Argument Parsing and Configuration', () => {
                 verbose: false,
                 debug: true,
                 overrides: false,
-                openaiApiKey: 'sk-test-key',
+
                 model: 'gpt-4',
                 contextDirectories: ['src', 'tests'],
-                instructions: 'path/to/instructions.md',
                 configDir: '/config',
                 cached: true,
                 add: false,
@@ -619,97 +615,7 @@ describe('Argument Parsing and Configuration', () => {
         });
     });
 
-    describe('validateAndReadInstructions', () => {
-        beforeEach(() => {
-            mockStorage.isFileReadable.mockReset();
-            mockStorage.readFile.mockReset();
-            mockLogger.debug.mockReset();
-            mockLogger.error.mockReset();
-            mockLogger.warn.mockReset();
-            mockLogger.verbose.mockReset();
-            mockLogger.silly.mockReset();
-        });
 
-        it('should read instructions from a readable file', async () => {
-            const instructionsPath = '/path/to/instructions.md';
-            const instructionsContent = '# Test Instructions\nThis is a test.';
-
-            mockStorage.isFileReadable.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue(instructionsContent);
-
-            const result = await validateAndReadInstructions(instructionsPath);
-
-            expect(result).toBe(instructionsContent);
-            expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsPath);
-            expect(mockStorage.readFile).toHaveBeenCalledWith(instructionsPath, DEFAULT_CHARACTER_ENCODING);
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Reading instructions from file'));
-        });
-
-        it('should return string content directly if file is not readable', async () => {
-            const instructionsString = 'Direct instructions content';
-
-            mockStorage.isFileReadable.mockResolvedValue(false);
-
-            const result = await validateAndReadInstructions(instructionsString);
-
-            expect(result).toBe(instructionsString);
-            expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsString);
-            expect(mockStorage.readFile).not.toHaveBeenCalled();
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
-        });
-
-        // Note: These tests are commented out due to mocking complexity with async error handling
-        // The validateAndReadInstructions function uses a try-catch with await, which makes it
-        // difficult to properly mock the rejection scenarios without the mock throwing immediately
-        // Integration tests would better cover these error scenarios
-
-        it('should handle file path that does not exist by treating it as content', async () => {
-            const instructionsContent = 'This is direct content, not a file path';
-
-            mockStorage.isFileReadable.mockResolvedValue(false);
-
-            const result = await validateAndReadInstructions(instructionsContent);
-
-            expect(result).toBe(instructionsContent);
-            expect(mockStorage.isFileReadable).toHaveBeenCalledWith(instructionsContent);
-            expect(mockStorage.readFile).not.toHaveBeenCalled();
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Using provided instructions string directly'));
-        });
-
-        it('should handle storage errors gracefully when default fallback succeeds', async () => {
-            const instructionsPath = '/path/to/instructions.md';
-            const defaultInstructions = 'Default instructions content';
-
-            // First call throws error
-            mockStorage.isFileReadable.mockRejectedValueOnce(new Error('Storage error'));
-
-            // Second call for default path succeeds
-            mockStorage.isFileReadable.mockResolvedValueOnce(true);
-            mockStorage.readFile.mockResolvedValueOnce(defaultInstructions);
-
-            const result = await validateAndReadInstructions(instructionsPath);
-
-            expect(result).toBe(defaultInstructions);
-            expect(mockLogger.error).toHaveBeenCalledWith('Error reading instructions file %s: %s', instructionsPath, expect.any(String));
-            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Falling back to default instructions'));
-        });
-
-        it('should throw error when storage errors occur and default fallback fails', async () => {
-            const instructionsPath = '/path/to/instructions.md';
-
-            // First call throws error
-            mockStorage.isFileReadable.mockRejectedValueOnce(new Error('Storage error'));
-
-            // Second call for default path also fails
-            mockStorage.isFileReadable.mockResolvedValueOnce(false);
-
-            await expect(validateAndReadInstructions(instructionsPath))
-                .rejects.toThrow('Failed to read instructions from /path/to/instructions.md or default location.');
-
-            expect(mockLogger.error).toHaveBeenCalledWith('Error reading instructions file %s: %s', instructionsPath, expect.any(String));
-            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Falling back to default instructions'));
-        });
-    });
 
     describe('edge cases and error scenarios', () => {
         describe('transformCliArgs edge cases', () => {
@@ -1079,7 +985,7 @@ describe('Argument Parsing and Configuration', () => {
             delete process.env.OPENAI_API_KEY;
 
             await expect(validateAndProcessSecureOptions()).rejects.toThrow(
-                'OpenAI API key is required, set OPENAI_API_KEY environment variable or provide --openai-api-key'
+                'OpenAI API key is required. Please set the OPENAI_API_KEY environment variable.'
             );
         });
 
@@ -1119,7 +1025,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.debug).toBe(KODRDRIV_DEFAULTS.debug);
             expect(result.model).toBe(KODRDRIV_DEFAULTS.model);
             expect(result.contextDirectories).toEqual([]);
-            expect(result.instructions).toBe(KODRDRIV_DEFAULTS.instructions);
+
         });
 
         it('should merge provided options with defaults', async () => {
@@ -1170,13 +1076,12 @@ describe('Argument Parsing and Configuration', () => {
             mockStorage.readFile.mockResolvedValue(instructionsContent);
 
             const options: Partial<Config> = {
-                instructions: '/path/to/instructions.md',
+                contextDirectories: ['src'],
             };
 
             const result = await validateAndProcessOptions(options);
 
-            expect(result.instructions).toBe(instructionsContent);
-            expect(mockStorage.readFile).toHaveBeenCalledWith('/path/to/instructions.md', DEFAULT_CHARACTER_ENCODING);
+            expect(result.contextDirectories).toEqual(['src']);
         });
 
         it('should handle link command options correctly', async () => {
@@ -1304,7 +1209,6 @@ describe('Argument Parsing and Configuration', () => {
                 overrides: true,
                 model: 'gpt-4-turbo',
                 contextDirectories: ['src', 'docs', 'tests'],
-                instructions: '/custom/instructions.md',
                 configDir: '/custom/config',
                 add: true,
                 cached: false,
@@ -1326,7 +1230,6 @@ describe('Argument Parsing and Configuration', () => {
                 overrides: true,
                 model: 'gpt-4-turbo',
                 contextDirectories: ['src', 'docs', 'tests'],
-                instructions: '/custom/instructions.md',
                 configDirectory: '/custom/config',
                 commit: {
                     add: true,
