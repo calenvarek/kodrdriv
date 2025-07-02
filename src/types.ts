@@ -22,6 +22,7 @@ export const ConfigSchema = z.object({
         maxRecordingTime: z.number().optional(),
         audioDevice: z.string().optional(),
         file: z.string().optional(),
+        keepTemp: z.boolean().optional(),
     }).optional(),
     release: z.object({
         from: z.string().optional(),
@@ -56,6 +57,7 @@ export const ConfigSchema = z.object({
         maxRecordingTime: z.number().optional(),
         audioDevice: z.string().optional(),
         file: z.string().optional(),
+        keepTemp: z.boolean().optional(),
     }).optional(),
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -133,12 +135,14 @@ export type AudioReviewConfig = {
     maxRecordingTime?: number;
     audioDevice?: string;
     file?: string;
+    keepTemp?: boolean;
 }
 
 export type AudioCommitConfig = {
     maxRecordingTime?: number;
     audioDevice?: string;
     file?: string;
+    keepTemp?: boolean;
 }
 
 export type PublishConfig = {

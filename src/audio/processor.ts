@@ -434,7 +434,7 @@ export class AudioProcessor {
             throw error;
         } finally {
             // Cleanup is handled comprehensively in the cleanup function
-            await this.cleanup(countdownInterval, recordingProcess, tempDir, recordingFailed);
+            await this.cleanup(countdownInterval, recordingProcess, tempDir, recordingFailed || options.keepTemp);
         }
     }
 
