@@ -38,13 +38,28 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Now delegate to the regular commit command with the audio context
     logger.info('🤖 Generating commit message using audio context...');
-    return executeCommit({
+    const result = await executeCommit({
         ...runConfig,
         commit: {
             ...runConfig.commit,
             context: audioContext.trim() || runConfig.commit?.context || ''
         }
     });
+
+    // Final cleanup to ensure process can exit
+    try {
+        if (process.stdin.setRawMode) {
+            process.stdin.setRawMode(false);
+            process.stdin.pause();
+            process.stdin.removeAllListeners();
+        }
+        process.removeAllListeners('SIGINT');
+        process.removeAllListeners('SIGTERM');
+    } catch (error) {
+        // Ignore cleanup errors
+    }
+
+    return result;
 };
 
 const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
@@ -56,19 +71,20 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
     const tempDir = await fs.mkdtemp(path.join(outputDirectory, '.temp-audio-'));
     const audioFilePath = path.join(tempDir, 'recording.wav');
 
+    // Declare variables at function scope for cleanup access
+    let recordingProcess: any = null;
+    let recordingFinished = false;
+    let recordingCancelled = false;
+    let countdownInterval: NodeJS.Timeout | null = null;
+    let remainingSeconds = 30;
+    let intendedRecordingTime = 30;
+    const maxRecordingTime = runConfig.audioCommit?.maxRecordingTime || 300; // 5 minutes default
+    const extensionTime = 30; // 30 seconds per extension
+
     try {
         // Use system recording tool - cross-platform approach
         logger.info('🎤 Starting recording... Speak now!');
         logger.info('📋 Controls: ENTER=done, E=extend+30s, C/Ctrl+C=cancel');
-
-        let recordingProcess: any;
-        let recordingFinished = false;
-        let recordingCancelled = false;
-        let countdownInterval: NodeJS.Timeout | null = null;
-        let remainingSeconds = 30;
-        let intendedRecordingTime = 30;
-        const maxRecordingTime = runConfig.audioCommit?.maxRecordingTime || 300; // 5 minutes default
-        const extensionTime = 30; // 30 seconds per extension
 
         // Start countdown display
         const startCountdown = () => {
@@ -421,11 +437,38 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
         logger.info('Proceeding with commit generation without audio context...');
         return '';
     } finally {
-        // Clean up temporary directory
+        // Comprehensive cleanup to ensure program can exit
         try {
+            // Clear any remaining countdown interval
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+
+            // Ensure stdin is properly reset
+            if (process.stdin.setRawMode) {
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
+                process.stdin.removeAllListeners('data');
+            }
+
+            // Remove process event listeners that we added
+            process.removeAllListeners('SIGINT');
+            process.removeAllListeners('SIGTERM');
+
+            // Force kill any remaining recording process
+            if (recordingProcess && !recordingProcess.killed) {
+                try {
+                    recordingProcess.kill('SIGKILL');
+                } catch (killError) {
+                    // Ignore kill errors
+                }
+            }
+
+            // Clean up temporary directory
             await fs.rm(tempDir, { recursive: true, force: true });
-        } catch (error: any) {
-            logger.debug('Failed to clean up temporary directory: %s', error.message);
+        } catch (cleanupError: any) {
+            logger.debug('Cleanup warning: %s', cleanupError.message);
         }
     }
 };
