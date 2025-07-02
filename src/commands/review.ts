@@ -55,7 +55,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     // Get the review note from configuration
     const reviewNote = runConfig.review?.note;
     if (!reviewNote || !reviewNote.trim()) {
-        throw new Error('No review note provided. Use --note "your review text" to provide note for analysis.');
+        throw new Error('No review note provided. Provide a note as an argument: kodrdriv review "your review text" or pipe via STDIN: echo "your review text" | kodrdriv review');
     }
 
     logger.info('📝 Starting review analysis...');
