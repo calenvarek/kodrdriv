@@ -113,6 +113,26 @@ export class AudioProcessor {
         const maxRecordingTime = options.maxRecordingTime || 300; // 5 minutes default
         const extensionTime = 30; // 30 seconds per extension
 
+        // Cleanup functions that need to be accessible in finally block
+        let keyHandler: ((data: Buffer | string) => void) | null = null;
+        const originalRawMode = false;
+        let sigintHandler: (() => void) | null = null;
+
+        const cleanupKeyboardHandling = () => {
+            try {
+                if (keyHandler) {
+                    process.stdin.removeListener('data', keyHandler);
+                    keyHandler = null;
+                }
+                if (process.stdin.setRawMode) {
+                    process.stdin.setRawMode(originalRawMode);
+                }
+                process.stdin.pause();
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        };
+
         try {
             this.logger.info('🎤 Starting recording... Speak now!');
             this.logger.info('📋 Controls: ENTER=done, E=extend+30s, C/Ctrl+C=cancel');
@@ -181,6 +201,9 @@ export class AudioProcessor {
             };
 
             // Set up keyboard input handling
+            let keyHandler: ((data: Buffer | string) => void) | null = null;
+            let originalRawMode = false;
+
             const setupKeyboardHandling = () => {
                 // Ensure stdin is properly configured
                 if (!process.stdin.readable) {
@@ -189,14 +212,14 @@ export class AudioProcessor {
                 }
 
                 // Save original stdin state
-                const originalRawMode = process.stdin.isRaw;
+                originalRawMode = process.stdin.isRaw || false;
 
                 try {
                     process.stdin.setRawMode(true);
                     process.stdin.resume();
                     process.stdin.setEncoding('utf8');
 
-                    const keyHandler = (data: Buffer | string) => {
+                    keyHandler = (data: Buffer | string) => {
                         const key = data.toString();
                         const keyCode = key.charCodeAt(0);
 
@@ -206,31 +229,11 @@ export class AudioProcessor {
 
                         if (keyCode === 13 || keyCode === 10) { // ENTER key (CR or LF)
                             process.stdout.write('\r✅ ENTER pressed - stopping recording...                          \n');
-                            // Restore stdin state
-                            try {
-                                if (process.stdin.setRawMode) {
-                                    process.stdin.setRawMode(originalRawMode);
-                                }
-                                process.stdin.pause();
-                                process.stdin.removeListener('data', keyHandler);
-                            } catch (e) {
-                                // Ignore cleanup errors
-                            }
                             stopRecording();
                         } else if (key.toLowerCase() === 'e') { // 'e' or 'E' key
                             extendRecording();
                         } else if (key.toLowerCase() === 'c' || keyCode === 3) { // 'c', 'C', or Ctrl+C
                             process.stdout.write('\r❌ Cancelling recording...                                       \n');
-                            // Restore stdin state
-                            try {
-                                if (process.stdin.setRawMode) {
-                                    process.stdin.setRawMode(originalRawMode);
-                                }
-                                process.stdin.pause();
-                                process.stdin.removeListener('data', keyHandler);
-                            } catch (e) {
-                                // Ignore cleanup errors
-                            }
                             cancelRecording();
                         }
                     };
@@ -263,8 +266,14 @@ export class AudioProcessor {
             // Set up recording command
             recordingProcess = await this.setupRecording(audioFilePath, maxRecordingTime, options);
 
-            // Handle SIGINT for cleanup
-            process.on('SIGINT', cancelRecording);
+            // Handle SIGINT for cleanup (we'll remove this listener in cleanup)
+            sigintHandler = () => {
+                cleanupKeyboardHandling();
+                cancelRecording();
+            };
+            if (sigintHandler) {
+                process.on('SIGINT', sigintHandler);
+            }
 
             // Start keyboard handling and countdown if we have a recording process
             if (recordingProcess) {
@@ -335,10 +344,10 @@ export class AudioProcessor {
                     }
                 }
 
-                // Clean up keyboard input
-                if (process.stdin.setRawMode) {
-                    process.stdin.setRawMode(false);
-                    process.stdin.pause();
+                // Clean up keyboard input and process listeners
+                cleanupKeyboardHandling();
+                if (sigintHandler) {
+                    process.removeListener('SIGINT', sigintHandler);
                 }
             }
 
@@ -391,6 +400,7 @@ export class AudioProcessor {
                 cancelled: false
             };
         } finally {
+            // Cleanup is handled comprehensively in the cleanup function
             await this.cleanup(countdownInterval, recordingProcess, tempDir);
         }
     }
@@ -627,21 +637,33 @@ export class AudioProcessor {
                 clearInterval(countdownInterval);
             }
 
-            // Reset stdin
-            if (process.stdin.setRawMode) {
-                process.stdin.setRawMode(false);
+            // Reset stdin thoroughly
+            try {
+                if (process.stdin.setRawMode) {
+                    process.stdin.setRawMode(false);
+                }
                 process.stdin.pause();
                 process.stdin.removeAllListeners('data');
+                process.stdin.removeAllListeners('keypress');
+                process.stdin.removeAllListeners('readable');
+            } catch (stdinError) {
+                // Ignore stdin cleanup errors
             }
 
-            // Remove process event listeners
+            // Remove ALL process event listeners to prevent hanging
             process.removeAllListeners('SIGINT');
             process.removeAllListeners('SIGTERM');
+            process.removeAllListeners('exit');
 
             // Kill recording process
             if (recordingProcess && !recordingProcess.killed) {
                 try {
-                    recordingProcess.kill('SIGKILL');
+                    recordingProcess.kill('SIGTERM');
+                    // Give it a moment to terminate gracefully
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    if (!recordingProcess.killed) {
+                        recordingProcess.kill('SIGKILL');
+                    }
                 } catch (killError) {
                     // Ignore kill errors
                 }
