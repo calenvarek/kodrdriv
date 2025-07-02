@@ -21,6 +21,7 @@ export const InputSchema = z.object({
     instructions: z.string().optional(),
     configDir: z.string().optional(),
     outputDir: z.string().optional(),
+    preferencesDir: z.string().optional(),
     cached: z.boolean().optional(),
     add: z.boolean().optional(),
     sendit: z.boolean().optional(),
@@ -42,7 +43,7 @@ export const InputSchema = z.object({
     diffHistoryLimit: z.number().optional(),
     releaseNotesLimit: z.number().optional(),
     githubIssuesLimit: z.number().optional(),
-    selectAudioDevice: z.boolean().optional(),
+    file: z.string().optional(), // Audio file path for audio-commit and audio-review
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -66,6 +67,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     // Map outputDir (CLI) to outputDirectory (Config standard)
     if (finalCliArgs.outputDir !== undefined) transformedCliArgs.outputDirectory = finalCliArgs.outputDir;
 
+    // Map preferencesDir (CLI) to preferencesDirectory (Config standard)
+    if (finalCliArgs.preferencesDir !== undefined) transformedCliArgs.preferencesDirectory = finalCliArgs.preferencesDir;
+
     // Nested mappings for 'commit' options
     if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
         transformedCliArgs.commit = {};
@@ -78,9 +82,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     }
 
     // Nested mappings for 'audioCommit' options
-    if (finalCliArgs.selectAudioDevice !== undefined) {
+    if (finalCliArgs.file !== undefined) {
         transformedCliArgs.audioCommit = {};
-        transformedCliArgs.audioCommit.selectAudioDevice = finalCliArgs.selectAudioDevice;
+        if (finalCliArgs.file !== undefined) transformedCliArgs.audioCommit.file = finalCliArgs.file;
     }
 
     // Nested mappings for 'release' options
@@ -120,7 +124,8 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         finalCliArgs.commitHistoryLimit !== undefined ||
         finalCliArgs.diffHistoryLimit !== undefined ||
         finalCliArgs.releaseNotesLimit !== undefined ||
-        finalCliArgs.githubIssuesLimit !== undefined) {
+        finalCliArgs.githubIssuesLimit !== undefined ||
+        finalCliArgs.file !== undefined) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.audioReview.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -130,9 +135,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.diffHistoryLimit !== undefined) transformedCliArgs.audioReview.diffHistoryLimit = finalCliArgs.diffHistoryLimit;
         if (finalCliArgs.releaseNotesLimit !== undefined) transformedCliArgs.audioReview.releaseNotesLimit = finalCliArgs.releaseNotesLimit;
         if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.audioReview.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
-        // Only add context and sendit if we already have an audioReview object from the specific properties above
         if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
+        if (finalCliArgs.file !== undefined) transformedCliArgs.audioReview.file = finalCliArgs.file;
     }
 
     // Nested mappings for 'review' options
@@ -296,6 +301,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             .option('-i, --instructions <file>', 'instructions for the AI')
             .option('--config-dir <configDir>', 'configuration directory') // Keep config-dir for specifying location
             .option('--output-dir <outputDir>', 'output directory for generated files')
+            .option('--preferences-dir <preferencesDir>', 'preferences directory for personal settings')
             .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff');
     }
 
@@ -366,7 +372,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--sendit', 'Commit with the message generated. No review.')
         .option('--direction <direction>', 'direction or guidance for the commit message')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
-        .option('--select-audio-device', 'interactively select audio device and save to configuration')
+        .option('--file <file>', 'audio file path')
         .description('Record audio to provide context, then generate and optionally commit with AI-generated message');
     addSharedOptions(audioCommitCommand);
 
@@ -414,6 +420,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
         .option('--context <context>', 'additional context for the audio review')
         .option('--sendit', 'Create GitHub issues automatically without confirmation')
+        .option('--file <file>', 'audio file path')
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
@@ -504,6 +511,11 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .description('Remove the output directory and all generated files');
     addSharedOptions(cleanCommand);
 
+    const selectAudioCommand = program
+        .command('select-audio')
+        .description('Interactively select and save audio device for recording');
+    addSharedOptions(selectAudioCommand);
+
     program.parse();
 
     const cliArgs: Input = program.opts<Input>(); // Get all opts initially
@@ -559,6 +571,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             }
         } else if (commandName === 'clean' && cleanCommand.opts) {
             commandOptions = cleanCommand.opts<Partial<Input>>();
+        } else if (commandName === 'select-audio' && selectAudioCommand.opts) {
+            commandOptions = selectAudioCommand.opts<Partial<Input>>();
         }
     }
 
@@ -607,6 +621,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         contextDirectories: contextDirectories,
         configDirectory: configDir,
         outputDirectory: options.outputDirectory ?? KODRDRIV_DEFAULTS.outputDirectory,
+        preferencesDirectory: options.preferencesDirectory ?? KODRDRIV_DEFAULTS.preferencesDirectory,
         // Command-specific options with defaults
         commit: {
             add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
@@ -619,7 +634,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         audioCommit: {
             maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
             audioDevice: options.audioCommit?.audioDevice ?? KODRDRIV_DEFAULTS.audioCommit.audioDevice,
-            selectAudioDevice: options.audioCommit?.selectAudioDevice,
+            file: options.audioCommit?.file,
         },
         release: {
             from: options.release?.from ?? KODRDRIV_DEFAULTS.release.from,
@@ -638,6 +653,9 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             githubIssuesLimit: options.audioReview?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.audioReview.githubIssuesLimit,
             context: options.audioReview?.context,
             sendit: options.audioReview?.sendit ?? KODRDRIV_DEFAULTS.audioReview.sendit,
+            maxRecordingTime: options.audioReview?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioReview.maxRecordingTime,
+            audioDevice: options.audioReview?.audioDevice ?? KODRDRIV_DEFAULTS.audioReview.audioDevice,
+            file: options.audioReview?.file,
         },
         review: {
             includeCommitHistory: options.review?.includeCommitHistory ?? KODRDRIV_DEFAULTS.review.includeCommitHistory,

@@ -10,6 +10,7 @@ export const ConfigSchema = z.object({
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
     outputDirectory: z.string().optional(),
+    preferencesDirectory: z.string().optional(),
     commit: z.object({
         add: z.boolean().optional(),
         cached: z.boolean().optional(),
@@ -21,7 +22,7 @@ export const ConfigSchema = z.object({
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
         audioDevice: z.string().optional(),
-        selectAudioDevice: z.boolean().optional(),
+        file: z.string().optional(),
     }).optional(),
     release: z.object({
         from: z.string().optional(),
@@ -55,7 +56,7 @@ export const ConfigSchema = z.object({
         sendit: z.boolean().optional(),
         maxRecordingTime: z.number().optional(),
         audioDevice: z.string().optional(),
-        selectAudioDevice: z.boolean().optional(),
+        file: z.string().optional(),
     }).optional(),
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -132,13 +133,13 @@ export type AudioReviewConfig = {
     sendit?: boolean;
     maxRecordingTime?: number;
     audioDevice?: string;
-    selectAudioDevice?: boolean;
+    file?: string;
 }
 
 export type AudioCommitConfig = {
     maxRecordingTime?: number;
     audioDevice?: string;
-    selectAudioDevice?: boolean;
+    file?: string;
 }
 
 export type PublishConfig = {
