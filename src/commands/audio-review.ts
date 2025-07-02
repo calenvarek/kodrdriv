@@ -275,12 +275,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info('DRY RUN: Would transcribe audio and use as context for review analysis');
         logger.info('DRY RUN: Would then delegate to regular review command');
 
-        // In dry run, just call the regular review command with empty content
+        // In dry run, just call the regular review command with empty note
         return executeReview({
             ...runConfig,
             review: {
                 ...runConfig.review,
-                content: runConfig.review?.content || ''
+                note: runConfig.review?.note || ''
             }
         });
     }
@@ -310,7 +310,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             sendit: runConfig.audioReview?.sendit,
             context: runConfig.audioReview?.context,
             // Use the transcribed audio as content
-            content: audioContext.trim() || runConfig.review?.content || ''
+            note: audioContext.trim() || runConfig.review?.note || ''
         }
     });
 
@@ -713,7 +713,7 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
             logger.warn('No audio content was transcribed. Proceeding without audio context.');
             return '';
         } else {
-            logger.info('📝 Using transcribed audio as review content');
+            logger.info('📝 Using transcribed audio as review note');
             return audioContext;
         }
 

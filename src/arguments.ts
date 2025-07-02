@@ -27,7 +27,7 @@ export const InputSchema = z.object({
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     context: z.string().optional(),
-    content: z.string().optional(),
+    note: z.string().optional(),
     direction: z.string().optional(),
     messageLimit: z.number().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -134,10 +134,10 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
     }
 
-    // Nested mappings for 'review' options - Note: only creates review object if content is provided
-    if (finalCliArgs.content !== undefined) {
+    // Nested mappings for 'review' options - Note: only creates review object if note is provided
+    if (finalCliArgs.note !== undefined) {
         transformedCliArgs.review = {};
-        transformedCliArgs.review.content = finalCliArgs.content;
+        transformedCliArgs.review.note = finalCliArgs.note;
         // Include optional review configuration options if specified
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.review.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.review.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -408,7 +408,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
 
     const reviewCommand = program
         .command('review')
-        .option('--content <content>', 'review content to analyze for project issues')
+        .option('--note <note>', 'review note to analyze for project issues')
         .option('--include-commit-history', 'include recent commit log messages in context (default: true)')
         .option('--no-include-commit-history', 'exclude commit log messages from context')
         .option('--include-recent-diffs', 'include recent commit diffs in context (default: true)')
@@ -423,8 +423,66 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
         .option('--context <context>', 'additional context for the review')
         .option('--sendit', 'Create GitHub issues automatically without confirmation')
-        .description('Analyze review content for project issues using AI');
+        .description('Analyze review note for project issues using AI');
     addSharedOptions(reviewCommand);
+
+    // Customize help output for review command
+    reviewCommand.configureHelp({
+        formatHelp: (cmd, helper) => {
+            const nameAndVersion = `${helper.commandUsage(cmd)}\n\n${helper.commandDescription(cmd)}\n`;
+
+            const reviewOptions = [
+                ['--note <note>', 'review note to analyze for project issues'],
+                ['--context <context>', 'additional context for the review']
+            ];
+
+            const gitContextOptions = [
+                ['--include-commit-history', 'include recent commit log messages in context (default: true)'],
+                ['--no-include-commit-history', 'exclude commit log messages from context'],
+                ['--include-recent-diffs', 'include recent commit diffs in context (default: true)'],
+                ['--no-include-recent-diffs', 'exclude recent diffs from context'],
+                ['--include-release-notes', 'include recent release notes in context (default: false)'],
+                ['--no-include-release-notes', 'exclude release notes from context'],
+                ['--include-github-issues', 'include open GitHub issues in context (default: true)'],
+                ['--no-include-github-issues', 'exclude GitHub issues from context'],
+                ['--commit-history-limit <limit>', 'number of recent commits to include'],
+                ['--diff-history-limit <limit>', 'number of recent commit diffs to include'],
+                ['--release-notes-limit <limit>', 'number of recent release notes to include'],
+                ['--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)']
+            ];
+
+            const behavioralOptions = [
+                ['--sendit', 'Create GitHub issues automatically without confirmation']
+            ];
+
+            const globalOptions = [
+                ['--dry-run', 'perform a dry run without saving files'],
+                ['--verbose', 'enable verbose logging'],
+                ['--debug', 'enable debug logging'],
+                ['--overrides', 'enable overrides'],
+                ['--model <model>', 'OpenAI model to use'],
+                ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
+                ['-i, --instructions <file>', 'instructions for the AI'],
+                ['--config-dir <configDir>', 'configuration directory'],
+                ['--output-dir <outputDir>', 'output directory for generated files'],
+                ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
+                ['-h, --help', 'display help for command']
+            ];
+
+            const formatOptionsSection = (title: string, options: string[][]) => {
+                const maxWidth = Math.max(...options.map(([flag]) => flag.length));
+                return `${title}:\n` + options.map(([flag, desc]) =>
+                    `  ${flag.padEnd(maxWidth + 2)} ${desc}`
+                ).join('\n') + '\n';
+            };
+
+            return nameAndVersion + '\n' +
+                formatOptionsSection('Options', reviewOptions) + '\n' +
+                formatOptionsSection('Git Context Parameters', gitContextOptions) + '\n' +
+                formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
+                formatOptionsSection('Global Options', globalOptions);
+        }
+    });
 
     const cleanCommand = program
         .command('clean')
@@ -566,7 +624,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             githubIssuesLimit: options.review?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.review.githubIssuesLimit,
             context: options.review?.context,
             sendit: options.review?.sendit ?? KODRDRIV_DEFAULTS.review.sendit,
-            content: options.review?.content,
+            note: options.review?.note,
         },
         publish: {
             mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,
