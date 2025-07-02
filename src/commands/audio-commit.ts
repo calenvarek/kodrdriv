@@ -280,7 +280,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             ...runConfig,
             commit: {
                 ...runConfig.commit,
-                context: runConfig.commit?.context || ''
+                direction: runConfig.commit?.direction || ''
             }
         });
     }
@@ -299,7 +299,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         ...runConfig,
         commit: {
             ...runConfig.commit,
-            context: audioContext.trim() || runConfig.commit?.context || ''
+            direction: audioContext.trim() || runConfig.commit?.direction || ''
         }
     });
 

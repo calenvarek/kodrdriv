@@ -9,9 +9,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export interface Factory {
-    createCommitPrompt: (content: string, logContent: string, context?: string) => Promise<Prompt>;
-    createReleasePrompt: (content: string, diffContent: string, context?: string) => Promise<Prompt>;
-    createAudioReviewPrompt: (transcription: string, context?: string) => Promise<Prompt>;
+    createCommitPrompt: ({ diffContent, logContent }: { diffContent: string, logContent: string }, { userDirection, context }: { userDirection?: string, context?: string }) => Promise<Prompt>;
+    createReleasePrompt: ({ logContent, diffContent }: { logContent: string, diffContent: string }, { releaseFocus, context }: { releaseFocus?: string, context?: string }) => Promise<Prompt>;
+    createReviewPrompt: ({ notes }: { notes: string }, { logContext, diffContext, releaseNotesContext, issuesContext, context }: { logContext?: string, diffContext?: string, releaseNotesContext?: string, issuesContext?: string, context?: string }) => Promise<Prompt>;
     format: (prompt: Prompt) => Request;
 }
 
@@ -19,52 +19,71 @@ export const create = (model: Model, runConfig: RunConfig): Factory => {
 
     const logger = getLogger();
 
-    const createCommitPrompt = async (content: string, logContent: string, context?: string): Promise<Prompt> => {
+    const createCommitPrompt = async ({ diffContent, logContent }: { diffContent: string, logContent: string }, { userDirection, context }: { userDirection?: string, context?: string }): Promise<Prompt> => {
         let builder: Builder.Instance = Builder.create({ logger, basePath: __dirname, overridePath: runConfig?.configDirectory, overrides: runConfig?.overrides || false });
         builder = await builder.addPersonaPath(DEFAULT_PERSONA_COMMITTER_FILE);
         builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_COMMIT_FILE);
-        if (context) {
-            builder = await builder.addContent(`\n\n[User Context]\n${context}`);
+        if (userDirection) {
+            builder = await builder.addContent(userDirection, { title: 'User Direction', weight: 1.0 });
         }
-        builder = await builder.addContent(`\n\n[Diff]\n${content}`);
-        builder = await builder.addContent(`\n\n[Log]\n${logContent}`);
+        builder = await builder.addContent(diffContent, { title: 'Diff', weight: 0.5 });
+        builder = await builder.addContent(logContent, { title: 'Log', weight: 0.5 });
 
         if (runConfig.contextDirectories) {
-            builder = await builder.loadContext(runConfig.contextDirectories);
+            builder = await builder.loadContext(runConfig.contextDirectories, { weight: 0.5 });
+        }
+        if (context) {
+            builder = await builder.addContext(context, { title: 'User Context', weight: 1.0 });
         }
 
         const prompt = await builder.build();
         return prompt;
     };
 
-    const createReleasePrompt = async (content: string, diffContent: string, context?: string): Promise<Prompt> => {
+    const createReleasePrompt = async ({ logContent, diffContent }: { logContent: string, diffContent: string }, { releaseFocus, context }: { releaseFocus?: string, context?: string }): Promise<Prompt> => {
         let builder: Builder.Instance = Builder.create({ logger, basePath: __dirname, overridePath: runConfig?.configDirectory, overrides: runConfig?.overrides || false });
         builder = await builder.addPersonaPath(DEFAULT_PERSONA_RELEASER_FILE);
         builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_RELEASE_FILE);
-        if (context) {
-            builder = await builder.addContent(`\n\n[User Context]\n${context}`);
+        if (releaseFocus) {
+            builder = await builder.addContent(releaseFocus, { title: 'Release Focus', weight: 1.0 });
         }
-        builder = await builder.addContent(`\n\n[Log]\n${content}`);
-        builder = await builder.addContent(`\n\n[Diff]\n${diffContent}`);
+        builder = await builder.addContent(logContent, { title: 'Log', weight: 0.5 });
+        builder = await builder.addContent(diffContent, { title: 'Diff', weight: 0.5 });
         if (runConfig.contextDirectories) {
-            builder = await builder.loadContext(runConfig.contextDirectories);
+            builder = await builder.loadContext(runConfig.contextDirectories, { weight: 0.5 });
+        }
+        if (context) {
+            builder = await builder.addContext(context, { title: 'User Context', weight: 1.0 });
         }
 
         const prompt = await builder.build();
         return prompt;
     }
 
-    const createAudioReviewPrompt = async (transcription: string, context?: string): Promise<Prompt> => {
+    const createReviewPrompt = async ({ notes }: { notes: string }, { logContext, diffContext, releaseNotesContext, issuesContext, context }: { logContext?: string, diffContext?: string, releaseNotesContext?: string, issuesContext?: string, context?: string }): Promise<Prompt> => {
         let builder: Builder.Instance = Builder.create({ logger, basePath: __dirname, overridePath: runConfig?.configDirectory, overrides: runConfig?.overrides || false });
         builder = await builder.addPersonaPath(DEFAULT_PERSONA_REVIEWER_FILE);
         builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_AUDIO_REVIEW_FILE);
-        if (context) {
-            builder = await builder.addContent(`\n\n[Additional Context]\n${context}`);
-        }
-        builder = await builder.addContent(`\n\n[Audio Transcription]\n${transcription}`);
+
+        builder = await builder.addContent(notes, { title: 'Review Notes', weight: 1.0 });
 
         if (runConfig.contextDirectories) {
-            builder = await builder.loadContext(runConfig.contextDirectories);
+            builder = await builder.loadContext(runConfig.contextDirectories, { weight: 0.5 });
+        }
+        if (logContext) {
+            builder = await builder.addContext(logContext, { title: 'Log Context', weight: 0.5 });
+        }
+        if (diffContext) {
+            builder = await builder.addContext(diffContext, { title: 'Diff Context', weight: 0.5 });
+        }
+        if (releaseNotesContext) {
+            builder = await builder.addContext(releaseNotesContext, { title: 'Release Notes Context', weight: 0.5 });
+        }
+        if (issuesContext) {
+            builder = await builder.addContext(issuesContext, { title: 'Issues Context', weight: 0.5 });
+        }
+        if (context) {
+            builder = await builder.addContext(context, { title: 'User Context', weight: 1.0 });
         }
 
         const prompt = await builder.build();
@@ -96,7 +115,7 @@ export const create = (model: Model, runConfig: RunConfig): Factory => {
     return {
         createCommitPrompt,
         createReleasePrompt,
-        createAudioReviewPrompt,
+        createReviewPrompt,
         format,
     };
 }

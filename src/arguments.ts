@@ -25,6 +25,8 @@ export const InputSchema = z.object({
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     context: z.string().optional(),
+    content: z.string().optional(),
+    direction: z.string().optional(),
     messageLimit: z.number().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
@@ -66,6 +68,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.commit.sendit = finalCliArgs.sendit;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
+        if (finalCliArgs.direction !== undefined) transformedCliArgs.commit.direction = finalCliArgs.direction;
     }
 
     // Nested mappings for 'audioCommit' options
@@ -124,6 +127,23 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         // Only add context and sendit if we already have an audioReview object from the specific properties above
         if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
+    }
+
+    // Nested mappings for 'review' options - Note: only creates review object if content is provided
+    if (finalCliArgs.content !== undefined) {
+        transformedCliArgs.review = {};
+        transformedCliArgs.review.content = finalCliArgs.content;
+        // Include optional review configuration options if specified
+        if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.review.includeCommitHistory = finalCliArgs.includeCommitHistory;
+        if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.review.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
+        if (finalCliArgs.includeReleaseNotes !== undefined) transformedCliArgs.review.includeReleaseNotes = finalCliArgs.includeReleaseNotes;
+        if (finalCliArgs.includeGithubIssues !== undefined) transformedCliArgs.review.includeGithubIssues = finalCliArgs.includeGithubIssues;
+        if (finalCliArgs.commitHistoryLimit !== undefined) transformedCliArgs.review.commitHistoryLimit = finalCliArgs.commitHistoryLimit;
+        if (finalCliArgs.diffHistoryLimit !== undefined) transformedCliArgs.review.diffHistoryLimit = finalCliArgs.diffHistoryLimit;
+        if (finalCliArgs.releaseNotesLimit !== undefined) transformedCliArgs.review.releaseNotesLimit = finalCliArgs.releaseNotesLimit;
+        if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.review.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
+        if (finalCliArgs.context !== undefined) transformedCliArgs.review.context = finalCliArgs.context;
+        if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
     }
 
     if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
@@ -267,19 +287,66 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
     // Add subcommands
     const commitCommand = program
         .command('commit')
+        .argument('[direction]', 'direction or guidance for the commit message')
+        .description('Generate commit notes')
+        .option('--context <context>', 'context for the commit message')
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
-        .option('--context <context>', 'context for the commit message')
-        .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
-        .description('Generate commit notes');
+        .option('--message-limit <messageLimit>', 'limit the number of messages to generate');
+
+    // Add shared options to commit command
     addSharedOptions(commitCommand);
+
+    // Customize help output for commit command
+    commitCommand.configureHelp({
+        formatHelp: (cmd, helper) => {
+            const nameAndVersion = `${helper.commandUsage(cmd)}\n\n${helper.commandDescription(cmd)}\n`;
+
+            const commitOptions = [
+                ['--context <context>', 'context for the commit message']
+            ];
+
+            const behavioralOptions = [
+                ['--cached', 'use cached diff'],
+                ['--add', 'add all changes before committing'],
+                ['--sendit', 'Commit with the message generated. No review.'],
+                ['--message-limit <messageLimit>', 'limit the number of messages to generate']
+            ];
+
+            const globalOptions = [
+                ['--dry-run', 'perform a dry run without saving files'],
+                ['--verbose', 'enable verbose logging'],
+                ['--debug', 'enable debug logging'],
+                ['--overrides', 'enable overrides'],
+                ['--model <model>', 'OpenAI model to use'],
+                ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
+                ['-i, --instructions <file>', 'instructions for the AI'],
+                ['--config-dir <configDir>', 'configuration directory'],
+                ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
+                ['-h, --help', 'display help for command']
+            ];
+
+            const formatOptionsSection = (title: string, options: string[][]) => {
+                const maxWidth = Math.max(...options.map(([flag]) => flag.length));
+                return `${title}:\n` + options.map(([flag, desc]) =>
+                    `  ${flag.padEnd(maxWidth + 2)} ${desc}`
+                ).join('\n') + '\n';
+            };
+
+            return nameAndVersion + '\n' +
+                formatOptionsSection('Commit Message Options', commitOptions) + '\n' +
+                formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
+                formatOptionsSection('Global Options', globalOptions);
+        }
+    });
 
     const audioCommitCommand = program
         .command('audio-commit')
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
+        .option('--direction <direction>', 'direction or guidance for the commit message')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
         .option('--select-audio-device', 'interactively select audio device and save to configuration')
         .description('Record audio to provide context, then generate and optionally commit with AI-generated message');
@@ -332,6 +399,26 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
+    const reviewCommand = program
+        .command('review')
+        .option('--content <content>', 'review content to analyze for project issues')
+        .option('--include-commit-history', 'include recent commit log messages in context (default: true)')
+        .option('--no-include-commit-history', 'exclude commit log messages from context')
+        .option('--include-recent-diffs', 'include recent commit diffs in context (default: true)')
+        .option('--no-include-recent-diffs', 'exclude recent diffs from context')
+        .option('--include-release-notes', 'include recent release notes in context (default: false)')
+        .option('--no-include-release-notes', 'exclude release notes from context')
+        .option('--include-github-issues', 'include open GitHub issues in context (default: true)')
+        .option('--no-include-github-issues', 'exclude GitHub issues from context')
+        .option('--commit-history-limit <limit>', 'number of recent commits to include', parseInt)
+        .option('--diff-history-limit <limit>', 'number of recent commit diffs to include', parseInt)
+        .option('--release-notes-limit <limit>', 'number of recent release notes to include', parseInt)
+        .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
+        .option('--context <context>', 'additional context for the review')
+        .option('--sendit', 'Create GitHub issues automatically without confirmation')
+        .description('Analyze review content for project issues using AI');
+    addSharedOptions(reviewCommand);
+
     const cleanCommand = program
         .command('clean')
         .description('Remove the output directory and all generated files');
@@ -354,6 +441,11 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
     if (ALLOWED_COMMANDS.includes(commandName)) {
         if (commandName === 'commit' && commitCommand.opts) {
             commandOptions = commitCommand.opts<Partial<Input>>();
+            // Handle positional argument for direction
+            const args = commitCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                commandOptions.direction = args[0];
+            }
         } else if (commandName === 'audio-commit' && audioCommitCommand.opts) {
             commandOptions = audioCommitCommand.opts<Partial<Input>>();
         } else if (commandName === 'release' && releaseCommand.opts) {
@@ -366,6 +458,8 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             commandOptions = unlinkCommand.opts<Partial<Input>>();
         } else if (commandName === 'audio-review' && audioReviewCommand.opts) {
             commandOptions = audioReviewCommand.opts<Partial<Input>>();
+        } else if (commandName === 'review' && reviewCommand.opts) {
+            commandOptions = reviewCommand.opts<Partial<Input>>();
         } else if (commandName === 'clean' && cleanCommand.opts) {
             commandOptions = cleanCommand.opts<Partial<Input>>();
         }
@@ -422,6 +516,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             sendit: options.commit?.sendit ?? KODRDRIV_DEFAULTS.commit.sendit,
             messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
             context: options.commit?.context,
+            direction: options.commit?.direction,
         },
         audioCommit: {
             maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
@@ -445,6 +540,19 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             githubIssuesLimit: options.audioReview?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.audioReview.githubIssuesLimit,
             context: options.audioReview?.context,
             sendit: options.audioReview?.sendit ?? KODRDRIV_DEFAULTS.audioReview.sendit,
+        },
+        review: {
+            includeCommitHistory: options.review?.includeCommitHistory ?? KODRDRIV_DEFAULTS.review.includeCommitHistory,
+            includeRecentDiffs: options.review?.includeRecentDiffs ?? KODRDRIV_DEFAULTS.review.includeRecentDiffs,
+            includeReleaseNotes: options.review?.includeReleaseNotes ?? KODRDRIV_DEFAULTS.review.includeReleaseNotes,
+            includeGithubIssues: options.review?.includeGithubIssues ?? KODRDRIV_DEFAULTS.review.includeGithubIssues,
+            commitHistoryLimit: options.review?.commitHistoryLimit ?? KODRDRIV_DEFAULTS.review.commitHistoryLimit,
+            diffHistoryLimit: options.review?.diffHistoryLimit ?? KODRDRIV_DEFAULTS.review.diffHistoryLimit,
+            releaseNotesLimit: options.review?.releaseNotesLimit ?? KODRDRIV_DEFAULTS.review.releaseNotesLimit,
+            githubIssuesLimit: options.review?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.review.githubIssuesLimit,
+            context: options.review?.context,
+            sendit: options.review?.sendit ?? KODRDRIV_DEFAULTS.review.sendit,
+            content: options.review?.content,
         },
         publish: {
             mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,

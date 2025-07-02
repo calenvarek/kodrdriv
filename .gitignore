@@ -7,3 +7,4 @@ coverage/
 output/
 git sRELEASE_NOTES.md
 RELEASE_TITLE.md
+.kodrdriv/audio-config.json

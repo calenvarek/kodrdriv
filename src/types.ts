@@ -16,6 +16,7 @@ export const ConfigSchema = z.object({
         sendit: z.boolean().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+        direction: z.string().optional(),
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
@@ -28,6 +29,19 @@ export const ConfigSchema = z.object({
         messageLimit: z.number().optional(),
         context: z.string().optional(),
     }).optional(),
+    review: z.object({
+        includeCommitHistory: z.boolean().optional(),
+        includeRecentDiffs: z.boolean().optional(),
+        includeReleaseNotes: z.boolean().optional(),
+        includeGithubIssues: z.boolean().optional(),
+        commitHistoryLimit: z.number().optional(),
+        diffHistoryLimit: z.number().optional(),
+        releaseNotesLimit: z.number().optional(),
+        githubIssuesLimit: z.number().optional(),
+        context: z.string().optional(),
+        sendit: z.boolean().optional(),
+        content: z.string().optional(),
+    }).optional(),
     audioReview: z.object({
         includeCommitHistory: z.boolean().optional(),
         includeRecentDiffs: z.boolean().optional(),
@@ -39,6 +53,9 @@ export const ConfigSchema = z.object({
         githubIssuesLimit: z.number().optional(),
         context: z.string().optional(),
         sendit: z.boolean().optional(),
+        maxRecordingTime: z.number().optional(),
+        audioDevice: z.string().optional(),
+        selectAudioDevice: z.boolean().optional(),
     }).optional(),
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -88,6 +105,20 @@ export type ReleaseConfig = {
     context?: string;
 }
 
+export type ReviewConfig = {
+    includeCommitHistory?: boolean;
+    includeRecentDiffs?: boolean;
+    includeReleaseNotes?: boolean;
+    includeGithubIssues?: boolean;
+    commitHistoryLimit?: number;
+    diffHistoryLimit?: number;
+    releaseNotesLimit?: number;
+    githubIssuesLimit?: number;
+    context?: string;
+    sendit?: boolean;
+    content?: string;
+}
+
 export type AudioReviewConfig = {
     includeCommitHistory?: boolean;
     includeRecentDiffs?: boolean;
@@ -99,6 +130,9 @@ export type AudioReviewConfig = {
     githubIssuesLimit?: number;
     context?: string;
     sendit?: boolean;
+    maxRecordingTime?: number;
+    audioDevice?: string;
+    selectAudioDevice?: boolean;
 }
 
 export type AudioCommitConfig = {
