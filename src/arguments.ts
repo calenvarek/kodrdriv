@@ -27,7 +27,7 @@ export const InputSchema = z.object({
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     context: z.string().optional(),
-    note: z.string().optional(),
+    note: z.string().optional(), // For review command positional argument/STDIN
     direction: z.string().optional(),
     messageLimit: z.number().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -134,10 +134,20 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
     }
 
-    // Nested mappings for 'review' options - Note: only creates review object if note is provided
-    if (finalCliArgs.note !== undefined) {
+    // Nested mappings for 'review' options
+    if (finalCliArgs.includeCommitHistory !== undefined ||
+        finalCliArgs.includeRecentDiffs !== undefined ||
+        finalCliArgs.includeReleaseNotes !== undefined ||
+        finalCliArgs.includeGithubIssues !== undefined ||
+        finalCliArgs.commitHistoryLimit !== undefined ||
+        finalCliArgs.diffHistoryLimit !== undefined ||
+        finalCliArgs.releaseNotesLimit !== undefined ||
+        finalCliArgs.githubIssuesLimit !== undefined ||
+        finalCliArgs.context !== undefined ||
+        finalCliArgs.sendit !== undefined ||
+        finalCliArgs.note !== undefined) {
         transformedCliArgs.review = {};
-        transformedCliArgs.review.note = finalCliArgs.note;
+        if (finalCliArgs.note !== undefined) transformedCliArgs.review.note = finalCliArgs.note;
         // Include optional review configuration options if specified
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.review.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.review.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -408,7 +418,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
 
     const reviewCommand = program
         .command('review')
-        .option('--note <note>', 'review note to analyze for project issues')
+        .argument('[note]', 'review note to analyze for project issues')
         .option('--include-commit-history', 'include recent commit log messages in context (default: true)')
         .option('--no-include-commit-history', 'exclude commit log messages from context')
         .option('--include-recent-diffs', 'include recent commit diffs in context (default: true)')
@@ -429,10 +439,13 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
     // Customize help output for review command
     reviewCommand.configureHelp({
         formatHelp: (cmd, helper) => {
-            const nameAndVersion = `${helper.commandUsage(cmd)}\n\n${helper.commandDescription(cmd)}\n`;
+            const nameAndVersion = `kodrdriv review [note] [options]\n\nAnalyze review note for project issues using AI\n`;
+
+            const argumentsSection = [
+                ['note', 'review note to analyze for project issues (can also be piped via STDIN)']
+            ];
 
             const reviewOptions = [
-                ['--note <note>', 'review note to analyze for project issues'],
                 ['--context <context>', 'additional context for the review']
             ];
 
@@ -477,6 +490,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             };
 
             return nameAndVersion + '\n' +
+                formatOptionsSection('Arguments', argumentsSection) + '\n' +
                 formatOptionsSection('Options', reviewOptions) + '\n' +
                 formatOptionsSection('Git Context Parameters', gitContextOptions) + '\n' +
                 formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
@@ -531,6 +545,17 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             commandOptions = audioReviewCommand.opts<Partial<Input>>();
         } else if (commandName === 'review' && reviewCommand.opts) {
             commandOptions = reviewCommand.opts<Partial<Input>>();
+            // Handle positional argument for note
+            const args = reviewCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                commandOptions.note = args[0];
+            }
+
+            // Check for STDIN input for note (takes precedence over positional argument)
+            const stdinInput = await readStdin();
+            if (stdinInput) {
+                commandOptions.note = stdinInput;
+            }
         } else if (commandName === 'clean' && cleanCommand.opts) {
             commandOptions = cleanCommand.opts<Partial<Input>>();
         }
