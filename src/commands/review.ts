@@ -30,9 +30,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
     logger.debug('  Sendit mode (auto-create issues): %s', runConfig.review?.sendit);
 
     if (isDryRun) {
-        logger.info('DRY RUN: Would analyze provided content for review');
+        logger.info('DRY RUN: Would analyze provided note for review');
         logger.info('DRY RUN: Would gather additional context based on configuration above');
-        logger.info('DRY RUN: Would analyze content and identify issues');
+        logger.info('DRY RUN: Would analyze note and identify issues');
 
         if (runConfig.review?.sendit) {
             logger.info('DRY RUN: Would automatically create GitHub issues (sendit mode enabled)');
@@ -49,17 +49,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 (reviewExcluded.length > 15 ? '...' : ''));
         }
 
-        return 'DRY RUN: Review command would analyze content, gather context, and create GitHub issues';
+        return 'DRY RUN: Review command would analyze note, gather context, and create GitHub issues';
     }
 
-    // Get the review content from configuration
-    const reviewContent = runConfig.review?.content;
-    if (!reviewContent || !reviewContent.trim()) {
-        throw new Error('No review content provided. Use --content "your review text" to provide content for analysis.');
+    // Get the review note from configuration
+    const reviewNote = runConfig.review?.note;
+    if (!reviewNote || !reviewNote.trim()) {
+        throw new Error('No review note provided. Use --note "your review text" to provide note for analysis.');
     }
 
     logger.info('📝 Starting review analysis...');
-    logger.debug('Review content: %s', reviewContent);
+    logger.debug('Review note: %s', reviewNote);
 
     // Gather additional context based on configuration
     let logContext = '';
@@ -128,8 +128,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
     }
 
-    // Analyze review content for issues using OpenAI
-    logger.info('🤖 Analyzing review content for project issues...');
+    // Analyze review note for issues using OpenAI
+    logger.info('🤖 Analyzing review note for project issues...');
     const prompts = Prompts.create(runConfig.model as Model, runConfig);
 
 
@@ -137,7 +137,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const storage = createStorage({ log: logger.info });
     await storage.ensureDirectory(outputDirectory);
 
-    const analysisPrompt = await prompts.createReviewPrompt({ notes: reviewContent }, { context: runConfig.review?.context, logContext, diffContext, releaseNotesContext, issuesContext });
+    const analysisPrompt = await prompts.createReviewPrompt({ notes: reviewNote }, { context: runConfig.review?.context, logContext, diffContext, releaseNotesContext, issuesContext });
     const request: Request = prompts.format(analysisPrompt);
 
     const analysisResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {

@@ -40,7 +40,7 @@ export const ConfigSchema = z.object({
         githubIssuesLimit: z.number().optional(),
         context: z.string().optional(),
         sendit: z.boolean().optional(),
-        content: z.string().optional(),
+        note: z.string().optional(),
     }).optional(),
     audioReview: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -116,7 +116,7 @@ export type ReviewConfig = {
     githubIssuesLimit?: number;
     context?: string;
     sendit?: boolean;
-    content?: string;
+    note?: string;
 }
 
 export type AudioReviewConfig = {
