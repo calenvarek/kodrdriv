@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import path from "path";
 import { z } from "zod";
-import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, DEFAULT_INSTRUCTIONS_DIR, KODRDRIV_DEFAULTS, PROGRAM_NAME, VERSION } from "./constants";
+import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, KODRDRIV_DEFAULTS, PROGRAM_NAME, VERSION } from "./constants";
 import { getLogger } from "./logging";
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
@@ -15,12 +15,11 @@ export const InputSchema = z.object({
     overrides: z.boolean().optional(),
     checkConfig: z.boolean().optional(),
     initConfig: z.boolean().optional(),
-    openaiApiKey: z.string().optional(),
     model: z.string().optional(),
     contextDirectories: z.array(z.string()).optional(),
-    instructions: z.string().optional(),
     configDir: z.string().optional(),
     outputDir: z.string().optional(),
+    preferencesDir: z.string().optional(),
     cached: z.boolean().optional(),
     add: z.boolean().optional(),
     sendit: z.boolean().optional(),
@@ -42,7 +41,8 @@ export const InputSchema = z.object({
     diffHistoryLimit: z.number().optional(),
     releaseNotesLimit: z.number().optional(),
     githubIssuesLimit: z.number().optional(),
-    selectAudioDevice: z.boolean().optional(),
+    file: z.string().optional(), // Audio file path for audio-commit and audio-review
+    keepTemp: z.boolean().optional(), // Keep temporary recording files
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -58,13 +58,15 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     if (finalCliArgs.overrides !== undefined) transformedCliArgs.overrides = finalCliArgs.overrides;
     if (finalCliArgs.model !== undefined) transformedCliArgs.model = finalCliArgs.model;
     if (finalCliArgs.contextDirectories !== undefined) transformedCliArgs.contextDirectories = finalCliArgs.contextDirectories;
-    if (finalCliArgs.instructions !== undefined) transformedCliArgs.instructions = finalCliArgs.instructions;
 
     // Map configDir (CLI) to configDirectory (Cardigantime standard)
     if (finalCliArgs.configDir !== undefined) transformedCliArgs.configDirectory = finalCliArgs.configDir;
 
     // Map outputDir (CLI) to outputDirectory (Config standard)
     if (finalCliArgs.outputDir !== undefined) transformedCliArgs.outputDirectory = finalCliArgs.outputDir;
+
+    // Map preferencesDir (CLI) to preferencesDirectory (Config standard)
+    if (finalCliArgs.preferencesDir !== undefined) transformedCliArgs.preferencesDirectory = finalCliArgs.preferencesDir;
 
     // Nested mappings for 'commit' options
     if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
@@ -78,9 +80,10 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     }
 
     // Nested mappings for 'audioCommit' options
-    if (finalCliArgs.selectAudioDevice !== undefined) {
+    if (finalCliArgs.file !== undefined || finalCliArgs.keepTemp !== undefined) {
         transformedCliArgs.audioCommit = {};
-        transformedCliArgs.audioCommit.selectAudioDevice = finalCliArgs.selectAudioDevice;
+        if (finalCliArgs.file !== undefined) transformedCliArgs.audioCommit.file = finalCliArgs.file;
+        if (finalCliArgs.keepTemp !== undefined) transformedCliArgs.audioCommit.keepTemp = finalCliArgs.keepTemp;
     }
 
     // Nested mappings for 'release' options
@@ -120,7 +123,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         finalCliArgs.commitHistoryLimit !== undefined ||
         finalCliArgs.diffHistoryLimit !== undefined ||
         finalCliArgs.releaseNotesLimit !== undefined ||
-        finalCliArgs.githubIssuesLimit !== undefined) {
+        finalCliArgs.githubIssuesLimit !== undefined ||
+        finalCliArgs.file !== undefined ||
+        finalCliArgs.keepTemp !== undefined) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.audioReview.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -130,9 +135,10 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.diffHistoryLimit !== undefined) transformedCliArgs.audioReview.diffHistoryLimit = finalCliArgs.diffHistoryLimit;
         if (finalCliArgs.releaseNotesLimit !== undefined) transformedCliArgs.audioReview.releaseNotesLimit = finalCliArgs.releaseNotesLimit;
         if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.audioReview.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
-        // Only add context and sendit if we already have an audioReview object from the specific properties above
         if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
+        if (finalCliArgs.file !== undefined) transformedCliArgs.audioReview.file = finalCliArgs.file;
+        if (finalCliArgs.keepTemp !== undefined) transformedCliArgs.audioReview.keepTemp = finalCliArgs.keepTemp;
     }
 
     // Nested mappings for 'review' options
@@ -165,7 +171,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
 
 
-    // Note: finalCliArgs.openaiApiKey is intentionally omitted here as it belongs to SecureConfig
+    // Note: openaiApiKey is handled separately via environment variable only
 
     return transformedCliArgs;
 }
@@ -293,10 +299,11 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             .option('--overrides', 'enable overrides')
             .option('--model <model>', 'OpenAI model to use')
             .option('-d, --context-directories [contextDirectories...]', 'directories to scan for context')
-            .option('-i, --instructions <file>', 'instructions for the AI')
             .option('--config-dir <configDir>', 'configuration directory') // Keep config-dir for specifying location
             .option('--output-dir <outputDir>', 'output directory for generated files')
-            .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff');
+            .option('--preferences-dir <preferencesDir>', 'preferences directory for personal settings')
+            .option('--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff')
+            .option('--keep-temp', 'keep temporary recording files');
     }
 
     // Add global options to the main program
@@ -339,7 +346,6 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
                 ['--overrides', 'enable overrides'],
                 ['--model <model>', 'OpenAI model to use'],
                 ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
-                ['-i, --instructions <file>', 'instructions for the AI'],
                 ['--config-dir <configDir>', 'configuration directory'],
                 ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
                 ['-h, --help', 'display help for command']
@@ -355,7 +361,9 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             return nameAndVersion + '\n' +
                 formatOptionsSection('Commit Message Options', commitOptions) + '\n' +
                 formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
-                formatOptionsSection('Global Options', globalOptions);
+                formatOptionsSection('Global Options', globalOptions) + '\n' +
+                'Environment Variables:\n' +
+                '  OPENAI_API_KEY          OpenAI API key (required)\n';
         }
     });
 
@@ -366,7 +374,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--sendit', 'Commit with the message generated. No review.')
         .option('--direction <direction>', 'direction or guidance for the commit message')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
-        .option('--select-audio-device', 'interactively select audio device and save to configuration')
+        .option('--file <file>', 'audio file path')
         .description('Record audio to provide context, then generate and optionally commit with AI-generated message');
     addSharedOptions(audioCommitCommand);
 
@@ -413,7 +421,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--release-notes-limit <limit>', 'number of recent release notes to include', parseInt)
         .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
         .option('--context <context>', 'additional context for the audio review')
-        .option('--sendit', 'Create GitHub issues automatically without confirmation')
+        .option('--file <file>', 'audio file path')
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
@@ -476,7 +484,6 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
                 ['--overrides', 'enable overrides'],
                 ['--model <model>', 'OpenAI model to use'],
                 ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
-                ['-i, --instructions <file>', 'instructions for the AI'],
                 ['--config-dir <configDir>', 'configuration directory'],
                 ['--output-dir <outputDir>', 'output directory for generated files'],
                 ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
@@ -495,7 +502,9 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
                 formatOptionsSection('Options', reviewOptions) + '\n' +
                 formatOptionsSection('Git Context Parameters', gitContextOptions) + '\n' +
                 formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
-                formatOptionsSection('Global Options', globalOptions);
+                formatOptionsSection('Global Options', globalOptions) + '\n' +
+                'Environment Variables:\n' +
+                '  OPENAI_API_KEY          OpenAI API key (required)\n';
         }
     });
 
@@ -503,6 +512,11 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .command('clean')
         .description('Remove the output directory and all generated files');
     addSharedOptions(cleanCommand);
+
+    const selectAudioCommand = program
+        .command('select-audio')
+        .description('Interactively select and save audio device for recording');
+    addSharedOptions(selectAudioCommand);
 
     program.parse();
 
@@ -559,6 +573,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             }
         } else if (commandName === 'clean' && cleanCommand.opts) {
             commandOptions = cleanCommand.opts<Partial<Input>>();
+        } else if (commandName === 'select-audio' && selectAudioCommand.opts) {
+            commandOptions = selectAudioCommand.opts<Partial<Input>>();
         }
     }
 
@@ -574,7 +590,7 @@ export async function validateAndProcessSecureOptions(): Promise<SecureConfig> {
     const isInitConfig = process.argv.includes('--init-config');
 
     if (!process.env.OPENAI_API_KEY && !isCheckConfig && !isInitConfig) {
-        throw new Error('OpenAI API key is required, set OPENAI_API_KEY environment variable or provide --openai-api-key');
+        throw new Error('OpenAI API key is required. Please set the OPENAI_API_KEY environment variable.');
     }
 
     // Prefer CLI key if provided, otherwise use env var (might be undefined for check-config/init-config)
@@ -591,8 +607,6 @@ export async function validateAndProcessSecureOptions(): Promise<SecureConfig> {
 export async function validateAndProcessOptions(options: Partial<Config>): Promise<Config> {
 
     const contextDirectories = await validateContextDirectories(options.contextDirectories || KODRDRIV_DEFAULTS.contextDirectories);
-    const instructionsPathOrContent = options.instructions || KODRDRIV_DEFAULTS.instructions;
-    const instructions = await validateAndReadInstructions(instructionsPathOrContent);
     const configDir = options.configDirectory || KODRDRIV_DEFAULTS.configDirectory;
     // Skip config directory validation since Cardigantime handles hierarchical lookup
 
@@ -603,10 +617,10 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         debug: options.debug ?? KODRDRIV_DEFAULTS.debug,
         overrides: options.overrides ?? KODRDRIV_DEFAULTS.overrides,
         model: options.model ?? KODRDRIV_DEFAULTS.model,
-        instructions: instructions, // Use processed instructions content
         contextDirectories: contextDirectories,
         configDirectory: configDir,
         outputDirectory: options.outputDirectory ?? KODRDRIV_DEFAULTS.outputDirectory,
+        preferencesDirectory: options.preferencesDirectory ?? KODRDRIV_DEFAULTS.preferencesDirectory,
         // Command-specific options with defaults
         commit: {
             add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
@@ -619,7 +633,8 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         audioCommit: {
             maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
             audioDevice: options.audioCommit?.audioDevice ?? KODRDRIV_DEFAULTS.audioCommit.audioDevice,
-            selectAudioDevice: options.audioCommit?.selectAudioDevice,
+            file: options.audioCommit?.file,
+            keepTemp: options.audioCommit?.keepTemp,
         },
         release: {
             from: options.release?.from ?? KODRDRIV_DEFAULTS.release.from,
@@ -638,6 +653,10 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             githubIssuesLimit: options.audioReview?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.audioReview.githubIssuesLimit,
             context: options.audioReview?.context,
             sendit: options.audioReview?.sendit ?? KODRDRIV_DEFAULTS.audioReview.sendit,
+            maxRecordingTime: options.audioReview?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioReview.maxRecordingTime,
+            audioDevice: options.audioReview?.audioDevice ?? KODRDRIV_DEFAULTS.audioReview.audioDevice,
+            file: options.audioReview?.file,
+            keepTemp: options.audioReview?.keepTemp,
         },
         review: {
             includeCommitHistory: options.review?.includeCommitHistory ?? KODRDRIV_DEFAULTS.review.includeCommitHistory,
@@ -656,6 +675,8 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,
             dependencyUpdatePatterns: options.publish?.dependencyUpdatePatterns,
             requiredEnvVars: options.publish?.requiredEnvVars ?? KODRDRIV_DEFAULTS.publish.requiredEnvVars,
+            linkWorkspacePackages: options.publish?.linkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.linkWorkspacePackages,
+            unlinkWorkspacePackages: options.publish?.unlinkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.unlinkWorkspacePackages,
         },
         link: {
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
@@ -736,31 +757,5 @@ export async function validateContextDirectories(contextDirectories: string[]): 
     return validDirectories;
 }
 
-// Updated to handle reading the file content
-// Export for testing
-export async function validateAndReadInstructions(instructionsPath: string): Promise<string> {
-    const logger = getLogger();
-    const storage = Storage.create({ log: logger.info });
-    try {
-        // Assume it's a file path first
-        if (await storage.isFileReadable(instructionsPath)) {
-            logger.verbose(`Reading instructions from file: ${instructionsPath}`);
-            return storage.readFile(instructionsPath, DEFAULT_CHARACTER_ENCODING);
-        } else {
-            // If not a readable file, assume it might be the content itself (e.g., from config file)
-            logger.verbose(`Using provided instructions string directly.`);
-            return instructionsPath; // Return the string as is
-        }
-    } catch (error: any) {
-        logger.error('Error reading instructions file %s: %s', instructionsPath, error.message);
-        // Decide how to handle error: throw, return default, etc.
-        // Returning default for now, but might need adjustment
-        logger.warn('Falling back to default instructions path due to error.');
-        // Re-read the default file path if the provided one failed
-        if (DEFAULT_INSTRUCTIONS_DIR && await storage.isFileReadable(DEFAULT_INSTRUCTIONS_DIR)) {
-            return storage.readFile(DEFAULT_INSTRUCTIONS_DIR, DEFAULT_CHARACTER_ENCODING);
-        }
-        throw new Error(`Failed to read instructions from ${instructionsPath} or default location.`);
-    }
-}
+
 

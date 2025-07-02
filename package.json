@@ -1,6 +1,6 @@
 {
     "name": "@eldrforge/kodrdriv",
-    "version": "0.0.15",
+    "version": "0.0.17",
     "description": "Create Intelligent Release Notes or Change Logs from Git",
     "main": "dist/main.js",
     "type": "module",
@@ -52,7 +52,7 @@
         "openai": "^5.8.2",
         "shell-escape": "^0.2.0",
         "winston": "^3.17.0",
-        "zod": "^3.25.67"
+        "zod": "^3.25.69"
     },
     "devDependencies": {
         "@eslint/eslintrc": "^3.3.1",

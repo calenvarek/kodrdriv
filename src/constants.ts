@@ -1,4 +1,6 @@
 import { MergeMethod } from './types';
+import os from 'os';
+import path from 'path';
 
 export const VERSION = '__VERSION__ (__GIT_BRANCH__/__GIT_COMMIT__ __GIT_TAGS__ __GIT_COMMIT_DATE__) __SYSTEM_INFO__';
 export const PROGRAM_NAME = 'kodrdriv';
@@ -32,6 +34,7 @@ export const DEFAULT_OUTPUT_DIRECTORY = 'output/kodrdriv';
 export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 
 export const DEFAULT_CONFIG_DIR = '.kodrdriv';
+export const DEFAULT_PREFERENCES_DIRECTORY = path.join(os.homedir(), '.kodrdriv');
 
 export const DEFAULT_FROM_COMMIT_ALIAS = 'origin/HEAD';
 export const DEFAULT_TO_COMMIT_ALIAS = 'HEAD';
@@ -55,6 +58,7 @@ export const DEFAULT_EXCLUDED_PATTERNS = [
 
 export const COMMAND_COMMIT = 'commit';
 export const COMMAND_AUDIO_COMMIT = 'audio-commit';
+export const COMMAND_SELECT_AUDIO = 'select-audio';
 export const COMMAND_RELEASE = 'release';
 export const COMMAND_REVIEW = 'review';
 export const COMMAND_AUDIO_REVIEW = 'audio-review';
@@ -68,6 +72,7 @@ export const COMMAND_INIT_CONFIG = 'init-config';
 export const ALLOWED_COMMANDS = [
     COMMAND_COMMIT,
     COMMAND_AUDIO_COMMIT,
+    COMMAND_SELECT_AUDIO,
     COMMAND_RELEASE,
     COMMAND_REVIEW,
     COMMAND_AUDIO_REVIEW,
@@ -141,11 +146,11 @@ export const KODRDRIV_DEFAULTS = {
     debug: DEFAULT_DEBUG,
     overrides: DEFAULT_OVERRIDES,
     model: DEFAULT_MODEL,
-    instructions: DEFAULT_INSTRUCTIONS_DIR,
     contextDirectories: DEFAULT_CONTEXT_DIRECTORIES,
     commandName: DEFAULT_COMMAND,
     configDirectory: DEFAULT_CONFIG_DIR,
     outputDirectory: DEFAULT_OUTPUT_DIRECTORY,
+    preferencesDirectory: DEFAULT_PREFERENCES_DIRECTORY,
     commit: {
         add: DEFAULT_ADD,
         cached: DEFAULT_CACHED,
@@ -182,10 +187,14 @@ export const KODRDRIV_DEFAULTS = {
         releaseNotesLimit: 3,
         githubIssuesLimit: 20,
         sendit: DEFAULT_SENDIT_MODE,
+        maxRecordingTime: 300, // 5 minutes default
+        audioDevice: undefined, // Auto-detect by default
     },
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,
         requiredEnvVars: ['GITHUB_TOKEN', 'OPENAI_API_KEY'],
+        linkWorkspacePackages: true,
+        unlinkWorkspacePackages: true,
     },
     link: {
         scopeRoots: {},
