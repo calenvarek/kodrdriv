@@ -370,16 +370,13 @@ export class AudioProcessor {
                 };
             }
 
-            // If recording failed (process exited with error too quickly), return early
+            // If recording failed (process exited with error too quickly), fail the command
             if (recordingFailed) {
-                this.logger.warn('Recording process failed to start or exited with an error');
+                this.logger.error('❌ Audio recording failed to start or exited with an error');
                 this.logger.info('This usually means the audio device is busy, not accessible, or ffmpeg configuration is incorrect');
                 this.logger.info('💡 Try running "kodrdriv select-audio" to choose a different audio device');
 
-                return {
-                    transcript: '',
-                    cancelled: false
-                };
+                throw new Error('Audio recording failed - cannot proceed with audio-commit command');
             }
 
             // Wait for the recording file to be fully written
@@ -393,14 +390,11 @@ export class AudioProcessor {
                 await this.verifyAudioFile(audioFilePath);
             } catch (verifyError: any) {
                 // If the file doesn't exist, the recording process likely failed
-                this.logger.warn('Recording process may have failed - no audio file was created: %s', verifyError.message);
+                this.logger.error('❌ Recording process failed - no audio file was created: %s', verifyError.message);
                 this.logger.info('This can happen if the audio device is busy, not accessible, or if ffmpeg is not properly configured');
                 this.logger.info('💡 Try running "kodrdriv select-audio" to choose a different audio device');
 
-                return {
-                    transcript: '',
-                    cancelled: false
-                };
+                throw new Error(`Audio recording failed - ${verifyError.message}`);
             }
 
             // Transcribe the audio
@@ -431,10 +425,8 @@ export class AudioProcessor {
 
         } catch (error: any) {
             this.logger.error('Audio recording/transcription failed: %s', error.message);
-            return {
-                transcript: '',
-                cancelled: false
-            };
+            // Re-throw the error so the command fails properly
+            throw error;
         } finally {
             // Cleanup is handled comprehensively in the cleanup function
             await this.cleanup(countdownInterval, recordingProcess, tempDir);
