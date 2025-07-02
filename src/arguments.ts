@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Command } from "commander";
 import path from "path";
 import { z } from "zod";
@@ -103,7 +104,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.scopeRoots !== undefined) {
             try {
                 transformedCliArgs.link.scopeRoots = JSON.parse(finalCliArgs.scopeRoots);
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
             } catch (error) {
                 throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
             }

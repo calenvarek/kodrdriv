@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
+import { CommandConfig } from 'types';
 import * as Arguments from './arguments';
 import * as AudioCommit from './commands/audio-commit';
 import * as AudioReview from './commands/audio-review';
@@ -9,13 +10,11 @@ import * as Commit from './commands/commit';
 import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as Release from './commands/release';
-import * as Unlink from './commands/unlink';
 import * as Review from './commands/review';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, COMMAND_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_INIT_CONFIG, DEFAULT_CONFIG_DIR } from './constants';
+import * as Unlink from './commands/unlink';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
-import { CommandConfig } from 'types';
 import { Config, ConfigSchema, SecureConfig } from './types';
-import { Command } from 'commander';
 
 /**
  * Configure early logging based on command line flags.
