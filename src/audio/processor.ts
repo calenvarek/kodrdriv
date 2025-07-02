@@ -107,6 +107,7 @@ export class AudioProcessor {
         let recordingProcess: any = null;
         let recordingFinished = false;
         let recordingCancelled = false;
+        let recordingFailed = false;
         let countdownInterval: NodeJS.Timeout | null = null;
         let remainingSeconds = 30;
         let intendedRecordingTime = 30;
@@ -295,15 +296,27 @@ export class AudioProcessor {
                         return;
                     }
 
+                    const processStartTime = Date.now();
+
                     recordingProcess.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+                        const processRunTime = Date.now() - processStartTime;
+
                         if (options.debug) {
-                            this.logger.debug('Recording process exited with code %s, signal %s', code, signal);
+                            this.logger.debug('Recording process exited with code %s, signal %s after %dms', code, signal, processRunTime);
                         }
+
+                        // If the process exits very quickly with an error code, it likely failed to start recording
+                        if (code !== 0 && processRunTime < 2000) { // Less than 2 seconds
+                            this.logger.debug('Recording process failed early - runtime: %dms, exit code: %s', processRunTime, code);
+                            recordingFailed = true;
+                        }
+
                         resolve();
                     });
 
                     recordingProcess.on('error', (error: Error) => {
                         this.logger.error('Recording process error: %s', error.message);
+                        recordingFailed = true;
                         reject(error);
                     });
                 });
@@ -357,13 +370,38 @@ export class AudioProcessor {
                 };
             }
 
+            // If recording failed (process exited with error too quickly), return early
+            if (recordingFailed) {
+                this.logger.warn('Recording process failed to start or exited with an error');
+                this.logger.info('This usually means the audio device is busy, not accessible, or ffmpeg configuration is incorrect');
+                this.logger.info('💡 Try running "kodrdriv select-audio" to choose a different audio device');
+
+                return {
+                    transcript: '',
+                    cancelled: false
+                };
+            }
+
             // Wait for the recording file to be fully written
             if (recordingFinished) {
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
 
-            // Verify audio file was created
-            await this.verifyAudioFile(audioFilePath);
+            // Check if recording process failed early (before we try to verify the file)
+            try {
+                // Verify audio file was created
+                await this.verifyAudioFile(audioFilePath);
+            } catch (verifyError: any) {
+                // If the file doesn't exist, the recording process likely failed
+                this.logger.warn('Recording process may have failed - no audio file was created: %s', verifyError.message);
+                this.logger.info('This can happen if the audio device is busy, not accessible, or if ffmpeg is not properly configured');
+                this.logger.info('💡 Try running "kodrdriv select-audio" to choose a different audio device');
+
+                return {
+                    transcript: '',
+                    cancelled: false
+                };
+            }
 
             // Transcribe the audio
             const audioContext = await this.transcribeRecordedAudio(audioFilePath);
