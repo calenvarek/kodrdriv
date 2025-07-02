@@ -773,6 +773,11 @@ export class AudioProcessor {
                 if (process.stdin.unpipe) {
                     process.stdin.unpipe();
                 }
+
+                // Completely detach stdin from the event-loop
+                if (typeof (process.stdin as any).unref === 'function') {
+                    (process.stdin as any).unref();
+                }
             } catch (stdinError) {
                 // Ignore stdin cleanup errors
             }
@@ -794,8 +799,25 @@ export class AudioProcessor {
                     if (!recordingProcess.killed) {
                         recordingProcess.kill('SIGKILL');
                     }
-                    // Remove all listeners from the recording process
+
+                    // Destroy and detach any stdio streams
+                    if (recordingProcess.stderr) {
+                        try {
+                            recordingProcess.stderr.removeAllListeners();
+                            recordingProcess.stderr.destroy();
+                            if (typeof (recordingProcess.stderr as any).unref === 'function') {
+                                (recordingProcess.stderr as any).unref();
+                            }
+                        } catch {
+                            /* ignore */
+                        }
+                    }
+
+                    // Remove all listeners from the recording process itself and detach from event-loop
                     recordingProcess.removeAllListeners();
+                    if (typeof recordingProcess.unref === 'function') {
+                        recordingProcess.unref();
+                    }
                 } catch (killError) {
                     // Ignore kill errors
                 }
