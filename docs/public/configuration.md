@@ -2,6 +2,44 @@
 
 KodrDriv provides flexible configuration options through command-line arguments, configuration files, and environment variables. This section covers all available configuration methods and options.
 
+## Getting Started with Configuration
+
+### Initialize Configuration
+
+To quickly get started with KodrDriv configuration, you can use the `--init-config` command to generate an initial configuration file with common default values:
+
+```bash
+kodrdriv --init-config
+```
+
+This command will:
+
+1. Create a `.kodrdriv` directory in your current working directory (if it doesn't exist)
+2. Generate a `config.json` file with sensible defaults based on your project structure
+3. Include commonly used configuration options that you can customize
+
+The generated configuration file will contain default settings for:
+- AI model preferences
+- Common command options
+- Context directories for your project
+- Basic exclude patterns
+
+**Custom Configuration Directory:**
+
+You can also specify a custom location for the configuration:
+
+```bash
+kodrdriv --init-config --config-dir ~/my-custom-kodrdriv-config
+```
+
+This is particularly useful if you want to:
+- Create global configuration in your home directory
+- Set up configuration for a specific environment
+- Initialize configuration in a shared team location
+
+> [!TIP]
+> After running `--init-config`, review and customize the generated `config.json` file to match your project's specific needs. The generated file serves as a starting point that you can modify to fit your workflow.
+
 ## Configuration File
 
 You can create a `config.json` file in your `.kodrdriv` directory to set default options for all commands. This allows you to avoid repeating command-line options and ensures consistent behavior across your project.
@@ -271,4 +309,5 @@ Global options that apply to all commands:
 - `--overrides`: Enable instruction overrides (allows custom instruction files to override defaults)
 - `--config-dir <configDir>`: Specify a custom configuration directory (default: '.kodrdriv')
 - `--check-config`: Display the current configuration hierarchy showing how values are merged from defaults, config files, and CLI arguments. This is useful for debugging configuration issues and understanding which settings are active.
+- `--init-config`: Generate an initial configuration file with common default values in the specified config directory (default: '.kodrdriv')
 - `--version`: Display version information 
