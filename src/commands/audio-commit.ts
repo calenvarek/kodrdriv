@@ -6,6 +6,7 @@ import { Config } from '../types';
 import { transcribeAudio } from '../util/openai';
 import { run } from '../util/child';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { getOutputPath, getTimestampedAudioFilename, getTimestampedTranscriptFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
 import { execute as executeCommit } from './commit';
 
@@ -57,45 +58,105 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
     try {
         // Use system recording tool - cross-platform approach
         logger.info('🎤 Starting recording... Speak now!');
-        logger.info('Recording will stop automatically after 30 seconds or when you press Ctrl+C');
+        logger.info('📋 Controls: ENTER=done, E=extend+30s, C/Ctrl+C=cancel');
 
         let recordingProcess: any;
         let recordingFinished = false;
+        let recordingCancelled = false;
         let countdownInterval: NodeJS.Timeout | null = null;
         let remainingSeconds = 30;
+        let intendedRecordingTime = 30;
+        const maxRecordingTime = runConfig.audioCommit?.maxRecordingTime || 300; // 5 minutes default
+        const extensionTime = 30; // 30 seconds per extension
 
         // Start countdown display
         const startCountdown = () => {
             // Show initial countdown
-            process.stdout.write(`\r⏱️  Recording: ${remainingSeconds}s remaining`);
+            updateCountdownDisplay();
 
             countdownInterval = setInterval(() => {
                 remainingSeconds--;
                 if (remainingSeconds > 0) {
-                    process.stdout.write(`\r⏱️  Recording: ${remainingSeconds}s remaining`);
+                    updateCountdownDisplay();
                 } else {
-                    process.stdout.write('\r⏱️  Recording: Time\'s up!          \n');
+                    process.stdout.write('\r⏱️  Recording: Time\'s up!                                        \n');
                     if (countdownInterval) {
                         clearInterval(countdownInterval);
                         countdownInterval = null;
                     }
+                    // Auto-stop when intended time is reached
+                    stopRecording();
                 }
             }, 1000);
         };
 
-        // Determine which recording command to use based on platform
+        const updateCountdownDisplay = () => {
+            const maxMinutes = Math.floor(maxRecordingTime / 60);
+            const intendedMinutes = Math.floor(intendedRecordingTime / 60);
+            const intendedSeconds = intendedRecordingTime % 60;
+            process.stdout.write(`\r⏱️  Recording: ${remainingSeconds}s left (${intendedMinutes}:${intendedSeconds.toString().padStart(2, '0')}/${maxMinutes}:00 max) [ENTER=done, E=+30s, C=cancel]`);
+        };
+
+        const extendRecording = () => {
+            const newTotal = intendedRecordingTime + extensionTime;
+            if (newTotal <= maxRecordingTime) {
+                intendedRecordingTime = newTotal;
+                remainingSeconds += extensionTime;
+                logger.info(`🔄 Extended recording by ${extensionTime}s (total: ${Math.floor(intendedRecordingTime / 60)}:${(intendedRecordingTime % 60).toString().padStart(2, '0')})`);
+                updateCountdownDisplay();
+            } else {
+                const canExtend = maxRecordingTime - intendedRecordingTime;
+                if (canExtend > 0) {
+                    intendedRecordingTime = maxRecordingTime;
+                    remainingSeconds += canExtend;
+                    logger.info(`🔄 Extended recording by ${canExtend}s (maximum reached: ${Math.floor(maxRecordingTime / 60)}:${(maxRecordingTime % 60).toString().padStart(2, '0')})`);
+                    updateCountdownDisplay();
+                } else {
+                    logger.warn(`⚠️  Cannot extend: maximum recording time (${Math.floor(maxRecordingTime / 60)}:${(maxRecordingTime % 60).toString().padStart(2, '0')}) reached`);
+                }
+            }
+        };
+
+        // Set up keyboard input handling
+        const setupKeyboardHandling = () => {
+            process.stdin.setRawMode(true);
+            process.stdin.resume();
+            process.stdin.setEncoding('utf8');
+
+            const keyHandler = (key: string) => {
+                const keyCode = key.charCodeAt(0);
+
+                if (keyCode === 13) { // ENTER key
+                    process.stdin.setRawMode(false);
+                    process.stdin.pause();
+                    process.stdin.removeListener('data', keyHandler);
+                    stopRecording();
+                } else if (key.toLowerCase() === 'e') { // 'e' or 'E' key
+                    extendRecording();
+                } else if (key.toLowerCase() === 'c' || keyCode === 3) { // 'c', 'C', or Ctrl+C
+                    process.stdin.setRawMode(false);
+                    process.stdin.pause();
+                    process.stdin.removeListener('data', keyHandler);
+                    cancelRecording();
+                }
+            };
+
+            process.stdin.on('data', keyHandler);
+        };
+
+        // Determine which recording command to use based on platform (using max time)
         let recordCommand: string;
         if (process.platform === 'darwin') {
             // macOS - try ffmpeg first, then fall back to manual recording
             try {
                 // Check if ffmpeg is available
                 await run('which ffmpeg');
-                recordCommand = `ffmpeg -f avfoundation -i ":0" -t 30 -y "${audioFilePath}"`;
+                recordCommand = `ffmpeg -f avfoundation -i ":0" -t ${maxRecordingTime} -y "${audioFilePath}"`;
             } catch {
                 // ffmpeg not available, try sox/rec
                 try {
                     await run('which rec');
-                    recordCommand = `rec -r 44100 -c 1 -t wav "${audioFilePath}" trim 0 30`;
+                    recordCommand = `rec -r 44100 -c 1 -t wav "${audioFilePath}" trim 0 ${maxRecordingTime}`;
                 } catch {
                     // Neither available, use manual fallback
                     throw new Error('MANUAL_RECORDING_NEEDED');
@@ -105,7 +166,7 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
             // Windows - use ffmpeg if available, otherwise fallback
             try {
                 await run('where ffmpeg');
-                recordCommand = `ffmpeg -f dshow -i audio="Microphone" -t 30 -y "${audioFilePath}"`;
+                recordCommand = `ffmpeg -f dshow -i audio="Microphone" -t ${maxRecordingTime} -y "${audioFilePath}"`;
             } catch {
                 throw new Error('MANUAL_RECORDING_NEEDED');
             }
@@ -113,18 +174,18 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
             // Linux - use arecord (ALSA) or ffmpeg
             try {
                 await run('which arecord');
-                recordCommand = `arecord -f cd -t wav -d 30 "${audioFilePath}"`;
+                recordCommand = `arecord -f cd -t wav -d ${maxRecordingTime} "${audioFilePath}"`;
             } catch {
                 try {
                     await run('which ffmpeg');
-                    recordCommand = `ffmpeg -f alsa -i default -t 30 -y "${audioFilePath}"`;
+                    recordCommand = `ffmpeg -f alsa -i default -t ${maxRecordingTime} -y "${audioFilePath}"`;
                 } catch {
                     throw new Error('MANUAL_RECORDING_NEEDED');
                 }
             }
         }
 
-        // Start recording as a background process
+        // Start recording as a background process (with max time, we'll stop it early if needed)
         try {
             recordingProcess = run(recordCommand);
         } catch (error: any) {
@@ -154,18 +215,24 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 logger.warn('');
                 logger.warn('⌨️  Press ENTER when you have saved the audio file...');
 
-                // Wait for user input
+                // Wait for user input (disable our keyboard handling for this)
                 await new Promise(resolve => {
+                    const originalRawMode = process.stdin.setRawMode;
                     process.stdin.setRawMode(true);
                     process.stdin.resume();
-                    process.stdin.on('data', (key) => {
+                    const enterHandler = (key: Buffer) => {
                         if (key[0] === 13) { // Enter key
                             process.stdin.setRawMode(false);
                             process.stdin.pause();
+                            process.stdin.removeListener('data', enterHandler);
                             resolve(void 0);
                         }
-                    });
+                    };
+                    process.stdin.on('data', enterHandler);
                 });
+
+                // Skip the automatic recording and keyboard handling for manual recording
+                recordingProcess = null;
             } else {
                 throw error;
             }
@@ -173,7 +240,7 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
 
         // Set up graceful shutdown
         const stopRecording = async () => {
-            if (!recordingFinished) {
+            if (!recordingFinished && !recordingCancelled) {
                 recordingFinished = true;
 
                 // Clear countdown
@@ -183,20 +250,45 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 }
 
                 // Clear the countdown line and show recording stopped
-                process.stdout.write('\r⏱️  Recording stopped!                \n');
+                process.stdout.write('\r⏱️  Recording finished!                                  \n');
 
                 if (recordingProcess && recordingProcess.kill) {
                     recordingProcess.kill();
                 }
-                logger.info('🛑 Recording stopped');
+                logger.info('🛑 Recording stopped - proceeding with commit');
             }
         };
 
-        // Listen for Ctrl+C
-        process.on('SIGINT', stopRecording);
+        // Set up cancellation
+        const cancelRecording = async () => {
+            if (!recordingFinished && !recordingCancelled) {
+                recordingCancelled = true;
 
-        // Start countdown if we have a recording process
+                // Clear countdown
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                }
+
+                // Clear the countdown line and show cancellation
+                process.stdout.write('\r❌ Recording cancelled!                                 \n');
+
+                if (recordingProcess && recordingProcess.kill) {
+                    recordingProcess.kill();
+                }
+
+                logger.info('❌ Audio commit cancelled by user');
+                process.exit(0);
+            }
+        };
+
+        // Remove the old SIGINT handler and use our new keyboard handling
+        // Note: We'll still handle SIGINT for cleanup, but route it through cancelRecording
+        process.on('SIGINT', cancelRecording);
+
+        // Start keyboard handling and countdown if we have a recording process
         if (recordingProcess) {
+            setupKeyboardHandling();
             startCountdown();
         }
 
@@ -204,32 +296,63 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
         if (recordingProcess) {
             try {
                 await recordingProcess;
-                // Clear countdown on successful completion
-                if (countdownInterval) {
-                    clearInterval(countdownInterval);
-                    countdownInterval = null;
-                }
-                process.stdout.write('\r⏱️  Recording completed!               \n');
-                logger.info('✅ Recording completed automatically');
-            } catch (error: any) {
-                // Clear countdown on error
-                if (countdownInterval) {
-                    clearInterval(countdownInterval);
-                    countdownInterval = null;
-                }
 
-                if (!recordingFinished && error.signal === 'SIGTERM') {
-                    process.stdout.write('\r⏱️  Recording stopped by user!         \n');
-                    logger.info('✅ Recording stopped by user');
-                } else if (!recordingFinished) {
-                    process.stdout.write('\r⏱️  Recording error!                   \n');
-                    logger.warn('Recording process ended unexpectedly: %s', error.message);
+                // Only proceed if not cancelled
+                if (!recordingCancelled) {
+                    // Clear countdown on successful completion
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
+                    }
+
+                    // Clean up keyboard input
+                    if (process.stdin.setRawMode) {
+                        process.stdin.setRawMode(false);
+                        process.stdin.pause();
+                    }
+
+                    process.stdout.write('\r⏱️  Recording completed!                               \n');
+                    logger.info('✅ Recording completed automatically');
+                }
+            } catch (error: any) {
+                // Only handle errors if not cancelled
+                if (!recordingCancelled) {
+                    // Clear countdown on error
+                    if (countdownInterval) {
+                        clearInterval(countdownInterval);
+                        countdownInterval = null;
+                    }
+
+                    // Clean up keyboard input
+                    if (process.stdin.setRawMode) {
+                        process.stdin.setRawMode(false);
+                        process.stdin.pause();
+                    }
+
+                    if (!recordingFinished && error.signal === 'SIGTERM') {
+                        process.stdout.write('\r⏱️  Recording stopped by user!                         \n');
+                        logger.info('✅ Recording stopped by user');
+                    } else if (!recordingFinished) {
+                        process.stdout.write('\r⏱️  Recording error!                                   \n');
+                        logger.warn('Recording process ended unexpectedly: %s', error.message);
+                    }
                 }
             }
         }
 
-        // Ensure recording is stopped
+        // If recording was cancelled, we should have already exited, but just in case
+        if (recordingCancelled) {
+            return '';
+        }
+
+        // Ensure recording is stopped and keyboard input is cleaned up
         await stopRecording();
+
+        // Clean up keyboard input one more time to be sure
+        if (process.stdin.setRawMode) {
+            process.stdin.setRawMode(false);
+            process.stdin.pause();
+        }
 
         // Check if audio file exists
         try {
@@ -249,6 +372,30 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
         const audioContext = transcription.text;
         logger.info('✅ Audio transcribed successfully');
         logger.debug('Transcription: %s', audioContext);
+
+        // Save audio file and transcript to output directory
+        try {
+            const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+            const storage = createStorage({ log: logger.info });
+            await storage.ensureDirectory(outputDirectory);
+
+            // Save audio file copy
+            const audioOutputFilename = getTimestampedAudioFilename();
+            const audioOutputPath = getOutputPath(outputDirectory, audioOutputFilename);
+            await fs.copyFile(audioFilePath, audioOutputPath);
+            logger.debug('Saved audio file: %s', audioOutputPath);
+
+            // Save transcript
+            if (audioContext.trim()) {
+                const transcriptOutputFilename = getTimestampedTranscriptFilename();
+                const transcriptOutputPath = getOutputPath(outputDirectory, transcriptOutputFilename);
+                const transcriptContent = `# Audio Transcript\n\n**Recorded:** ${new Date().toISOString()}\n\n**Transcript:**\n\n${audioContext}`;
+                await storage.writeFile(transcriptOutputPath, transcriptContent, 'utf-8');
+                logger.debug('Saved transcript: %s', transcriptOutputPath);
+            }
+        } catch (error: any) {
+            logger.warn('Failed to save audio/transcript files: %s', error.message);
+        }
 
         if (!audioContext.trim()) {
             logger.warn('No audio content was transcribed. Proceeding without audio context.');
@@ -270,4 +417,4 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
             logger.debug('Failed to clean up temporary directory: %s', error.message);
         }
     }
-}; 
+};

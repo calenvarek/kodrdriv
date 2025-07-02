@@ -17,6 +17,9 @@ export const ConfigSchema = z.object({
         messageLimit: z.number().optional(),
         context: z.string().optional(),
     }).optional(),
+    audioCommit: z.object({
+        maxRecordingTime: z.number().optional(),
+    }).optional(),
     release: z.object({
         from: z.string().optional(),
         to: z.string().optional(),
@@ -94,6 +97,10 @@ export type AudioReviewConfig = {
     githubIssuesLimit?: number;
     context?: string;
     sendit?: boolean;
+}
+
+export type AudioCommitConfig = {
+    maxRecordingTime?: number;
 }
 
 export type PublishConfig = {

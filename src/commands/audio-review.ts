@@ -537,8 +537,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
         const transcription = await transcribeAudio(audioFilePath, {
             model: 'whisper-1',
             debug: runConfig.debug,
-            debugRequestFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedRequestFilename('audio-transcription')) : undefined,
-            debugResponseFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedResponseFilename('audio-transcription')) : undefined,
+            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('audio-transcription')),
+            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('audio-transcription')),
         });
 
         logger.info('📝 Transcription completed');
@@ -557,33 +557,30 @@ export const execute = async (runConfig: Config): Promise<string> => {
         const analysisPrompt = await prompts.createAudioReviewPrompt(transcription.text, finalContext || undefined);
         const request: Request = prompts.format(analysisPrompt);
 
-        const result = await createCompletion(
-            request.messages as ChatCompletionMessageParam[],
-            {
-                model: runConfig.model,
-                responseFormat: { type: 'json_object' },
-                debug: runConfig.debug,
-                debugRequestFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedRequestFilename('audio-analysis')) : undefined,
-                debugResponseFile: runConfig.debug ? getOutputPath(outputDirectory, getTimestampedResponseFilename('audio-analysis')) : undefined,
-            }
-        ) as AudioReviewResult;
+        const analysisResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
+            model: runConfig.model,
+            responseFormat: { type: 'json_object' },
+            debug: runConfig.debug,
+            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('audio-analysis')),
+            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('audio-analysis')),
+        }) as AudioReviewResult;
 
         logger.info('✅ Analysis completed');
 
         // Handle GitHub issue creation if there are issues to create
-        if (result.issues && result.issues.length > 0) {
+        if (analysisResult.issues && analysisResult.issues.length > 0) {
             const senditMode = runConfig.audioReview?.sendit || false;
             const createdIssues: Array<{ issue: AudioIssue, githubUrl: string, number: number }> = [];
 
-            logger.info(`🔍 Found ${result.issues.length} issues to potentially create as GitHub issues`);
+            logger.info(`🔍 Found ${analysisResult.issues.length} issues to potentially create as GitHub issues`);
 
-            for (let i = 0; i < result.issues.length; i++) {
-                const issue = result.issues[i];
+            for (let i = 0; i < analysisResult.issues.length; i++) {
+                const issue = analysisResult.issues[i];
                 let shouldCreateIssue = senditMode;
 
                 if (!senditMode) {
                     // Interactive confirmation for each issue
-                    logger.info(`\n📋 Issue ${i + 1} of ${result.issues.length}:`);
+                    logger.info(`\n📋 Issue ${i + 1} of ${analysisResult.issues.length}:`);
                     logger.info(`   Title: ${issue.title}`);
                     logger.info(`   Priority: ${issue.priority} | Category: ${issue.category}`);
                     logger.info(`   Description: ${issue.description}`);
@@ -603,7 +600,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     } else if (choice === 'e') {
                         // Allow user to edit the issue
                         const editedIssue = await editIssueInteractively(issue);
-                        result.issues[i] = editedIssue;
+                        analysisResult.issues[i] = editedIssue;
                         shouldCreateIssue = true;
                     }
                     // If choice is 's', shouldCreateIssue remains false
@@ -639,12 +636,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Update the result summary to include created issues
             if (createdIssues.length > 0) {
-                return formatAudioReviewResultsWithIssues(result, createdIssues);
+                return formatAudioReviewResultsWithIssues(analysisResult, createdIssues);
             }
         }
 
         // Format and return results (original behavior if no issues created)
-        return formatAudioReviewResults(result);
+        return formatAudioReviewResults(analysisResult);
 
     } catch (error: any) {
         logger.error('Error during audio review: %s', error.message);
