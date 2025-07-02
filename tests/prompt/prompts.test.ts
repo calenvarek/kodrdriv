@@ -50,6 +50,7 @@ describe('prompts Factory', () => {
             addPersonaPath: vi.fn(chainable),
             addInstructionPath: vi.fn(chainable),
             addContent: vi.fn(chainable),
+            addContext: vi.fn(chainable),
             loadContext: vi.fn(chainable),
             build: vi.fn().mockResolvedValue({ prompt: 'mockPrompt' }),
         };
@@ -69,12 +70,12 @@ describe('prompts Factory', () => {
     it('createCommitPrompt builds prompt with context and contextDirectories', async () => {
         runConfig.contextDirectories = ['/ctx1', '/ctx2'];
         const factory = create(model, runConfig);
-        const result = await factory.createCommitPrompt({ diffContent: 'diff', logContent: 'log' }, { userDirection: 'user direction' });
+        const result = await factory.createCommitPrompt({ diffContent: 'diff' }, { logContext: 'log', userDirection: 'user direction' });
         expect(mockBuilder.addPersonaPath).toHaveBeenCalledWith('/personas/committer.md');
         expect(mockBuilder.addInstructionPath).toHaveBeenCalledWith('/instructions/commit.md');
         expect(mockBuilder.addContent).toHaveBeenCalledWith('user direction', { title: 'User Direction', weight: 1.0 });
         expect(mockBuilder.addContent).toHaveBeenCalledWith('diff', { title: 'Diff', weight: 0.5 });
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('log', { title: 'Log', weight: 0.5 });
+        expect(mockBuilder.addContext).toHaveBeenCalledWith('log', { title: 'Log Context', weight: 0.5 });
         expect(mockBuilder.loadContext).toHaveBeenCalledWith(['/ctx1', '/ctx2'], { weight: 0.5 });
         expect(mockBuilder.build).toHaveBeenCalled();
         expect(result).toEqual({ prompt: 'mockPrompt' });
@@ -82,7 +83,7 @@ describe('prompts Factory', () => {
 
     it('createCommitPrompt builds prompt without context or contextDirectories', async () => {
         const factory = create(model, runConfig);
-        const result = await factory.createCommitPrompt({ diffContent: 'diff', logContent: 'log' }, { userDirection: 'user direction' });
+        const result = await factory.createCommitPrompt({ diffContent: 'diff' }, { logContext: 'log', userDirection: 'user direction' });
         expect(mockBuilder.addPersonaPath).toHaveBeenCalledWith('/personas/committer.md');
         expect(mockBuilder.addInstructionPath).toHaveBeenCalledWith('/instructions/commit.md');
         // Check that no call to addContent contains '[User Direction]'
@@ -90,7 +91,7 @@ describe('prompts Factory', () => {
             (args: any[]) => typeof args[0] === 'string' && args[0].includes('[User Direction]')
         )).toBe(false);
         expect(mockBuilder.addContent).toHaveBeenCalledWith('diff', { title: 'Diff', weight: 0.5 });
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('log', { title: 'Log', weight: 0.5 });
+        expect(mockBuilder.addContext).toHaveBeenCalledWith('log', { title: 'Log Context', weight: 0.5 });
         expect(mockBuilder.loadContext).not.toHaveBeenCalled();
         expect(mockBuilder.build).toHaveBeenCalled();
         expect(result).toEqual({ prompt: 'mockPrompt' });

@@ -196,17 +196,28 @@ describe('Argument Parsing and Configuration', () => {
                 const mockCmd = {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
                     opts: vi.fn().mockReturnValue({}),
                 };
                 // Make sure the mock command returns itself for chaining
                 mockCmd.option.mockReturnValue(mockCmd);
                 mockCmd.description.mockReturnValue(mockCmd);
+                mockCmd.argument.mockReturnValue(mockCmd);
+                mockCmd.configureHelp.mockReturnValue(mockCmd);
                 return mockCmd;
             };
 
             // Create command mocks for each command type
             mockCommands = {
-                commit: createMockCommand('commit'),
+                commit: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [], // Add args property for positional arguments
+                },
                 release: createMockCommand('release'),
                 publish: createMockCommand('publish'),
                 link: createMockCommand('link'),
@@ -868,22 +879,34 @@ describe('Argument Parsing and Configuration', () => {
                 commit: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
                     opts: vi.fn().mockReturnValue({}),
+                    args: [], // Add args property for positional arguments
                 },
                 release: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
                     opts: vi.fn().mockReturnValue({}),
+                    args: [],
                 },
                 publish: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
                     opts: vi.fn().mockReturnValue({}),
+                    args: [],
                 },
                 link: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
                     opts: vi.fn().mockReturnValue({}),
+                    args: [],
                 },
             };
 
@@ -891,6 +914,8 @@ describe('Argument Parsing and Configuration', () => {
             Object.values(mockCommands).forEach(cmd => {
                 cmd.option.mockReturnValue(cmd);
                 cmd.description.mockReturnValue(cmd);
+                cmd.argument.mockReturnValue(cmd);
+                cmd.configureHelp.mockReturnValue(cmd);
             });
 
             mockProgram = {
@@ -961,6 +986,34 @@ describe('Argument Parsing and Configuration', () => {
             mockProgram.args = ['invalid'];
 
             expect(() => getCliConfig(mockProgram)).toThrow('Invalid command: invalid');
+        });
+
+        it('should handle commit command with positional direction argument', () => {
+            mockProgram.args = ['commit'];
+
+            // Mock the commit command args to include a positional direction argument
+            mockCommands.commit.args = ['fix-performance-issues'];
+            mockCommands.commit.opts.mockReturnValue({ cached: true, add: false });
+
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+            // The direction should be extracted from positional args
+            expect(cliArgs.direction).toBe('fix-performance-issues');
+        });
+
+        it('should handle commit command without positional direction argument', () => {
+            mockProgram.args = ['commit'];
+
+            // Mock the commit command with empty args
+            mockCommands.commit.args = [];
+            mockCommands.commit.opts.mockReturnValue({ cached: true, add: false });
+
+            const [cliArgs, commandConfig] = getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+            // Direction should be undefined when no positional arg provided
+            expect(cliArgs.direction).toBeUndefined();
         });
     });
 
