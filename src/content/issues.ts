@@ -49,6 +49,11 @@ async function getUserChoice(prompt: string, choices: Array<{ key: string, label
     logger.info('');
 
     return new Promise(resolve => {
+        // Ensure stdin is referenced so the process doesn't exit while waiting for input
+        if (typeof process.stdin.ref === 'function') {
+            process.stdin.ref();
+        }
+
         process.stdin.setRawMode(true);
         process.stdin.resume();
         process.stdin.on('data', (key) => {
@@ -57,6 +62,10 @@ async function getUserChoice(prompt: string, choices: Array<{ key: string, label
             if (choice) {
                 process.stdin.setRawMode(false);
                 process.stdin.pause();
+                // Detach stdin again now that we're done
+                if (typeof process.stdin.unref === 'function') {
+                    process.stdin.unref();
+                }
                 logger.info(`Selected: ${choice.label}\n`);
                 resolve(choice.key);
             }
@@ -68,6 +77,11 @@ async function getUserChoice(prompt: string, choices: Array<{ key: string, label
 async function editIssueInteractively(issue: Issue): Promise<Issue> {
     const logger = getLogger();
     const readline = await import('readline');
+
+    // Ensure stdin is referenced during readline interaction
+    if (typeof process.stdin.ref === 'function') {
+        process.stdin.ref();
+    }
 
     const rl = readline.createInterface({
         input: process.stdin,
@@ -100,6 +114,10 @@ async function editIssueInteractively(issue: Issue): Promise<Issue> {
         return updatedIssue;
     } finally {
         rl.close();
+        // Detach stdin after interactive edit completes
+        if (typeof process.stdin.unref === 'function') {
+            process.stdin.unref();
+        }
     }
 }
 
