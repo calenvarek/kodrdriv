@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import fs from 'fs/promises';
 import path from 'path';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
@@ -9,6 +10,83 @@ import { getOutputPath, getTimestampedAudioFilename, getTimestampedTranscriptFil
 import { transcribeAudio } from '../util/openai';
 import { create as createStorage } from '../util/storage';
 import { execute as executeCommit } from './commit';
+import { audioDeviceConfigExists, loadAudioDeviceFromHomeConfig, saveAudioDeviceToHomeConfig } from './select-audio';
+
+// Supported audio formats by OpenAI's Whisper API
+const SUPPORTED_AUDIO_FORMATS = [
+    'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm', 'flac', 'aac', 'ogg', 'opus'
+];
+
+const validateAudioFile = async (filePath: string): Promise<void> => {
+    const logger = getLogger();
+
+    try {
+        // Check if file exists
+        await fs.access(filePath);
+
+        // Check file extension
+        const ext = path.extname(filePath).toLowerCase().slice(1); // Remove the dot
+        if (!SUPPORTED_AUDIO_FORMATS.includes(ext)) {
+            throw new Error(`Unsupported audio format: ${ext}. Supported formats: ${SUPPORTED_AUDIO_FORMATS.join(', ')}`);
+        }
+
+        // Check if file is not empty
+        const stats = await fs.stat(filePath);
+        if (stats.size === 0) {
+            throw new Error('Audio file is empty');
+        }
+
+        logger.debug('Audio file validation passed: %s (%d bytes)', filePath, stats.size);
+    } catch (error: any) {
+        if (error.code === 'ENOENT') {
+            throw new Error(`Audio file not found: ${filePath}`);
+        }
+        throw error;
+    }
+};
+
+const processAudioFile = async (filePath: string, runConfig: Config): Promise<string> => {
+    const logger = getLogger();
+
+    logger.info('🎯 Processing audio file: %s', filePath);
+
+    // Validate the audio file
+    await validateAudioFile(filePath);
+
+    // Transcribe the audio
+    logger.info('🎯 Transcribing audio...');
+    logger.info('⏳ This may take a few seconds depending on audio length...');
+    const transcription = await transcribeAudio(filePath);
+    const audioContext = transcription.text;
+    logger.info('✅ Audio transcribed successfully');
+    logger.debug('Transcription: %s', audioContext);
+
+    // Save transcript to output directory
+    logger.info('💾 Saving transcript...');
+    try {
+        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const storage = createStorage({ log: logger.info });
+        await storage.ensureDirectory(outputDirectory);
+
+        if (audioContext.trim()) {
+            const transcriptOutputFilename = getTimestampedTranscriptFilename();
+            const transcriptOutputPath = getOutputPath(outputDirectory, transcriptOutputFilename);
+            const transcriptContent = `# Audio Transcript\n\n**Source:** ${filePath}\n**Processed:** ${new Date().toISOString()}\n\n**Transcript:**\n\n${audioContext}`;
+            await storage.writeFile(transcriptOutputPath, transcriptContent, 'utf-8');
+            logger.debug('Saved transcript: %s', transcriptOutputPath);
+        }
+    } catch (error: any) {
+        logger.warn('Failed to save transcript file: %s', error.message);
+    }
+
+    if (!audioContext.trim()) {
+        logger.warn('No audio content was transcribed. Proceeding without audio context.');
+        return '';
+    } else {
+        logger.info('📝 Using transcribed audio as commit context');
+        return audioContext;
+    }
+};
 
 const detectBestAudioDevice = async (): Promise<string> => {
     try {
@@ -85,142 +163,7 @@ const parseAudioDevices = async (): Promise<Array<{ index: string; name: string 
     }
 };
 
-const selectAudioDeviceInteractively = async (runConfig: Config): Promise<string | null> => {
-    const logger = getLogger();
 
-    logger.info('🎙️  Available audio devices:');
-    const devices = await parseAudioDevices();
-
-    if (devices.length === 0) {
-        logger.error('❌ No audio devices found. Make sure ffmpeg is installed and audio devices are available.');
-        return null;
-    }
-
-    // Display devices
-    devices.forEach((device, i) => {
-        logger.info(`   ${i + 1}. [${device.index}] ${device.name}`);
-    });
-
-    logger.info('');
-    logger.info('📋 Select an audio device by entering its number (1-' + devices.length + '):');
-
-    return new Promise((resolve) => {
-        // Set up keyboard input
-        process.stdin.setRawMode(true);
-        process.stdin.resume();
-        process.stdin.setEncoding('utf8');
-
-        let inputBuffer = '';
-
-        const keyHandler = (key: string) => {
-            const keyCode = key.charCodeAt(0);
-
-            if (keyCode === 13) { // ENTER key
-                const selectedIndex = parseInt(inputBuffer) - 1;
-
-                if (selectedIndex >= 0 && selectedIndex < devices.length) {
-                    const selectedDevice = devices[selectedIndex];
-                    logger.info(`✅ Selected: [${selectedDevice.index}] ${selectedDevice.name}`);
-
-                    // Save to configuration
-                    saveAudioDeviceToConfig(runConfig, selectedDevice.index, selectedDevice.name)
-                        .then(() => {
-                            logger.info('💾 Audio device saved to configuration');
-                        })
-                        .catch((error) => {
-                            logger.warn('⚠️  Failed to save audio device to configuration: %s', error.message);
-                        });
-
-                    // Cleanup and resolve
-                    process.stdin.setRawMode(false);
-                    process.stdin.pause();
-                    process.stdin.removeListener('data', keyHandler);
-                    resolve(selectedDevice.index);
-                } else {
-                    logger.error('❌ Invalid selection. Please enter a number between 1 and ' + devices.length);
-                    inputBuffer = '';
-                    process.stdout.write('📋 Select an audio device: ');
-                }
-            } else if (keyCode === 3) { // Ctrl+C
-                logger.info('\n❌ Selection cancelled');
-                process.stdin.setRawMode(false);
-                process.stdin.pause();
-                process.stdin.removeListener('data', keyHandler);
-                resolve(null);
-            } else if (keyCode >= 48 && keyCode <= 57) { // Numbers 0-9
-                inputBuffer += key;
-                process.stdout.write(key);
-            } else if (keyCode === 127) { // Backspace
-                if (inputBuffer.length > 0) {
-                    inputBuffer = inputBuffer.slice(0, -1);
-                    process.stdout.write('\b \b');
-                }
-            }
-        };
-
-        process.stdin.on('data', keyHandler);
-        process.stdout.write('📋 Select an audio device: ');
-    });
-};
-
-const saveAudioDeviceToConfig = async (runConfig: Config, deviceIndex: string, deviceName: string): Promise<void> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
-
-    try {
-        const configDir = runConfig.configDirectory || DEFAULT_OUTPUT_DIRECTORY;
-        await storage.ensureDirectory(configDir);
-
-        const configPath = getOutputPath(configDir, 'audio-config.json');
-
-        // Read existing config or create new one
-        let audioConfig: any = {};
-        try {
-            const existingConfig = await storage.readFile(configPath, 'utf-8');
-            audioConfig = JSON.parse(existingConfig);
-        } catch (error) {
-            // File doesn't exist or is invalid, start with empty config
-            audioConfig = {};
-        }
-
-        // Update audio device
-        audioConfig.audioDevice = deviceIndex;
-        audioConfig.audioDeviceName = deviceName;
-        audioConfig.lastUpdated = new Date().toISOString();
-
-        // Save updated config
-        await storage.writeFile(configPath, JSON.stringify(audioConfig, null, 2), 'utf-8');
-        logger.debug('Saved audio configuration to: %s', configPath);
-
-    } catch (error: any) {
-        logger.error('Failed to save audio configuration: %s', error.message);
-        throw error;
-    }
-};
-
-const loadAudioDeviceFromConfig = async (runConfig: Config): Promise<string | null> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
-
-    try {
-        const configDir = runConfig.configDirectory || DEFAULT_OUTPUT_DIRECTORY;
-        const configPath = getOutputPath(configDir, 'audio-config.json');
-
-        const configContent = await storage.readFile(configPath, 'utf-8');
-        const audioConfig = JSON.parse(configContent);
-
-        if (audioConfig.audioDevice) {
-            logger.debug('Loaded audio device from config: [%s] %s', audioConfig.audioDevice, audioConfig.audioDeviceName || 'Unknown');
-            return audioConfig.audioDevice;
-        }
-
-        return null;
-    } catch (error) {
-        // Config file doesn't exist or is invalid
-        logger.debug('No saved audio device configuration found');
-        return null;
-    }
-};
 
 const listAudioDevices = async (): Promise<void> => {
     const logger = getLogger();
@@ -254,25 +197,21 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
 
-    // Handle audio device selection if requested
-    if (runConfig.audioCommit?.selectAudioDevice) {
-        logger.info('🎛️  Starting audio device selection...');
-        const selectedDevice = await selectAudioDeviceInteractively(runConfig);
-
-        if (selectedDevice === null) {
-            logger.error('❌ Audio device selection cancelled or failed');
-            process.exit(1);
-        }
-
-        logger.info('✅ Audio device selection complete');
-        logger.info('');
-        logger.info('You can now run the audio-commit command without --select-audio-device to use your saved device');
-        return 'Audio device configured successfully';
+    // Check if audio device is configured, if not, prompt user to configure it first
+    if (!await audioDeviceConfigExists(runConfig.preferencesDirectory!)) {
+        logger.error('❌ No audio device configured. Please run "kodrdriv select-audio" first to configure your audio device.');
+        logger.info('💡 This will create %s/audio-device.yaml with your preferred audio device.', runConfig.preferencesDirectory);
+        process.exit(1);
     }
 
     if (isDryRun) {
-        logger.info('DRY RUN: Would start audio recording for commit context');
-        logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+        if (runConfig.audioCommit?.file) {
+            logger.info('DRY RUN: Would process audio file: %s', runConfig.audioCommit.file);
+            logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+        } else {
+            logger.info('DRY RUN: Would start audio recording for commit context');
+            logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+        }
         logger.info('DRY RUN: Would then delegate to regular commit command');
 
         // In dry run, just call the regular commit command with empty audio context
@@ -285,13 +224,21 @@ export const execute = async (runConfig: Config): Promise<string> => {
         });
     }
 
-    // Start audio recording and transcription
-    logger.info('Starting audio recording for commit context...');
-    logger.info('This command will use your system\'s default audio recording tool');
-    logger.info('💡 Tip: Use --select-audio-device to choose a specific microphone');
-    logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
+    let audioContext: string;
 
-    const audioContext = await recordAndTranscribeAudio(runConfig);
+    // Check if a file is provided
+    if (runConfig.audioCommit?.file) {
+        // Process the provided audio file
+        audioContext = await processAudioFile(runConfig.audioCommit.file, runConfig);
+    } else {
+        // Start audio recording and transcription
+        logger.info('Starting audio recording for commit context...');
+        logger.info('This command will use your system\'s default audio recording tool');
+        logger.info('💡 Tip: Run "kodrdriv select-audio" to choose a specific microphone');
+        logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
+
+        audioContext = await recordAndTranscribeAudio(runConfig);
+    }
 
     // Now delegate to the regular commit command with the audio context
     logger.info('🤖 Generating commit message using audio context...');
@@ -435,15 +382,15 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 // Check if ffmpeg is available
                 await run('which ffmpeg');
 
-                // Get the best audio device (from saved config, CLI config, or auto-detected)
-                const savedDevice = await loadAudioDeviceFromConfig(runConfig);
-                const audioDevice = runConfig.audioCommit?.audioDevice || savedDevice || await detectBestAudioDevice();
+                // Get the audio device from preferences directory configuration
+                const homeDeviceConfig = await loadAudioDeviceFromHomeConfig(runConfig.preferencesDirectory!);
+                const audioDevice = runConfig.audioCommit?.audioDevice || homeDeviceConfig?.audioDevice || await detectBestAudioDevice();
                 recordCommand = `ffmpeg -f avfoundation -i ":${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
 
                 if (runConfig.audioCommit?.audioDevice) {
                     logger.info(`🎙️  Using audio device ${audioDevice} (from CLI configuration)`);
-                } else if (savedDevice) {
-                    logger.info(`🎙️  Using audio device ${audioDevice} (from saved configuration)`);
+                } else if (homeDeviceConfig) {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (${homeDeviceConfig.audioDeviceName})`);
                 } else {
                     logger.info(`🎙️  Using audio device ${audioDevice} (auto-detected)`);
                 }
