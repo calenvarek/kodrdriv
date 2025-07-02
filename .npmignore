@@ -25,3 +25,13 @@ tsconfig.json
 .env
 .env.*
 README.md
+.kodrdriv/
+docs/
+output/
+RELEASE_NOTES.md
+eslint.config.mjs
+nodemon.json
+pnpm-workspace.yaml
+tsconfig.tsbuildinfo
+vite.config.ts
+vitest.config.ts
