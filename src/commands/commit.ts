@@ -64,25 +64,20 @@ export const execute = async (runConfig: Config) => {
 
     const request: Request = prompts.format(prompt);
 
-    if (runConfig.debug) {
-        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-        const storage = createStorage({ log: logger.info });
-        await storage.ensureDirectory(outputDirectory);
-    }
+    // Always ensure output directory exists for request/response files
+    const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+    const storage = createStorage({ log: logger.info });
+    await storage.ensureDirectory(outputDirectory);
 
     const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], {
         model: runConfig.model,
         debug: runConfig.debug,
-        debugRequestFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')) : undefined,
-        debugResponseFile: runConfig.debug ? getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')) : undefined,
+        debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
+        debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
     });
 
     // Save timestamped copy of commit message to output directory
     try {
-        const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-        const storage = createStorage({ log: logger.info });
-        await storage.ensureDirectory(outputDirectory);
-
         const timestampedFilename = getTimestampedCommitFilename();
         const outputPath = getOutputPath(outputDirectory, timestampedFilename);
 
