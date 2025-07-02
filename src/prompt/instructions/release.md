@@ -2,7 +2,7 @@ Task #1: Write release notes by reading all of the log messages from this releas
 
 Task #2: Provide a detailed list of changes involved in this release, and make sure that the release notes are directly related to the content in the log messages.
 
-Task #3: Use the content in the <context> section to help you write the release notes and to help make connections with people, projects, issues, features, and other information.
+Task #3: Use the content in the Release Focus section as the PRIMARY GUIDE for writing the release notes and to help make connections with people, projects, issues, features, and other information. The Release Focus should heavily influence the tone, emphasis, and structure of your release notes.
 
 ### Output Format
 
@@ -41,13 +41,14 @@ Create release notes that:
 
 ## 🧭 Instructions
 
-1. **Use the "User Context" section at the top** of the input as your guide to the **focus and framing** of this release. This context may include:
+1. **Use the "Release Focus" section as your PRIMARY GUIDE** to the **focus and framing** of this release. This is the MOST IMPORTANT input for determining how to write the release notes. The Release Focus may include:
 
    * The theme or reason behind the release (e.g., "we're cleaning up configuration files", "this is about improving test stability")
    * Key goals or constraints
    * Target audiences or known issues being addressed
+   * Strategic direction or priorities for this release
 
-   ⚠️ The User Context should shape the **opening paragraph** and influence which changes are emphasized.
+   🎯 **CRITICAL**: The Release Focus should shape the **opening paragraph**, determine which changes are emphasized most prominently, and guide the overall narrative of the release notes. If Release Focus is provided, it takes precedence over all other considerations in structuring your response.
 
 2. **Structure the release notes as follows:**
 
@@ -84,7 +85,7 @@ Create release notes that:
 
 ```json
 {
-  "title": "New Generation Types, and Updates to API",
-  "body": "This release focuses on simplifying the configuration system and removing deprecated environment-specific files. Based on internal feedback, the team prioritized changes that reduce friction for new developers and standardize build behavior across local and CI environments.\\n\\n**Improvements**\\n\\n* Unified `vite.config.ts` and `webpack.config.js` into a single environment-aware module\\n* Reduced config nesting depth in `tsconfig.json` to improve readability\\n* Updated CI scripts to use `.env.defaults` instead of `.env.local`\\n\\n**Bug Fixes**\\n\\n* Fixed crash in config loader when optional fields were undefined\\n* Resolved issue with `yarn build` failing on Windows due to missing path escape\\n\\n**Documentation Updates**\\n\\n* Rewrote setup instructions in `README.md` to reflect unified config process\\n* Removed legacy instructions for `env.local.js`"
+  "title": "Configuration System Simplification and Developer Experience Improvements",
+  "body": "This release focuses on simplifying the configuration system and removing deprecated environment-specific files. Based on the Release Focus of improving developer onboarding and standardizing build behavior, the team prioritized changes that reduce friction for new developers and standardize build behavior across local and CI environments.\\n\\n**Improvements**\\n\\n* Unified `vite.config.ts` and `webpack.config.js` into a single environment-aware module\\n* Reduced config nesting depth in `tsconfig.json` to improve readability\\n* Updated CI scripts to use `.env.defaults` instead of `.env.local`\\n\\n**Bug Fixes**\\n\\n* Fixed crash in config loader when optional fields were undefined\\n* Resolved issue with `yarn build` failing on Windows due to missing path escape\\n\\n**Documentation Updates**\\n\\n* Rewrote setup instructions in `README.md` to reflect unified config process\\n* Removed legacy instructions for `env.local.js`"
 }
 ```
