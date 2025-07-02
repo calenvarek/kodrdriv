@@ -144,6 +144,9 @@ describe('Argument Parsing and Configuration', () => {
                     from: 'main',
                     to: 'v1.0',
                 },
+                review: {
+                    sendit: false,
+                }
             };
 
             const transformed = transformCliArgs(cliArgs);
@@ -730,6 +733,9 @@ describe('Argument Parsing and Configuration', () => {
                         from: 'main',
                         context: 'shared context',
                         messageLimit: 15,
+                    },
+                    review: {
+                        "context": "shared context",
                     },
                 });
             });
@@ -1334,6 +1340,10 @@ describe('Argument Parsing and Configuration', () => {
                     to: 'release/v2.0',
                     context: 'Major release preparation',
                     messageLimit: 50,
+                },
+                review: {
+                    context: "Major release preparation",
+                    sendit: true,
                 },
                 publish: {
                     mergeMethod: 'rebase',

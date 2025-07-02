@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-import path from 'path';
 import fs from 'fs/promises';
+import path from 'path';
+import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { transcribeAudio } from '../util/openai';
 import { run } from '../util/child';
-import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getOutputPath, getTimestampedAudioFilename, getTimestampedTranscriptFilename } from '../util/general';
+import { transcribeAudio } from '../util/openai';
 import { create as createStorage } from '../util/storage';
 import { execute as executeCommit } from './commit';
 
