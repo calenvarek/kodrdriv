@@ -69,28 +69,28 @@ describe('prompts Factory', () => {
     it('createCommitPrompt builds prompt with context and contextDirectories', async () => {
         runConfig.contextDirectories = ['/ctx1', '/ctx2'];
         const factory = create(model, runConfig);
-        const result = await factory.createCommitPrompt('diff', 'log', 'user context');
+        const result = await factory.createCommitPrompt({ diffContent: 'diff', logContent: 'log' }, { userDirection: 'user direction' });
         expect(mockBuilder.addPersonaPath).toHaveBeenCalledWith('/personas/committer.md');
         expect(mockBuilder.addInstructionPath).toHaveBeenCalledWith('/instructions/commit.md');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[User Context]\nuser context');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Diff]\ndiff');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Log]\nlog');
-        expect(mockBuilder.loadContext).toHaveBeenCalledWith(['/ctx1', '/ctx2']);
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('user direction', { title: 'User Direction', weight: 1.0 });
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('diff', { title: 'Diff', weight: 0.5 });
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('log', { title: 'Log', weight: 0.5 });
+        expect(mockBuilder.loadContext).toHaveBeenCalledWith(['/ctx1', '/ctx2'], { weight: 0.5 });
         expect(mockBuilder.build).toHaveBeenCalled();
         expect(result).toEqual({ prompt: 'mockPrompt' });
     });
 
     it('createCommitPrompt builds prompt without context or contextDirectories', async () => {
         const factory = create(model, runConfig);
-        const result = await factory.createCommitPrompt('diff', 'log');
+        const result = await factory.createCommitPrompt({ diffContent: 'diff', logContent: 'log' }, { userDirection: 'user direction' });
         expect(mockBuilder.addPersonaPath).toHaveBeenCalledWith('/personas/committer.md');
         expect(mockBuilder.addInstructionPath).toHaveBeenCalledWith('/instructions/commit.md');
-        // Check that no call to addContent contains '[User Context]'
+        // Check that no call to addContent contains '[User Direction]'
         expect(mockBuilder.addContent.mock.calls.some(
-            (args: any[]) => typeof args[0] === 'string' && args[0].includes('[User Context]')
+            (args: any[]) => typeof args[0] === 'string' && args[0].includes('[User Direction]')
         )).toBe(false);
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Diff]\ndiff');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Log]\nlog');
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('diff', { title: 'Diff', weight: 0.5 });
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('log', { title: 'Log', weight: 0.5 });
         expect(mockBuilder.loadContext).not.toHaveBeenCalled();
         expect(mockBuilder.build).toHaveBeenCalled();
         expect(result).toEqual({ prompt: 'mockPrompt' });
@@ -99,29 +99,27 @@ describe('prompts Factory', () => {
     it('createReleasePrompt builds prompt with context and contextDirectories', async () => {
         runConfig.contextDirectories = ['/ctx1'];
         const factory = create(model, runConfig);
-        const result = await factory.createReleasePrompt('release content', 'diff content', 'release context');
+        const result = await factory.createReleasePrompt({ logContent: 'log content', diffContent: 'diff content' }, { releaseFocus: 'release focus' });
         expect(mockBuilder.addPersonaPath).toHaveBeenCalledWith('/personas/releaser.md');
         expect(mockBuilder.addInstructionPath).toHaveBeenCalledWith('/instructions/release.md');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[User Context]\nrelease context');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Log]\nrelease content');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Diff]\ndiff content');
-        expect(mockBuilder.loadContext).toHaveBeenCalledWith(['/ctx1']);
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('release focus', { title: 'Release Focus', weight: 1.0 });
+        expect(mockBuilder.loadContext).toHaveBeenCalledWith(['/ctx1'], { weight: 0.5 });
         expect(mockBuilder.build).toHaveBeenCalled();
         expect(result).toEqual({ prompt: 'mockPrompt' });
     });
 
     it('createReleasePrompt builds prompt without context or contextDirectories', async () => {
         const factory = create(model, runConfig);
-        const result = await factory.createReleasePrompt('log content', 'diff content', 'release context');
+        const result = await factory.createReleasePrompt({ logContent: 'log content', diffContent: 'diff content' }, { releaseFocus: 'release focus' });
         expect(mockBuilder.addPersonaPath).toHaveBeenCalledWith('/personas/releaser.md');
         expect(mockBuilder.addInstructionPath).toHaveBeenCalledWith('/instructions/release.md');
         // Check that no call to addContent contains '[User Context]'
         expect(mockBuilder.addContent.mock.calls.some(
-            (args: any[]) => typeof args[0] === 'string' && args[0].includes('[User Context]')
+            (args: any[]) => typeof args[0] === 'string' && args[0].includes('release focus')
         )).toBe(true);
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Log]\nlog content');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[Diff]\ndiff content');
-        expect(mockBuilder.addContent).toHaveBeenCalledWith('\n\n[User Context]\nrelease context');
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('log content', { title: 'Log', weight: 0.5 });
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('diff content', { title: 'Diff', weight: 0.5 });
+        expect(mockBuilder.addContent).toHaveBeenCalledWith('release focus', { title: 'Release Focus', weight: 1.0 });
         expect(mockBuilder.loadContext).not.toHaveBeenCalled();
         expect(mockBuilder.build).toHaveBeenCalled();
         expect(result).toEqual({ prompt: 'mockPrompt' });

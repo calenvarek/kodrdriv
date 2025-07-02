@@ -10,10 +10,12 @@ import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as Release from './commands/release';
 import * as Unlink from './commands/unlink';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import * as Review from './commands/review';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_UNLINK, COMMAND_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_INIT_CONFIG, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { CommandConfig } from 'types';
 import { Config, ConfigSchema, SecureConfig } from './types';
+import { Command } from 'commander';
 
 /**
  * Configure early logging based on command line flags.
@@ -91,7 +93,7 @@ export async function main() {
         let commandName = commandConfig.commandName;
 
         // If we have a specific command argument, use that
-        if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean') {
+        if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review') {
             commandName = command;
         }
 
@@ -115,6 +117,8 @@ export async function main() {
         } else if (commandName === COMMAND_CLEAN) {
             await Clean.execute(runConfig);
             summary = 'Output directory cleaned successfully.';
+        } else if (commandName === COMMAND_REVIEW) {
+            summary = await Review.execute(runConfig);
         }
 
         // eslint-disable-next-line no-console

@@ -26,7 +26,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     diffContent = await diff.get();
     logContent = await log.get();
 
-    const prompt = await prompts.createReleasePrompt(logContent, diffContent, runConfig.release?.context);
+    const prompt = await prompts.createReleasePrompt({ logContent, diffContent }, { context: runConfig.release?.context });
 
     const request: Request = prompts.format(prompt);
 

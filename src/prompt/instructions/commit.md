@@ -1,12 +1,9 @@
-Here is a revised version of your prompt — retaining all original structure and detail, but improving clarity, precision, and flow. It avoids redundancy, tightens the language, and better emphasizes key steps:
-
----
-
 **🔧 Task Definition**
 
-You are generating a Git commit message based on the content provided below. The content contains three critical sections:
+You are generating a Git commit message based on the content provided below. The content contains several critical sections:
 
-* **\[User Context]** — Describes the motivation, goals, or intent behind the change. Use this to understand *why* the changes were made.
+* **\[User Direction]** — When present, this is the PRIMARY guidance for your commit message focus. This describes the motivation, goals, or intent behind the change from the user's perspective. This should be the starting point and main theme of your commit message.
+* **\[User Context]** — When present, this provides IMPORTANT additional context about the user's situation, environment, or background that should inform your commit message understanding and approach.
 * **\[Diff]** — A code diff representing the actual modifications. Analyze this to understand *what* was changed.
 * **\[Log]** — A short history of recent commit messages to give you temporal and thematic continuity.
 
@@ -16,7 +13,9 @@ You are generating a Git commit message based on the content provided below. The
 
 ### ✅ DO:
 
-* Start with a **clear, concise summary** of what was changed and why — grounded in the `User Context`.
+* **PRIORITIZE User Direction**: If `[User Direction]` is provided, make it the central theme and starting point of your commit message. Let it guide the narrative and focus.
+* **CONSIDER User Context**: If `[User Context]` is provided, use it to inform your understanding and tailor your commit message appropriately to the user's situation.
+* Start with a **clear, concise summary** of what was changed and why — grounded in the `User Direction` when present and informed by any `User Context`.
 * **Group changes logically** by purpose or domain (e.g., "error handling cleanup", "refactored tests", "adjusted CI config").
 * **Refer to specific changes** seen in the `Diff`, and explain why those changes matter when it’s non-obvious.
 * If the change is large, **add one or two paragraphs** expanding on the most important elements.
