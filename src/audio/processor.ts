@@ -116,7 +116,7 @@ export class AudioProcessor {
         // Cleanup functions that need to be accessible in finally block
         let keyHandler: ((data: Buffer | string) => void) | null = null;
         const originalRawMode = false;
-        let sigintHandler: (() => void) | null = null;
+        const sigintHandler: (() => void) | null = null;
 
         const cleanupKeyboardHandling = () => {
             try {
@@ -266,14 +266,12 @@ export class AudioProcessor {
             // Set up recording command
             recordingProcess = await this.setupRecording(audioFilePath, maxRecordingTime, options);
 
-            // Handle SIGINT for cleanup (we'll remove this listener in cleanup)
-            sigintHandler = () => {
-                cleanupKeyboardHandling();
-                cancelRecording();
-            };
-            if (sigintHandler) {
-                process.on('SIGINT', sigintHandler);
+            if (options.debug) {
+                this.logger.debug('setupRecording returned: %s', recordingProcess ? 'process object' : 'null');
             }
+
+            // Handle SIGINT for cleanup
+            process.on('SIGINT', cancelRecording);
 
             // Start keyboard handling and countdown if we have a recording process
             if (recordingProcess) {
@@ -637,7 +635,7 @@ export class AudioProcessor {
                 clearInterval(countdownInterval);
             }
 
-            // Reset stdin thoroughly
+            // Reset stdin thoroughly - this is critical for preventing hanging
             try {
                 if (process.stdin.setRawMode) {
                     process.stdin.setRawMode(false);
@@ -646,6 +644,12 @@ export class AudioProcessor {
                 process.stdin.removeAllListeners('data');
                 process.stdin.removeAllListeners('keypress');
                 process.stdin.removeAllListeners('readable');
+                process.stdin.removeAllListeners('end');
+                process.stdin.removeAllListeners('close');
+                // Force stdin to unpipe if it was piped
+                if (process.stdin.unpipe) {
+                    process.stdin.unpipe();
+                }
             } catch (stdinError) {
                 // Ignore stdin cleanup errors
             }
@@ -653,24 +657,33 @@ export class AudioProcessor {
             // Remove ALL process event listeners to prevent hanging
             process.removeAllListeners('SIGINT');
             process.removeAllListeners('SIGTERM');
+            process.removeAllListeners('SIGQUIT');
+            process.removeAllListeners('SIGHUP');
             process.removeAllListeners('exit');
+            process.removeAllListeners('beforeExit');
 
-            // Kill recording process
+            // Kill recording process aggressively
             if (recordingProcess && !recordingProcess.killed) {
                 try {
                     recordingProcess.kill('SIGTERM');
-                    // Give it a moment to terminate gracefully
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    // Give it a very short time to terminate gracefully
+                    await new Promise(resolve => setTimeout(resolve, 50));
                     if (!recordingProcess.killed) {
                         recordingProcess.kill('SIGKILL');
                     }
+                    // Remove all listeners from the recording process
+                    recordingProcess.removeAllListeners();
                 } catch (killError) {
                     // Ignore kill errors
                 }
             }
 
             // Clean up temporary directory
-            await fs.rm(tempDir, { recursive: true, force: true });
+            try {
+                await fs.rm(tempDir, { recursive: true, force: true });
+            } catch (fsError) {
+                // Ignore filesystem cleanup errors
+            }
         } catch (cleanupError: any) {
             this.logger.debug('Cleanup warning: %s', cleanupError.message);
         }
