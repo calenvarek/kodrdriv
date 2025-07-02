@@ -37,6 +37,7 @@ export const InputSchema = z.object({
     diffHistoryLimit: z.number().optional(),
     releaseNotesLimit: z.number().optional(),
     githubIssuesLimit: z.number().optional(),
+    selectAudioDevice: z.boolean().optional(),
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -65,6 +66,12 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.commit.sendit = finalCliArgs.sendit;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
+    }
+
+    // Nested mappings for 'audioCommit' options
+    if (finalCliArgs.selectAudioDevice !== undefined) {
+        transformedCliArgs.audioCommit = {};
+        transformedCliArgs.audioCommit.selectAudioDevice = finalCliArgs.selectAudioDevice;
     }
 
     // Nested mappings for 'release' options
@@ -274,6 +281,7 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
+        .option('--select-audio-device', 'interactively select audio device and save to configuration')
         .description('Record audio to provide context, then generate and optionally commit with AI-generated message');
     addSharedOptions(audioCommitCommand);
 
@@ -414,6 +422,11 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             sendit: options.commit?.sendit ?? KODRDRIV_DEFAULTS.commit.sendit,
             messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
             context: options.commit?.context,
+        },
+        audioCommit: {
+            maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
+            audioDevice: options.audioCommit?.audioDevice ?? KODRDRIV_DEFAULTS.audioCommit.audioDevice,
+            selectAudioDevice: options.audioCommit?.selectAudioDevice,
         },
         release: {
             from: options.release?.from ?? KODRDRIV_DEFAULTS.release.from,

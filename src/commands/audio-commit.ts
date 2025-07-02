@@ -27,8 +27,9 @@ const detectBestAudioDevice = async (): Promise<string> => {
                 .filter((line: string) => line.includes('[') && line.includes(']'))
                 .map((line: string) => line.trim());
 
-            // Prefer built-in microphone over virtual/external devices
+            // Prefer AirPods, then built-in microphone over virtual/external devices
             const preferredDevices = [
+                'AirPods',
                 'MacBook Pro Microphone',
                 'MacBook Air Microphone',
                 'Built-in Microphone',
@@ -53,6 +54,171 @@ const detectBestAudioDevice = async (): Promise<string> => {
     } catch (error) {
         // Fallback to device 1
         return '1';
+    }
+};
+
+const parseAudioDevices = async (): Promise<Array<{ index: string; name: string }>> => {
+    try {
+        try {
+            await run('ffmpeg -f avfoundation -list_devices true -i ""');
+        } catch (result: any) {
+            const output = result.stderr || result.stdout || '';
+            const audioDevicesSection = output.split('AVFoundation audio devices:')[1];
+
+            if (audioDevicesSection) {
+                const deviceLines = audioDevicesSection.split('\n')
+                    .filter((line: string) => line.includes('[') && line.includes(']'))
+                    .map((line: string) => line.trim());
+
+                return deviceLines.map((line: string) => {
+                    const match = line.match(/\[(\d+)\]\s+(.+)/);
+                    if (match) {
+                        return { index: match[1], name: match[2] };
+                    }
+                    return null;
+                }).filter(Boolean) as Array<{ index: string; name: string }>;
+            }
+        }
+        return [];
+    } catch (error) {
+        return [];
+    }
+};
+
+const selectAudioDeviceInteractively = async (runConfig: Config): Promise<string | null> => {
+    const logger = getLogger();
+
+    logger.info('🎙️  Available audio devices:');
+    const devices = await parseAudioDevices();
+
+    if (devices.length === 0) {
+        logger.error('❌ No audio devices found. Make sure ffmpeg is installed and audio devices are available.');
+        return null;
+    }
+
+    // Display devices
+    devices.forEach((device, i) => {
+        logger.info(`   ${i + 1}. [${device.index}] ${device.name}`);
+    });
+
+    logger.info('');
+    logger.info('📋 Select an audio device by entering its number (1-' + devices.length + '):');
+
+    return new Promise((resolve) => {
+        // Set up keyboard input
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.setEncoding('utf8');
+
+        let inputBuffer = '';
+
+        const keyHandler = (key: string) => {
+            const keyCode = key.charCodeAt(0);
+
+            if (keyCode === 13) { // ENTER key
+                const selectedIndex = parseInt(inputBuffer) - 1;
+
+                if (selectedIndex >= 0 && selectedIndex < devices.length) {
+                    const selectedDevice = devices[selectedIndex];
+                    logger.info(`✅ Selected: [${selectedDevice.index}] ${selectedDevice.name}`);
+
+                    // Save to configuration
+                    saveAudioDeviceToConfig(runConfig, selectedDevice.index, selectedDevice.name)
+                        .then(() => {
+                            logger.info('💾 Audio device saved to configuration');
+                        })
+                        .catch((error) => {
+                            logger.warn('⚠️  Failed to save audio device to configuration: %s', error.message);
+                        });
+
+                    // Cleanup and resolve
+                    process.stdin.setRawMode(false);
+                    process.stdin.pause();
+                    process.stdin.removeListener('data', keyHandler);
+                    resolve(selectedDevice.index);
+                } else {
+                    logger.error('❌ Invalid selection. Please enter a number between 1 and ' + devices.length);
+                    inputBuffer = '';
+                    process.stdout.write('📋 Select an audio device: ');
+                }
+            } else if (keyCode === 3) { // Ctrl+C
+                logger.info('\n❌ Selection cancelled');
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
+                process.stdin.removeListener('data', keyHandler);
+                resolve(null);
+            } else if (keyCode >= 48 && keyCode <= 57) { // Numbers 0-9
+                inputBuffer += key;
+                process.stdout.write(key);
+            } else if (keyCode === 127) { // Backspace
+                if (inputBuffer.length > 0) {
+                    inputBuffer = inputBuffer.slice(0, -1);
+                    process.stdout.write('\b \b');
+                }
+            }
+        };
+
+        process.stdin.on('data', keyHandler);
+        process.stdout.write('📋 Select an audio device: ');
+    });
+};
+
+const saveAudioDeviceToConfig = async (runConfig: Config, deviceIndex: string, deviceName: string): Promise<void> => {
+    const logger = getLogger();
+    const storage = createStorage({ log: logger.info });
+
+    try {
+        const configDir = runConfig.configDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        await storage.ensureDirectory(configDir);
+
+        const configPath = getOutputPath(configDir, 'audio-config.json');
+
+        // Read existing config or create new one
+        let audioConfig: any = {};
+        try {
+            const existingConfig = await storage.readFile(configPath, 'utf-8');
+            audioConfig = JSON.parse(existingConfig);
+        } catch (error) {
+            // File doesn't exist or is invalid, start with empty config
+            audioConfig = {};
+        }
+
+        // Update audio device
+        audioConfig.audioDevice = deviceIndex;
+        audioConfig.audioDeviceName = deviceName;
+        audioConfig.lastUpdated = new Date().toISOString();
+
+        // Save updated config
+        await storage.writeFile(configPath, JSON.stringify(audioConfig, null, 2), 'utf-8');
+        logger.debug('Saved audio configuration to: %s', configPath);
+
+    } catch (error: any) {
+        logger.error('Failed to save audio configuration: %s', error.message);
+        throw error;
+    }
+};
+
+const loadAudioDeviceFromConfig = async (runConfig: Config): Promise<string | null> => {
+    const logger = getLogger();
+    const storage = createStorage({ log: logger.info });
+
+    try {
+        const configDir = runConfig.configDirectory || DEFAULT_OUTPUT_DIRECTORY;
+        const configPath = getOutputPath(configDir, 'audio-config.json');
+
+        const configContent = await storage.readFile(configPath, 'utf-8');
+        const audioConfig = JSON.parse(configContent);
+
+        if (audioConfig.audioDevice) {
+            logger.debug('Loaded audio device from config: [%s] %s', audioConfig.audioDevice, audioConfig.audioDeviceName || 'Unknown');
+            return audioConfig.audioDevice;
+        }
+
+        return null;
+    } catch (error) {
+        // Config file doesn't exist or is invalid
+        logger.debug('No saved audio device configuration found');
+        return null;
     }
 };
 
@@ -88,6 +254,22 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
 
+    // Handle audio device selection if requested
+    if (runConfig.audioCommit?.selectAudioDevice) {
+        logger.info('🎛️  Starting audio device selection...');
+        const selectedDevice = await selectAudioDeviceInteractively(runConfig);
+
+        if (selectedDevice === null) {
+            logger.error('❌ Audio device selection cancelled or failed');
+            process.exit(1);
+        }
+
+        logger.info('✅ Audio device selection complete');
+        logger.info('');
+        logger.info('You can now run the audio-commit command without --select-audio-device to use your saved device');
+        return 'Audio device configured successfully';
+    }
+
     if (isDryRun) {
         logger.info('DRY RUN: Would start audio recording for commit context');
         logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
@@ -106,6 +288,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     // Start audio recording and transcription
     logger.info('Starting audio recording for commit context...');
     logger.info('This command will use your system\'s default audio recording tool');
+    logger.info('💡 Tip: Use --select-audio-device to choose a specific microphone');
     logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
 
     const audioContext = await recordAndTranscribeAudio(runConfig);
@@ -252,10 +435,18 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 // Check if ffmpeg is available
                 await run('which ffmpeg');
 
-                // Get the best audio device (configurable or auto-detected)
-                const audioDevice = runConfig.audioCommit?.audioDevice || await detectBestAudioDevice();
+                // Get the best audio device (from saved config, CLI config, or auto-detected)
+                const savedDevice = await loadAudioDeviceFromConfig(runConfig);
+                const audioDevice = runConfig.audioCommit?.audioDevice || savedDevice || await detectBestAudioDevice();
                 recordCommand = `ffmpeg -f avfoundation -i ":${audioDevice}" -t ${maxRecordingTime} -y "${audioFilePath}"`;
-                logger.info(`🎙️  Using audio device ${audioDevice} for recording`);
+
+                if (runConfig.audioCommit?.audioDevice) {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (from CLI configuration)`);
+                } else if (savedDevice) {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (from saved configuration)`);
+                } else {
+                    logger.info(`🎙️  Using audio device ${audioDevice} (auto-detected)`);
+                }
             } catch {
                 // ffmpeg not available, try sox/rec
                 try {

@@ -142,6 +142,10 @@ export const KODRDRIV_DEFAULTS = {
         to: DEFAULT_TO_COMMIT_ALIAS,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
     },
+    audioCommit: {
+        maxRecordingTime: 300, // 5 minutes default
+        audioDevice: undefined, // Auto-detect by default
+    },
     audioReview: {
         includeCommitHistory: true,
         includeRecentDiffs: true,
