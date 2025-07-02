@@ -258,7 +258,7 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 process.stdout.write('\r⏱️  Recording finished!                                  \n');
 
                 if (recordingProcess && recordingProcess.kill) {
-                    recordingProcess.kill();
+                    recordingProcess.kill('SIGTERM');
                 }
                 logger.info('🛑 Recording stopped - proceeding with commit');
             }
@@ -279,7 +279,7 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
                 process.stdout.write('\r❌ Recording cancelled!                                 \n');
 
                 if (recordingProcess && recordingProcess.kill) {
-                    recordingProcess.kill();
+                    recordingProcess.kill('SIGTERM');
                 }
 
                 logger.info('❌ Audio commit cancelled by user');
@@ -295,68 +295,72 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
         if (recordingProcess) {
             setupKeyboardHandling();
             startCountdown();
-        }
 
-        // Wait for recording to finish (either timeout or manual stop)
-        if (recordingProcess) {
+            // Create a promise that resolves when user manually stops recording
+            const manualStopPromise = new Promise<void>((resolve) => {
+                const checkInterval = setInterval(() => {
+                    if (recordingFinished || recordingCancelled) {
+                        clearInterval(checkInterval);
+                        resolve();
+                    }
+                }, 100);
+            });
+
+            // Wait for either the recording to finish naturally or manual stop
             try {
-                await recordingProcess;
+                await Promise.race([recordingProcess, manualStopPromise]);
 
-                // Only proceed if not cancelled
-                if (!recordingCancelled) {
+                // If manually stopped, force kill the process if it's still running
+                if (recordingFinished && recordingProcess && !recordingProcess.killed) {
+                    recordingProcess.kill('SIGKILL');
+                    // Give it a moment to die
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+
+                // Only show completion message if not manually finished
+                if (!recordingCancelled && !recordingFinished) {
                     // Clear countdown on successful completion
                     if (countdownInterval) {
                         clearInterval(countdownInterval);
                         countdownInterval = null;
                     }
 
-                    // Clean up keyboard input
-                    if (process.stdin.setRawMode) {
-                        process.stdin.setRawMode(false);
-                        process.stdin.pause();
-                    }
-
                     process.stdout.write('\r⏱️  Recording completed!                               \n');
                     logger.info('✅ Recording completed automatically');
                 }
             } catch (error: any) {
-                // Only handle errors if not cancelled
-                if (!recordingCancelled) {
+                // Only handle errors if not cancelled and not manually finished
+                if (!recordingCancelled && !recordingFinished) {
                     // Clear countdown on error
                     if (countdownInterval) {
                         clearInterval(countdownInterval);
                         countdownInterval = null;
                     }
 
-                    // Clean up keyboard input
-                    if (process.stdin.setRawMode) {
-                        process.stdin.setRawMode(false);
-                        process.stdin.pause();
-                    }
-
-                    if (!recordingFinished && error.signal === 'SIGTERM') {
-                        process.stdout.write('\r⏱️  Recording stopped by user!                         \n');
-                        logger.info('✅ Recording stopped by user');
-                    } else if (!recordingFinished) {
-                        process.stdout.write('\r⏱️  Recording error!                                   \n');
+                    if (error.signal === 'SIGTERM' || error.signal === 'SIGKILL') {
+                        // This is expected when we kill the process
+                        logger.debug('Recording process terminated as expected');
+                    } else {
                         logger.warn('Recording process ended unexpectedly: %s', error.message);
                     }
                 }
             }
+
+            // Always clean up keyboard input
+            if (process.stdin.setRawMode) {
+                process.stdin.setRawMode(false);
+                process.stdin.pause();
+            }
         }
 
-        // If recording was cancelled, we should have already exited, but just in case
+        // If recording was cancelled, exit early
         if (recordingCancelled) {
             return '';
         }
 
-        // Ensure recording is stopped and keyboard input is cleaned up
-        await stopRecording();
-
-        // Clean up keyboard input one more time to be sure
-        if (process.stdin.setRawMode) {
-            process.stdin.setRawMode(false);
-            process.stdin.pause();
+        // Wait a moment for the recording file to be fully written
+        if (recordingFinished) {
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         // Check if audio file exists
