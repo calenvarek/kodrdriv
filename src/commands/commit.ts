@@ -53,9 +53,9 @@ export const execute = async (runConfig: Config) => {
         limit: runConfig.commit?.messageLimit,
     };
     const log = await Log.create(logOptions);
-    const logContent = await log.get();
+    const logContext = await log.get();
 
-    const prompt = await prompts.createCommitPrompt({ diffContent, logContent }, { userDirection: runConfig.commit?.direction, context: runConfig.commit?.context });
+    const prompt = await prompts.createCommitPrompt({ diffContent }, { logContext, userDirection: runConfig.commit?.direction, context: runConfig.commit?.context });
 
     if (runConfig.debug) {
         const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);

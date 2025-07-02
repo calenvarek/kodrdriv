@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export interface Factory {
-    createCommitPrompt: ({ diffContent, logContent }: { diffContent: string, logContent: string }, { userDirection, context }: { userDirection?: string, context?: string }) => Promise<Prompt>;
+    createCommitPrompt: ({ diffContent }: { diffContent: string }, { logContext, userDirection, context }: { logContext?: string, userDirection?: string, context?: string }) => Promise<Prompt>;
     createReleasePrompt: ({ logContent, diffContent }: { logContent: string, diffContent: string }, { releaseFocus, context }: { releaseFocus?: string, context?: string }) => Promise<Prompt>;
     createReviewPrompt: ({ notes }: { notes: string }, { logContext, diffContext, releaseNotesContext, issuesContext, context }: { logContext?: string, diffContext?: string, releaseNotesContext?: string, issuesContext?: string, context?: string }) => Promise<Prompt>;
     format: (prompt: Prompt) => Request;
@@ -19,7 +19,7 @@ export const create = (model: Model, runConfig: RunConfig): Factory => {
 
     const logger = getLogger();
 
-    const createCommitPrompt = async ({ diffContent, logContent }: { diffContent: string, logContent: string }, { userDirection, context }: { userDirection?: string, context?: string }): Promise<Prompt> => {
+    const createCommitPrompt = async ({ diffContent }: { diffContent: string }, { logContext, userDirection, context }: { logContext?: string, userDirection?: string, context?: string }): Promise<Prompt> => {
         let builder: Builder.Instance = Builder.create({ logger, basePath: __dirname, overridePath: runConfig?.configDirectory, overrides: runConfig?.overrides || false });
         builder = await builder.addPersonaPath(DEFAULT_PERSONA_COMMITTER_FILE);
         builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_COMMIT_FILE);
@@ -27,13 +27,15 @@ export const create = (model: Model, runConfig: RunConfig): Factory => {
             builder = await builder.addContent(userDirection, { title: 'User Direction', weight: 1.0 });
         }
         builder = await builder.addContent(diffContent, { title: 'Diff', weight: 0.5 });
-        builder = await builder.addContent(logContent, { title: 'Log', weight: 0.5 });
 
         if (runConfig.contextDirectories) {
             builder = await builder.loadContext(runConfig.contextDirectories, { weight: 0.5 });
         }
         if (context) {
             builder = await builder.addContext(context, { title: 'User Context', weight: 1.0 });
+        }
+        if (logContext) {
+            builder = await builder.addContext(logContext, { title: 'Log Context', weight: 0.5 });
         }
 
         const prompt = await builder.build();

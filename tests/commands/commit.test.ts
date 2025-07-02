@@ -391,7 +391,7 @@ describe('commit', () => {
         await Commit.execute(mockConfig);
 
         // Assert
-        expect(mockCreateCommitPrompt).toHaveBeenCalledWith({ diffContent: mockDiffContent, logContent: mockLogContent }, { context: mockContext });
+        expect(mockCreateCommitPrompt).toHaveBeenCalledWith({ diffContent: mockDiffContent }, { context: mockContext, logContext: mockLogContent });
     });
 
     it('should pass messageLimit to log creation when provided', async () => {
