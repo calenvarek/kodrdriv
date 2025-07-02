@@ -5,6 +5,7 @@ import { getLogger } from '../logging';
 import { Config } from '../types';
 import { run } from '../util/child';
 import { create as createStorage } from '../util/storage';
+import { getAudioDeviceInfo } from '../audio/devices';
 
 const parseAudioDevices = async (): Promise<Array<{ index: string; name: string }>> => {
     try {
@@ -153,7 +154,12 @@ const ensurePreferencesDirectory = async (preferencesDirectory: string): Promise
     }
 };
 
-export const saveAudioDeviceToHomeConfig = async (deviceIndex: string, deviceName: string, preferencesDirectory: string): Promise<void> => {
+export const saveAudioDeviceToHomeConfig = async (
+    deviceIndex: string,
+    deviceName: string,
+    capabilities: { sampleRate?: number; channels?: number; channelLayout?: string },
+    preferencesDirectory: string
+): Promise<void> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
@@ -164,6 +170,9 @@ export const saveAudioDeviceToHomeConfig = async (deviceIndex: string, deviceNam
         const audioConfig = {
             audioDevice: deviceIndex,
             audioDeviceName: deviceName,
+            sampleRate: capabilities.sampleRate,
+            channels: capabilities.channels,
+            channelLayout: capabilities.channelLayout,
             lastUpdated: new Date().toISOString()
         };
 
@@ -183,7 +192,7 @@ export const saveAudioDeviceToHomeConfig = async (deviceIndex: string, deviceNam
     }
 };
 
-export const loadAudioDeviceFromHomeConfig = async (preferencesDirectory: string): Promise<{ audioDevice: string; audioDeviceName: string } | null> => {
+export const loadAudioDeviceFromHomeConfig = async (preferencesDirectory: string): Promise<{ audioDevice: string; audioDeviceName: string; sampleRate?: number; channels?: number; channelLayout?: string } | null> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
@@ -196,7 +205,10 @@ export const loadAudioDeviceFromHomeConfig = async (preferencesDirectory: string
             logger.debug('Loaded audio device from preferences config: [%s] %s', audioConfig.audioDevice, audioConfig.audioDeviceName || 'Unknown');
             return {
                 audioDevice: audioConfig.audioDevice,
-                audioDeviceName: audioConfig.audioDeviceName || 'Unknown'
+                audioDeviceName: audioConfig.audioDeviceName || 'Unknown',
+                sampleRate: audioConfig.sampleRate,
+                channels: audioConfig.channels,
+                channelLayout: audioConfig.channelLayout
             };
         }
 
@@ -277,8 +289,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
         process.exit(1);
     }
 
+    // Probe device capabilities (sample rate / channels)
+    const capabilities = await getAudioDeviceInfo(selectedDevice.index);
+
     // Save to preferences directory configuration
-    await saveAudioDeviceToHomeConfig(selectedDevice.index, selectedDevice.name, runConfig.preferencesDirectory!);
+    await saveAudioDeviceToHomeConfig(selectedDevice.index, selectedDevice.name, capabilities, runConfig.preferencesDirectory!);
     logger.info('💾 Audio device saved to %s/audio-device.yaml', runConfig.preferencesDirectory);
 
     logger.info('✅ Audio device selection complete');

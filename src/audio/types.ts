@@ -6,6 +6,12 @@ export interface AudioDevice {
 export interface AudioDeviceConfig {
     audioDevice: string;
     audioDeviceName: string;
+    /** Native sample rate of the selected device in Hz */
+    sampleRate?: number;
+    /** Number of audio channels (e.g. 1 = mono, 2 = stereo) */
+    channels?: number;
+    /** Human-readable channel layout reported by ffmpeg (e.g. "mono", "stereo") */
+    channelLayout?: string;
 }
 
 export interface AudioProcessingOptions {
