@@ -23,6 +23,8 @@ export interface AudioProcessingOptions {
     debug?: boolean;
     /** Dry run mode */
     dryRun?: boolean;
+    /** Keep temporary raw recording directory for inspection */
+    keepTemp?: boolean;
 }
 
 export interface AudioProcessingResult {

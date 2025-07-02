@@ -47,7 +47,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
             outputDirectory: runConfig.outputDirectory,
             preferencesDirectory: runConfig.preferencesDirectory,
             debug: runConfig.debug,
-            dryRun: isDryRun
+            dryRun: isDryRun,
+            keepTemp: runConfig.audioCommit?.keepTemp
         });
 
         // If the recording was cancelled, exit
