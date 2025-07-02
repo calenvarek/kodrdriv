@@ -5,6 +5,7 @@ import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, DEFAULT_
 import { getLogger } from "./logging";
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
+import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({
     dryRun: z.boolean().optional(),
@@ -218,7 +219,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     }
 
     // Get CLI arguments using the new function
-    const [finalCliArgs, commandConfig]: [Input, CommandConfig] = getCliConfig(program);
+    const [finalCliArgs, commandConfig]: [Input, CommandConfig] = await getCliConfig(program);
     logger.silly('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
 
     // Transform the flat CLI args using the new function
@@ -271,7 +272,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
 }
 
 // Function to handle CLI argument parsing and processing
-export function getCliConfig(program: Command): [Input, CommandConfig] {
+export async function getCliConfig(program: Command): Promise<[Input, CommandConfig]> {
 
     const addSharedOptions = (command: Command) => {
         command
@@ -451,6 +452,12 @@ export function getCliConfig(program: Command): [Input, CommandConfig] {
             const args = commitCommand.args;
             if (args && args.length > 0 && args[0]) {
                 commandOptions.direction = args[0];
+            }
+
+            // Check for STDIN input for direction (takes precedence over positional argument)
+            const stdinInput = await readStdin();
+            if (stdinInput) {
+                commandOptions.direction = stdinInput;
             }
         } else if (commandName === 'audio-commit' && audioCommitCommand.opts) {
             commandOptions = audioCommitCommand.opts<Partial<Input>>();
@@ -672,3 +679,4 @@ export async function validateAndReadInstructions(instructionsPath: string): Pro
         throw new Error(`Failed to read instructions from ${instructionsPath} or default location.`);
     }
 }
+
