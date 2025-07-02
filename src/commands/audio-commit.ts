@@ -37,6 +37,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const audioContext = await recordAndTranscribeAudio(runConfig);
 
     // Now delegate to the regular commit command with the audio context
+    logger.info('🤖 Generating commit message using audio context...');
     return executeCommit({
         ...runConfig,
         commit: {
@@ -372,12 +373,14 @@ const recordAndTranscribeAudio = async (runConfig: Config): Promise<string> => {
 
         // Transcribe the audio
         logger.info('🎯 Transcribing audio...');
+        logger.info('⏳ This may take a few seconds depending on audio length...');
         const transcription = await transcribeAudio(audioFilePath);
         const audioContext = transcription.text;
         logger.info('✅ Audio transcribed successfully');
         logger.debug('Transcription: %s', audioContext);
 
         // Save audio file and transcript to output directory
+        logger.info('💾 Saving audio file and transcript...');
         try {
             const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
             const storage = createStorage({ log: logger.info });
