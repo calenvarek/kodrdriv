@@ -41,7 +41,10 @@ export async function main() {
     // Configure logging early, before CardiganTime initialization
     configureEarlyLogging();
 
-    const cardigantime = Cardigantime.create({
+    // Cast create to `any` to avoid excessive type instantiation issues in TS compiler
+    const createCardigantime: any = (Cardigantime as unknown as { create: unknown }).create as any;
+
+    const cardigantime = createCardigantime({
         defaults: {
             configDirectory: DEFAULT_CONFIG_DIR,
             // Move pathResolution INSIDE defaults

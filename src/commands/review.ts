@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { Model, Request } from '@riotprompt/riotprompt';
+import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { createCompletion } from '../util/openai';
-import * as Prompts from '../prompt/prompts';
+import * as ReviewPrompt from '../prompt/review';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as ReleaseNotes from '../content/releaseNotes';
@@ -12,6 +12,10 @@ import * as Issues from '../content/issues';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
+import path from 'path';
+import os from 'os';
+import { spawnSync } from 'child_process';
+import fs from 'fs/promises';
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
@@ -53,9 +57,61 @@ export const execute = async (runConfig: Config): Promise<string> => {
     }
 
     // Get the review note from configuration
-    const reviewNote = runConfig.review?.note;
+    let reviewNote = runConfig.review?.note;
+
+    // If no review note was provided via CLI arg or STDIN, open the user's editor to capture it.
     if (!reviewNote || !reviewNote.trim()) {
-        throw new Error('No review note provided. Provide a note as an argument: kodrdriv review "your review text" or pipe via STDIN: echo "your review text" | kodrdriv review');
+        const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
+
+        // Create a temporary file for the user to edit.
+        const tmpDir = os.tmpdir();
+        const tmpFilePath = path.join(tmpDir, `kodrdriv_review_${Date.now()}.md`);
+
+        // Pre-populate the file with a helpful header so users know what to do.
+        const templateContent = [
+            '# Kodrdriv Review Note',
+            '',
+            '# Please enter your review note below. Lines starting with "#" will be ignored.',
+            '# Save and close the editor when you are done.',
+            '',
+            '',
+        ].join('\n');
+
+        await fs.writeFile(tmpFilePath, templateContent, 'utf8');
+
+        logger.info(`No review note provided – opening ${editor} to capture input...`);
+
+        // Open the editor synchronously so execution resumes after the user closes it.
+        const result = spawnSync(editor, [tmpFilePath], { stdio: 'inherit' });
+
+        if (result.error) {
+            throw new Error(`Failed to launch editor '${editor}': ${result.error.message}`);
+        }
+
+        // Read the file back in, stripping comment lines and whitespace.
+        const fileContent = (await fs.readFile(tmpFilePath, 'utf8'))
+            .split('\n')
+            .filter(line => !line.trim().startsWith('#'))
+            .join('\n')
+            .trim();
+
+        // Clean up the temporary file (best-effort – ignore errors).
+        try {
+            await fs.unlink(tmpFilePath);
+        } catch {
+            /* ignore */
+        }
+
+        if (!fileContent) {
+            throw new Error('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
+        }
+
+        reviewNote = fileContent;
+
+        // If the original runConfig.review object exists, update it so downstream code has the note.
+        if (runConfig.review) {
+            runConfig.review.note = reviewNote;
+        }
     }
 
     logger.info('📝 Starting review analysis...');
@@ -130,15 +186,28 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Analyze review note for issues using OpenAI
     logger.info('🤖 Analyzing review note for project issues...');
-    const prompts = Prompts.create(runConfig.model as Model, runConfig);
+    const promptConfig = {
+        overridePath: runConfig.configDirectory,
+        overrides: runConfig.overrides || false,
+    };
+    const promptContent = {
+        notes: reviewNote,
+    };
+    const promptContext = {
+        context: runConfig.review?.context,
+        logContext,
+        diffContext,
+        releaseNotesContext,
+        issuesContext,
+    };
+    const prompt = await ReviewPrompt.createPrompt(promptConfig, promptContent, promptContext);
 
 
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
     const storage = createStorage({ log: logger.info });
     await storage.ensureDirectory(outputDirectory);
 
-    const analysisPrompt = await prompts.createReviewPrompt({ notes: reviewNote }, { context: runConfig.review?.context, logContext, diffContext, releaseNotesContext, issuesContext });
-    const request: Request = prompts.format(analysisPrompt);
+    const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
 
     const analysisResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
         model: runConfig.model,
