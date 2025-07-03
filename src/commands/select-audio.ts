@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import path from 'path';
-import yaml from 'js-yaml';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { run } from '../util/child';
 import { create as createStorage } from '../util/storage';
+import os from 'os';
 
 const parseAudioDevices = async (): Promise<Array<{ index: string; name: string }>> => {
     try {
@@ -135,96 +135,59 @@ const selectAudioDeviceInteractively = async (): Promise<{ index: string; name: 
     });
 };
 
-const getAudioDeviceConfigPath = (preferencesDirectory: string): string => {
-    return path.join(preferencesDirectory, 'audio-device.yaml');
+const getUnplayableConfigPath = (): string => {
+    return path.join(os.homedir(), '.unplayable', 'config.json');
 };
 
-const ensurePreferencesDirectory = async (preferencesDirectory: string): Promise<void> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
+const ensureUnplayableDirectory = async (): Promise<void> => {
+    const storage = createStorage({ log: () => { } });
+    const unplayableDir = path.join(os.homedir(), '.unplayable');
 
     try {
-        await storage.ensureDirectory(preferencesDirectory);
-        logger.debug('Ensured preferences directory exists: %s', preferencesDirectory);
+        await storage.ensureDirectory(unplayableDir);
     } catch (error: any) {
-        logger.error('Failed to create preferences directory: %s', error.message);
-        throw error;
+        if (error.code !== 'EEXIST') {
+            throw error;
+        }
     }
 };
 
-export const saveAudioDeviceToHomeConfig = async (
+const saveAudioDeviceToUnplayableConfig = async (
     deviceIndex: string,
     deviceName: string,
-    capabilities: { sampleRate?: number; channels?: number; channelLayout?: string },
-    preferencesDirectory: string
+    capabilities: { sampleRate?: number; channels?: number; channelLayout?: string }
 ): Promise<void> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
     try {
-        await ensurePreferencesDirectory(preferencesDirectory);
-        const configPath = getAudioDeviceConfigPath(preferencesDirectory);
+        await ensureUnplayableDirectory();
+        const configPath = path.join(os.homedir(), '.unplayable', 'audio-device.json');
 
-        const audioConfig = {
+        const deviceConfig = {
             audioDevice: deviceIndex,
             audioDeviceName: deviceName,
             sampleRate: capabilities.sampleRate,
-            channels: capabilities.channels,
-            channelLayout: capabilities.channelLayout,
-            lastUpdated: new Date().toISOString()
+            channels: capabilities.channels || (capabilities.channelLayout === 'mono' ? 1 : 2),
+            channelLayout: capabilities.channelLayout
         };
 
-        // Save as YAML
-        const yamlContent = yaml.dump(audioConfig, {
-            indent: 2,
-            lineWidth: 120,
-            noRefs: true
-        });
-
-        await storage.writeFile(configPath, yamlContent, 'utf-8');
-        logger.debug('Saved audio configuration to: %s', configPath);
-
+        await storage.writeFile(configPath, JSON.stringify(deviceConfig, null, 2), 'utf-8');
+        logger.info('Audio device configuration saved to %s', configPath);
     } catch (error: any) {
-        logger.error('Failed to save audio configuration: %s', error.message);
+        logger.error('Failed to save audio device configuration: %s', error.message);
         throw error;
     }
 };
 
-export const loadAudioDeviceFromHomeConfig = async (preferencesDirectory: string): Promise<{ audioDevice: string; audioDeviceName: string; sampleRate?: number; channels?: number; channelLayout?: string } | null> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
-
-    try {
-        const configPath = getAudioDeviceConfigPath(preferencesDirectory);
-        const configContent = await storage.readFile(configPath, 'utf-8');
-        const audioConfig = yaml.load(configContent) as any;
-
-        if (audioConfig?.audioDevice) {
-            logger.debug('Loaded audio device from preferences config: [%s] %s', audioConfig.audioDevice, audioConfig.audioDeviceName || 'Unknown');
-            return {
-                audioDevice: audioConfig.audioDevice,
-                audioDeviceName: audioConfig.audioDeviceName || 'Unknown',
-                sampleRate: audioConfig.sampleRate,
-                channels: audioConfig.channels,
-                channelLayout: audioConfig.channelLayout
-            };
-        }
-
-        return null;
-    } catch {
-        // Config file doesn't exist or is invalid
-        logger.debug('No saved audio device configuration found in preferences directory');
-        return null;
-    }
-};
-
-export const audioDeviceConfigExists = async (preferencesDirectory: string): Promise<boolean> => {
+const hasUnplayableAudioConfig = async (): Promise<boolean> => {
     const storage = createStorage({ log: () => { } });
-    const configPath = getAudioDeviceConfigPath(preferencesDirectory);
+    const configPath = getUnplayableConfigPath();
 
     try {
-        await storage.readFile(configPath, 'utf-8');
-        return true;
+        const configContent = await storage.readFile(configPath, 'utf-8');
+        const config = JSON.parse(configContent);
+        return !!(config?.device || config?.audioDevice);
     } catch {
         return false;
     }
@@ -344,7 +307,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     if (isDryRun) {
         logger.info('DRY RUN: Would start audio device selection process');
-        logger.info('DRY RUN: Would save selected device to %s/audio-device.yaml', runConfig.preferencesDirectory);
+        logger.info('DRY RUN: Would save selected device to %s', getUnplayableConfigPath());
         return 'Audio device selection completed (dry run)';
     }
 
@@ -371,8 +334,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const capabilities = await getAudioDeviceInfo(selectedDevice.index);
 
     // Save to preferences directory configuration
-    await saveAudioDeviceToHomeConfig(selectedDevice.index, selectedDevice.name, capabilities || {}, runConfig.preferencesDirectory!);
-    logger.info('💾 Audio device saved to %s/audio-device.yaml', runConfig.preferencesDirectory);
+    await saveAudioDeviceToUnplayableConfig(selectedDevice.index, selectedDevice.name, capabilities || {});
+    logger.info('💾 Audio device saved to %s', getUnplayableConfigPath());
 
     logger.info('✅ Audio device selection complete');
     logger.info('');
