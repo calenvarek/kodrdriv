@@ -7,7 +7,7 @@ import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constant
 import * as Diff from '../content/diff';
 import * as Log from '../content/log';
 import { getLogger } from '../logging';
-import * as Prompts from '../prompt/prompts';
+import * as CommitPrompt from '../prompt/commit';
 import { Config } from '../types';
 import { run } from '../util/child';
 import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
@@ -16,7 +16,6 @@ import { create as createStorage } from '../util/storage';
 
 export const execute = async (runConfig: Config) => {
     const logger = getLogger();
-    const prompts = Prompts.create(runConfig.model as Model, runConfig);
     const isDryRun = runConfig.dryRun || false;
 
     if (runConfig.commit?.add) {
@@ -55,14 +54,27 @@ export const execute = async (runConfig: Config) => {
     const log = await Log.create(logOptions);
     const logContext = await log.get();
 
-    const prompt = await prompts.createCommitPrompt({ diffContent }, { logContext, userDirection: runConfig.commit?.direction, context: runConfig.commit?.context });
+    const promptConfig = {
+        overridePath: runConfig.configDirectory,
+        overrides: runConfig.overrides || false,
+    };
+    const promptContent = {
+        diffContent,
+        userDirection: runConfig.commit?.direction,
+    };
+    const promptContext = {
+        logContext,
+        context: runConfig.commit?.context,
+        directories: runConfig.contextDirectories,
+    };
+    const prompt = await CommitPrompt.createPrompt(promptConfig, promptContent, promptContext);
 
     if (runConfig.debug) {
         const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);
         logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
     }
 
-    const request: Request = prompts.format(prompt);
+    const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
 
     // Always ensure output directory exists for request/response files
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;

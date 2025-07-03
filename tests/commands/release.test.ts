@@ -1,15 +1,34 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
 // Mock ESM modules
-vi.mock('@riotprompt/riotprompt', () => ({
-    // @ts-ignore
-    createSection: vi.fn().mockReturnValue({
-        add: vi.fn()
-    }),
-    Model: {
-        GPT_4: 'gpt-4'
-    }
-}));
+vi.mock('@riotprompt/riotprompt', () => {
+    const localBuilder: any = {
+        addPersonaPath: vi.fn(async () => localBuilder),
+        addInstructionPath: vi.fn(async () => localBuilder),
+        addContent: vi.fn(async () => localBuilder),
+        loadContext: vi.fn(async () => localBuilder),
+        addContext: vi.fn(async () => localBuilder),
+        build: vi.fn().mockResolvedValue('mock prompt')
+    };
+
+    return {
+        // @ts-ignore
+        createSection: vi.fn().mockReturnValue({
+            add: vi.fn()
+        }),
+        Model: {
+            GPT_4: 'gpt-4'
+        },
+        Formatter: {
+            create: vi.fn().mockReturnValue({
+                formatPrompt: vi.fn().mockReturnValue({ messages: [] })
+            })
+        },
+        Builder: {
+            create: vi.fn(() => localBuilder)
+        }
+    };
+});
 
 vi.mock('../../src/prompt/prompts', () => ({
     // @ts-ignore
@@ -54,9 +73,12 @@ describe('release command', () => {
     beforeEach(async () => {
         // Import modules after mocking
         MinorPrompt = await import('@riotprompt/riotprompt');
-        Prompts = await import('../../src/prompt/prompts');
+        Release = await import('../../src/prompt/release');
         Log = await import('../../src/content/log');
         OpenAI = await import('../../src/util/openai');
+        // Import mocked prompts module for compatibility
+        // @ts-ignore – module is mocked above, actual file is not required
+        Prompts = await import('../../src/prompt/prompts');
         Release = await import('../../src/commands/release');
     });
 
@@ -75,7 +97,6 @@ describe('release command', () => {
             from: 'origin/HEAD',
             to: 'HEAD'
         });
-        expect(Prompts.create).toHaveBeenCalledWith('gpt-4', runConfig);
         expect(OpenAI.createCompletion).toHaveBeenCalled();
         expect(result).toEqual({
             title: 'mock title',
@@ -98,7 +119,7 @@ describe('release command', () => {
             from: 'v1.0.0',
             to: 'main'
         });
-        expect(Prompts.create).toHaveBeenCalledWith('gpt-4', runConfig);
+        expect(OpenAI.createCompletion).toHaveBeenCalled();
         expect(result).toEqual({
             title: 'mock title',
             body: 'mock body'
