@@ -26,9 +26,8 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     logContent = await log.get();
 
     const promptConfig = {
-        overridePath: runConfig.configDirectory,
+        overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
-        overrideDirs: runConfig.discoveredConfigDirs || [],
     };
     const promptContent = {
         logContent,
