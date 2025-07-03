@@ -26,6 +26,10 @@ vi.mock('@riotprompt/riotprompt', () => {
         },
         Builder: {
             create: vi.fn(() => localBuilder)
+        },
+        // Add the new quick API functions
+        quick: {
+            release: vi.fn().mockResolvedValue('mock prompt')
         }
     };
 });

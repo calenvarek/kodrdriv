@@ -621,6 +621,9 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         configDirectory: configDir,
         outputDirectory: options.outputDirectory ?? KODRDRIV_DEFAULTS.outputDirectory,
         preferencesDirectory: options.preferencesDirectory ?? KODRDRIV_DEFAULTS.preferencesDirectory,
+        // Cardigantime-specific properties (from fileValues or defaults)
+        discoveredConfigDirs: (options as any).discoveredConfigDirs ?? [],
+        resolvedConfigDirs: (options as any).resolvedConfigDirs ?? [],
         // Command-specific options with defaults
         commit: {
             add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
