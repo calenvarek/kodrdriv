@@ -187,9 +187,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
     // Analyze review note for issues using OpenAI
     logger.info('🤖 Analyzing review note for project issues...');
     const promptConfig = {
-        overridePath: runConfig.configDirectory,
+        overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
-        overrideDirs: runConfig.discoveredConfigDirs || [],
     };
     const promptContent = {
         notes: reviewNote,
