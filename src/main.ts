@@ -13,9 +13,26 @@ import * as Release from './commands/release';
 import * as Review from './commands/review';
 import * as SelectAudio from './commands/select-audio';
 import * as Unlink from './commands/unlink';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR, DEFAULT_INSTRUCTIONS_COMMIT_FILE, DEFAULT_INSTRUCTIONS_RELEASE_FILE, DEFAULT_INSTRUCTIONS_REVIEW_FILE, DEFAULT_PERSONA_RELEASER_FILE, DEFAULT_PERSONA_YOU_FILE } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { Config, ConfigSchema, SecureConfig } from './types';
+import { configureTemplates } from '@riotprompt/riotprompt';
+
+// Configure RiotPrompt templates once for the entire application
+configureTemplates({
+    commit: {
+        persona: { path: DEFAULT_PERSONA_YOU_FILE, title: 'Developer Persona' },
+        instructions: [{ path: DEFAULT_INSTRUCTIONS_COMMIT_FILE, title: 'Commit Instructions' }]
+    },
+    release: {
+        persona: { path: DEFAULT_PERSONA_RELEASER_FILE, title: 'Release Manager Persona' },
+        instructions: [{ path: DEFAULT_INSTRUCTIONS_RELEASE_FILE, title: 'Release Instructions' }]
+    },
+    review: {
+        persona: { path: DEFAULT_PERSONA_YOU_FILE, title: 'Developer Persona' },
+        instructions: [{ path: DEFAULT_INSTRUCTIONS_REVIEW_FILE, title: 'Review Instructions' }]
+    }
+});
 
 /**
  * Configure early logging based on command line flags.

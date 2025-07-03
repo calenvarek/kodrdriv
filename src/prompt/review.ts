@@ -1,15 +1,12 @@
-import { Builder, Prompt } from '@riotprompt/riotprompt';
+import { cook, Prompt } from '@riotprompt/riotprompt';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { DEFAULT_INSTRUCTIONS_REVIEW_FILE, DEFAULT_PERSONA_YOU_FILE } from '../constants';
-import { getLogger } from '../logging';
-import { Config as RunConfig } from '../types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export type Config = {
-    overridePath?: string;
+    overridePaths?: string[];
     overrides?: boolean;
 }
 
@@ -27,45 +24,44 @@ export type Context = {
 };
 
 export const createPrompt = async (
-    { overridePath, overrides }: Config,
+    { overridePaths, overrides }: Config,
     { notes }: Content,
     { logContext, diffContext, releaseNotesContext, issuesContext, context, directories }: Context = {}
 ): Promise<Prompt> => {
-    const logger = getLogger();
+    // Prepare content array for the recipe
+    const content = [
+        { content: notes, title: 'Review Notes', weight: 1.0 }
+    ];
 
-    let builder: Builder.Instance = Builder.create({
-        logger,
-        basePath: __dirname,
-        overridePath,
-        overrides: overrides || false,
-    });
-
-    builder = await builder.addPersonaPath(DEFAULT_PERSONA_YOU_FILE);
-    builder = await builder.addInstructionPath(DEFAULT_INSTRUCTIONS_REVIEW_FILE);
-
-    // Primary review notes supplied by the user
-    builder = await builder.addContent(notes, { title: 'Review Notes', weight: 1.0 });
-
-    // Additional context directories
-    if (directories?.length) {
-        builder = await builder.loadContext(directories, { weight: 0.5 });
-    }
+    // Prepare context array for the recipe
+    const contextArray = [];
 
     if (logContext) {
-        builder = await builder.addContext(logContext, { title: 'Log Context', weight: 0.5 });
+        contextArray.push({ content: logContext, title: 'Log Context', weight: 0.5 });
     }
     if (diffContext) {
-        builder = await builder.addContext(diffContext, { title: 'Diff Context', weight: 0.5 });
+        contextArray.push({ content: diffContext, title: 'Diff Context', weight: 0.5 });
     }
     if (releaseNotesContext) {
-        builder = await builder.addContext(releaseNotesContext, { title: 'Release Notes Context', weight: 0.5 });
+        contextArray.push({ content: releaseNotesContext, title: 'Release Notes Context', weight: 0.5 });
     }
     if (issuesContext) {
-        builder = await builder.addContext(issuesContext, { title: 'Issues Context', weight: 0.5 });
+        contextArray.push({ content: issuesContext, title: 'Issues Context', weight: 0.5 });
     }
     if (context) {
-        builder = await builder.addContext(context, { title: 'User Context', weight: 1.0 });
+        contextArray.push({ content: context, title: 'User Context', weight: 1.0 });
+    }
+    if (directories?.length) {
+        contextArray.push({ directories, weight: 0.5 });
     }
 
-    return await builder.build();
+    // Use the new cook recipe with template
+    return cook({
+        basePath: __dirname,
+        overridePaths: overridePaths || [],
+        overrides: overrides || false,
+        template: 'review',
+        content,
+        context: contextArray
+    });
 }; 

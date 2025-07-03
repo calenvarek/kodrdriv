@@ -57,6 +57,7 @@ export const execute = async (runConfig: Config) => {
     const promptConfig = {
         overridePath: runConfig.configDirectory,
         overrides: runConfig.overrides || false,
+        overrideDirs: runConfig.discoveredConfigDirs || [],
     };
     const promptContent = {
         diffContent,
