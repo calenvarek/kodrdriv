@@ -7,5 +7,5 @@ coverage/
 output/
 RELEASE_NOTES.md
 RELEASE_TITLE.md
-.kodrdriv/audio-config.json
+.kodrdriv/audio-device.yaml
 tsconfig.tsbuildinfo

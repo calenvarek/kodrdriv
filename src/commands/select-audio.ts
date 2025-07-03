@@ -5,7 +5,6 @@ import { getLogger } from '../logging';
 import { Config } from '../types';
 import { run } from '../util/child';
 import { create as createStorage } from '../util/storage';
-import { getAudioDeviceInfo } from '../audio/devices';
 
 const parseAudioDevices = async (): Promise<Array<{ index: string; name: string }>> => {
     try {
@@ -50,7 +49,6 @@ const selectAudioDeviceInteractively = async (): Promise<{ index: string; name: 
     logger.info('🔍 Testing audio devices...');
     const deviceStatuses = await Promise.all(
         devices.map(async (device) => {
-            const { testAudioDevice } = await import('../audio/devices');
             const isWorking = await testAudioDevice(device.index);
             return { ...device, isWorking };
         })
@@ -260,6 +258,86 @@ const listAudioDevices = async (): Promise<void> => {
     }
 };
 
+/**
+ * Test if an audio device is working by attempting a short recording
+ */
+const testAudioDevice = async (deviceIndex: string): Promise<boolean> => {
+    const logger = getLogger();
+    try {
+        // Test the device with a very short recording
+        const testArgs = [
+            '-f', 'avfoundation',
+            '-i', `":${deviceIndex}"`, // Just audio, no video
+            '-t', '0.1', // 0.1 second test
+            '-f', 'null',
+            '-'
+        ];
+
+        await run(`ffmpeg ${testArgs.join(' ')}`);
+        logger.debug(`Device ${deviceIndex} test: PASS`);
+        return true;
+    } catch (error: any) {
+        logger.debug(`Device ${deviceIndex} test: FAIL - ${error.message}`);
+        return false;
+    }
+};
+
+/**
+ * Get detailed information about a specific audio device
+ */
+const getAudioDeviceInfo = async (deviceIndex: string): Promise<{ sampleRate?: number; channels?: number; channelLayout?: string }> => {
+    const logger = getLogger();
+    try {
+        // Use ffmpeg to probe the device capabilities
+        const probeArgs = [
+            '-f', 'avfoundation',
+            '-i', `":${deviceIndex}"`,
+            '-t', '0.1',
+            '-f', 'null',
+            '-'
+        ];
+
+        const result = await run(`ffmpeg ${probeArgs.join(' ')}`);
+        const output = result.stderr || result.stdout || '';
+
+        // Parse the output for audio information
+        let sampleRate: number | undefined;
+        let channels: number | undefined;
+        let channelLayout: string | undefined;
+
+        // Look for sample rate info (e.g., "48000 Hz")
+        const sampleRateMatch = output.match(/(\d+)\s*Hz/);
+        if (sampleRateMatch) {
+            sampleRate = parseInt(sampleRateMatch[1]);
+        }
+
+        // Look for channel info (e.g., "mono", "stereo", "1 channels", "2 channels")
+        const channelMatch = output.match(/(\d+)\s*channels?/);
+        if (channelMatch) {
+            channels = parseInt(channelMatch[1]);
+        }
+
+        // Look for channel layout info
+        const layoutMatch = output.match(/(mono|stereo)/i);
+        if (layoutMatch) {
+            channelLayout = layoutMatch[1].toLowerCase();
+        } else if (channels) {
+            channelLayout = channels === 1 ? 'mono' : channels === 2 ? 'stereo' : `${channels}ch`;
+        }
+
+        logger.debug(`Device ${deviceIndex} info: ${sampleRate}Hz, ${channels}ch, ${channelLayout}`);
+
+        return {
+            sampleRate,
+            channels,
+            channelLayout
+        };
+    } catch (error: any) {
+        logger.debug(`Failed to get device ${deviceIndex} info: ${error.message}`);
+        return {};
+    }
+};
+
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
@@ -293,7 +371,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const capabilities = await getAudioDeviceInfo(selectedDevice.index);
 
     // Save to preferences directory configuration
-    await saveAudioDeviceToHomeConfig(selectedDevice.index, selectedDevice.name, capabilities, runConfig.preferencesDirectory!);
+    await saveAudioDeviceToHomeConfig(selectedDevice.index, selectedDevice.name, capabilities || {}, runConfig.preferencesDirectory!);
     logger.info('💾 Audio device saved to %s/audio-device.yaml', runConfig.preferencesDirectory);
 
     logger.info('✅ Audio device selection complete');
