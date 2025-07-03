@@ -4,7 +4,6 @@ import { getLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeReview } from './review';
 import { processAudio } from '@theunwalked/unplayable';
-import { loadAudioDeviceFromHomeConfig } from './select-audio';
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
@@ -37,24 +36,15 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info('🎙️  Starting audio processing for review context...');
 
         if (!runConfig.audioReview?.file) {
-            logger.info('This command will use your system\'s default audio recording tool');
-            logger.info('💡 Tip: Run "kodrdriv select-audio" to choose a specific microphone');
+            logger.info('This command will use your configured audio device');
+            logger.info('💡 Tip: Run "kodrdriv select-audio" to choose a different microphone');
             logger.info('Press Ctrl+C after you finish speaking to generate your review analysis');
-        }
-
-        // Load audio device from config if not explicitly specified
-        let audioDevice = runConfig.audioReview?.audioDevice;
-        if (!audioDevice && runConfig.preferencesDirectory) {
-            const deviceConfig = await loadAudioDeviceFromHomeConfig(runConfig.preferencesDirectory);
-            audioDevice = deviceConfig?.audioDevice;
         }
 
         const result = await processAudio({
             file: runConfig.audioReview?.file,
-            audioDevice: audioDevice,
             maxRecordingTime: runConfig.audioReview?.maxRecordingTime,
             outputDirectory: runConfig.outputDirectory,
-            preferencesDirectory: runConfig.preferencesDirectory,
             debug: runConfig.debug,
             dryRun: isDryRun,
             keepTemp: runConfig.audioReview?.keepTemp
@@ -78,7 +68,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     } catch (error: any) {
         if (error.message.includes('No audio device configured')) {
             logger.error('❌ No audio device configured. Please run "kodrdriv select-audio" first to configure your audio device.');
-            logger.info('💡 This will create %s/audio-device.yaml with your preferred audio device.', runConfig.preferencesDirectory);
+            logger.info('💡 This will create ~/.unplayable/config.json with your preferred audio device.');
             process.exit(1);
         }
 

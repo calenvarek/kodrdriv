@@ -3,7 +3,28 @@ import { getLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeCommit } from './commit';
 import { processAudio } from '@theunwalked/unplayable';
-import { loadAudioDeviceFromHomeConfig } from './select-audio';
+import os from 'os';
+import fs from 'fs/promises';
+import path from 'path';
+
+const loadAudioDeviceFromUnplayableConfig = async (): Promise<string | null> => {
+    const logger = getLogger();
+    try {
+        const configPath = path.join(os.homedir(), '.unplayable', 'config.json');
+        const configContent = await fs.readFile(configPath, 'utf-8');
+        const config = JSON.parse(configContent);
+
+        const audioDevice = config?.device || config?.audioDevice;
+        if (audioDevice) {
+            logger.debug('Loaded audio device from unplayable config: %s (%s)', audioDevice, config?.deviceName || config?.audioDeviceName || 'Unknown');
+            return audioDevice;
+        }
+        return null;
+    } catch (error: any) {
+        logger.debug('No audio device found in unplayable config: %s', error.message);
+        return null;
+    }
+};
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
@@ -36,24 +57,20 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info('🎙️  Starting audio processing for commit context...');
 
         if (!runConfig.audioCommit?.file) {
-            logger.info('This command will use your system\'s default audio recording tool');
-            logger.info('💡 Tip: Run "kodrdriv select-audio" to choose a specific microphone');
+            logger.info('This command will use your configured audio device');
+            logger.info('💡 Tip: Run "kodrdriv select-audio" to choose a different microphone');
             logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
         }
 
-        // Load audio device from config if not explicitly specified
-        let audioDevice = runConfig.audioCommit?.audioDevice;
-        if (!audioDevice && runConfig.preferencesDirectory) {
-            const deviceConfig = await loadAudioDeviceFromHomeConfig(runConfig.preferencesDirectory);
-            audioDevice = deviceConfig?.audioDevice;
-        }
+        // Load audio device from unplayable config
+        const audioDevice = await loadAudioDeviceFromUnplayableConfig();
+        logger.debug('Calling processAudio with audioDevice: %s, file: %s', audioDevice, runConfig.audioCommit?.file);
 
         const result = await processAudio({
             file: runConfig.audioCommit?.file,
-            audioDevice: audioDevice,
+            audioDevice: audioDevice || undefined,
             maxRecordingTime: runConfig.audioCommit?.maxRecordingTime,
             outputDirectory: runConfig.outputDirectory,
-            preferencesDirectory: runConfig.preferencesDirectory,
             debug: runConfig.debug,
             dryRun: isDryRun,
             keepTemp: runConfig.audioCommit?.keepTemp
@@ -77,7 +94,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     } catch (error: any) {
         if (error.message.includes('No audio device configured')) {
             logger.error('❌ No audio device configured. Please run "kodrdriv select-audio" first to configure your audio device.');
-            logger.info('💡 This will create %s/audio-device.yaml with your preferred audio device.', runConfig.preferencesDirectory);
+            logger.info('💡 This will create ~/.unplayable/config.json with your preferred audio device.');
             process.exit(1);
         }
 
