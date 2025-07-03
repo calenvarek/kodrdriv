@@ -27,18 +27,35 @@ vi.mock('../../src/util/openai', () => ({
     createCompletion: vi.fn()
 }));
 
-vi.mock('@riotprompt/riotprompt', () => ({
-    // @ts-ignore
-    createSection: vi.fn().mockReturnValue({
-        add: vi.fn()
-    }),
-    // @ts-ignore
-    Formatter: {
-        create: vi.fn().mockReturnValue({
-            formatPrompt: vi.fn()
-        })
-    }
-}));
+vi.mock('@riotprompt/riotprompt', () => {
+    // Local builder instance to avoid TDZ issues
+    const localBuilder: any = {
+        addPersonaPath: vi.fn(async () => localBuilder),
+        addInstructionPath: vi.fn(async () => localBuilder),
+        addContent: vi.fn(async () => localBuilder),
+        loadContext: vi.fn(async () => localBuilder),
+        addContext: vi.fn(async () => localBuilder),
+        build: vi.fn().mockResolvedValue('mock prompt')
+    };
+
+    return {
+        // @ts-ignore
+        createSection: vi.fn().mockReturnValue({
+            add: vi.fn()
+        }),
+        // @ts-ignore
+        Formatter: {
+            create: vi.fn().mockReturnValue({
+                // Ensure formatPrompt returns an object with a messages array to satisfy command logic
+                formatPrompt: vi.fn().mockReturnValue({ messages: [] })
+            })
+        },
+        // Provide a Builder factory used by prompt creators
+        Builder: {
+            create: vi.fn(() => localBuilder)
+        }
+    };
+});
 
 vi.mock('../../src/content/log', () => ({
     // @ts-ignore
@@ -92,7 +109,7 @@ describe('commit', () => {
     beforeEach(async () => {
         // Import modules after mocking
         Logging = await import('../../src/logging');
-        Prompts = await import('../../src/prompt/prompts');
+        Commit = await import('../../src/prompt/commit');
         Diff = await import('../../src/content/diff');
         Child = await import('../../src/util/child');
         OpenAI = await import('../../src/util/openai');
@@ -100,6 +117,9 @@ describe('commit', () => {
         Log = await import('../../src/content/log');
         General = await import('../../src/util/general');
         shellescape = (await import('shell-escape')).default;
+        // Import the mocked prompts module so it can be referenced in tests
+        // @ts-ignore – path is mocked above, actual file is not required
+        Prompts = await import('../../src/prompt/prompts');
         Commit = await import('../../src/commands/commit');
     });
 
@@ -379,19 +399,22 @@ describe('commit', () => {
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
         // @ts-ignore
         Log.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockLogContent) });
-        const mockCreateCommitPrompt = vi.fn().mockResolvedValue(mockPrompt);
-        // @ts-ignore
-        Prompts.create.mockReturnValue({
-            createCommitPrompt: mockCreateCommitPrompt,
-            format: vi.fn().mockReturnValue({ messages: [] })
-        });
+
+        // Spy on the new prompt creator
+        const CommitPromptModule = await import('../../src/prompt/commit');
+        const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
+
         OpenAI.createCompletion.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
 
         // Assert
-        expect(mockCreateCommitPrompt).toHaveBeenCalledWith({ diffContent: mockDiffContent }, { context: mockContext, logContext: mockLogContent });
+        expect(promptSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            { diffContent: mockDiffContent, userDirection: undefined },
+            { context: mockContext, logContext: mockLogContent, directories: undefined }
+        );
     });
 
     it('should pass messageLimit to log creation when provided', async () => {
