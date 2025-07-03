@@ -10,7 +10,7 @@ import * as Diff from '../content/diff';
 import * as ReleaseNotes from '../content/releaseNotes';
 import * as Issues from '../content/issues';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
-import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename } from '../util/general';
+import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
 import path from 'path';
 import os from 'os';
@@ -116,6 +116,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     logger.info('📝 Starting review analysis...');
     logger.debug('Review note: %s', reviewNote);
+    logger.debug('Review note length: %d characters', reviewNote.length);
 
     // Gather additional context based on configuration
     let logContext = '';
@@ -186,6 +187,14 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Analyze review note for issues using OpenAI
     logger.info('🤖 Analyzing review note for project issues...');
+    logger.debug('Context summary:');
+    logger.debug('  - Review note: %d chars', reviewNote.length);
+    logger.debug('  - Log context: %d chars', logContext.length);
+    logger.debug('  - Diff context: %d chars', diffContext.length);
+    logger.debug('  - Release notes context: %d chars', releaseNotesContext.length);
+    logger.debug('  - Issues context: %d chars', issuesContext.length);
+    logger.debug('  - User context: %d chars', runConfig.review?.context?.length || 0);
+
     const promptConfig = {
         overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
@@ -202,10 +211,40 @@ export const execute = async (runConfig: Config): Promise<string> => {
     };
     const prompt = await ReviewPrompt.createPrompt(promptConfig, promptContent, promptContext);
 
-
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
     const storage = createStorage({ log: logger.info });
     await storage.ensureDirectory(outputDirectory);
+
+    // Save timestamped copy of review notes and context to output directory
+    try {
+        // Save the original review note
+        const reviewNotesFilename = getTimestampedReviewNotesFilename();
+        const reviewNotesPath = getOutputPath(outputDirectory, reviewNotesFilename);
+
+        let reviewNotesContent = `# Review Notes\n\n${reviewNote}\n\n`;
+
+        // Add all context sections if they exist
+        if (logContext.trim()) {
+            reviewNotesContent += `# Commit History Context\n\n${logContext}\n\n`;
+        }
+        if (diffContext.trim()) {
+            reviewNotesContent += `# Recent Diffs Context\n\n${diffContext}\n\n`;
+        }
+        if (releaseNotesContext.trim()) {
+            reviewNotesContent += `# Release Notes Context\n\n${releaseNotesContext}\n\n`;
+        }
+        if (issuesContext.trim()) {
+            reviewNotesContent += `# GitHub Issues Context\n\n${issuesContext}\n\n`;
+        }
+        if (runConfig.review?.context?.trim()) {
+            reviewNotesContent += `# User Context\n\n${runConfig.review.context}\n\n`;
+        }
+
+        await storage.writeFile(reviewNotesPath, reviewNotesContent, 'utf-8');
+        logger.debug('Saved timestamped review notes and context: %s', reviewNotesPath);
+    } catch (error: any) {
+        logger.warn('Failed to save timestamped review notes: %s', error.message);
+    }
 
     const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
 
@@ -218,6 +257,32 @@ export const execute = async (runConfig: Config): Promise<string> => {
     }) as Issues.ReviewResult;
 
     logger.info('✅ Analysis completed');
+    logger.debug('Analysis result summary: %s', analysisResult.summary);
+    logger.debug('Total issues found: %d', analysisResult.totalIssues);
+    logger.debug('Issues array length: %d', analysisResult.issues?.length || 0);
+    if (analysisResult.issues && analysisResult.issues.length > 0) {
+        analysisResult.issues.forEach((issue, index) => {
+            logger.debug('  Issue %d: [%s] %s', index + 1, issue.priority, issue.title);
+        });
+    }
+
+    // Save timestamped copy of analysis result to output directory
+    try {
+        const reviewFilename = getTimestampedReviewFilename();
+        const reviewPath = getOutputPath(outputDirectory, reviewFilename);
+
+        // Format the analysis result as markdown
+        const reviewContent = `# Review Analysis Result\n\n` +
+            `## Summary\n${analysisResult.summary}\n\n` +
+            `## Total Issues Found\n${analysisResult.totalIssues}\n\n` +
+            `## Issues\n\n${JSON.stringify(analysisResult.issues, null, 2)}\n\n` +
+            `---\n\n*Analysis completed at ${new Date().toISOString()}*`;
+
+        await storage.writeFile(reviewPath, reviewContent, 'utf-8');
+        logger.debug('Saved timestamped review analysis: %s', reviewPath);
+    } catch (error: any) {
+        logger.warn('Failed to save timestamped review analysis: %s', error.message);
+    }
 
     // Handle GitHub issue creation using the issues module
     const senditMode = runConfig.review?.sendit || false;

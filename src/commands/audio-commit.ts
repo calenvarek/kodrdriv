@@ -2,7 +2,8 @@
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeCommit } from './commit';
-import { processAudio } from '../audio';
+import { processAudio } from '@theunwalked/unplayable';
+import { loadAudioDeviceFromHomeConfig } from './select-audio';
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
@@ -40,9 +41,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info('Press Ctrl+C after you finish speaking to generate your commit message');
         }
 
+        // Load audio device from config if not explicitly specified
+        let audioDevice = runConfig.audioCommit?.audioDevice;
+        if (!audioDevice && runConfig.preferencesDirectory) {
+            const deviceConfig = await loadAudioDeviceFromHomeConfig(runConfig.preferencesDirectory);
+            audioDevice = deviceConfig?.audioDevice;
+        }
+
         const result = await processAudio({
             file: runConfig.audioCommit?.file,
-            audioDevice: runConfig.audioCommit?.audioDevice,
+            audioDevice: audioDevice,
             maxRecordingTime: runConfig.audioCommit?.maxRecordingTime,
             outputDirectory: runConfig.outputDirectory,
             preferencesDirectory: runConfig.preferencesDirectory,

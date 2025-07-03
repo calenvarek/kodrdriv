@@ -3,7 +3,8 @@
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeReview } from './review';
-import { processAudio } from '../audio';
+import { processAudio } from '@theunwalked/unplayable';
+import { loadAudioDeviceFromHomeConfig } from './select-audio';
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
@@ -41,9 +42,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info('Press Ctrl+C after you finish speaking to generate your review analysis');
         }
 
+        // Load audio device from config if not explicitly specified
+        let audioDevice = runConfig.audioReview?.audioDevice;
+        if (!audioDevice && runConfig.preferencesDirectory) {
+            const deviceConfig = await loadAudioDeviceFromHomeConfig(runConfig.preferencesDirectory);
+            audioDevice = deviceConfig?.audioDevice;
+        }
+
         const result = await processAudio({
             file: runConfig.audioReview?.file,
-            audioDevice: runConfig.audioReview?.audioDevice,
+            audioDevice: audioDevice,
             maxRecordingTime: runConfig.audioReview?.maxRecordingTime,
             outputDirectory: runConfig.outputDirectory,
             preferencesDirectory: runConfig.preferencesDirectory,

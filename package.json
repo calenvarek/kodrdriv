@@ -41,6 +41,7 @@
         "@octokit/rest": "^22.0.0",
         "@riotprompt/riotprompt": "^0.0.2",
         "@theunwalked/cardigantime": "^0.0.12",
+        "@theunwalked/unplayable": "^0.0.4",
         "audify": "^1.9.0",
         "commander": "^14.0.0",
         "dayjs": "^1.11.13",
