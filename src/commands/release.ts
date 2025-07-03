@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { Model, Request } from '@riotprompt/riotprompt';
+import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_FROM_COMMIT_ALIAS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
-import * as Prompts from '../prompt/prompts';
+import * as ReleasePrompt from '../prompt/release';
 import { Config, ReleaseSummary } from '../types';
 import { createCompletion } from '../util/openai';
 import { getLogger } from '../logging';
@@ -14,7 +14,6 @@ import { create as createStorage } from '../util/storage';
 
 export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const logger = getLogger();
-    const prompts = await Prompts.create(runConfig.model as Model, runConfig);
     const isDryRun = runConfig.dryRun || false;
 
     const log = await Log.create({ from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS, to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS });
@@ -26,9 +25,20 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     diffContent = await diff.get();
     logContent = await log.get();
 
-    const prompt = await prompts.createReleasePrompt({ logContent, diffContent }, { context: runConfig.release?.context });
+    const promptConfig = {
+        overridePath: runConfig.configDirectory,
+        overrides: runConfig.overrides || false,
+    };
+    const promptContent = {
+        logContent,
+        diffContent,
+    };
+    const promptContext = {
+        context: runConfig.release?.context,
+    };
+    const prompt = await ReleasePrompt.createPrompt(promptConfig, promptContent, promptContext);
 
-    const request: Request = prompts.format(prompt);
+    const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
 
     // Always ensure output directory exists for request/response files
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
