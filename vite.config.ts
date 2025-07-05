@@ -68,12 +68,19 @@ export default defineConfig({
             formats: ['es'],
         },
         rollupOptions: {
-            external: ['@theunwalked/dreadcabinet', '@theunwalked/cardigantime', '@riotprompt/riotprompt', '@riotprompt/riotprompt/formatter', '@riotprompt/riotprompt/chat'],
+            external: [
+                '@theunwalked/dreadcabinet',
+                '@theunwalked/cardigantime',
+                '@theunwalked/unplayable',
+                '@riotprompt/riotprompt',
+                '@riotprompt/riotprompt/formatter',
+                '@riotprompt/riotprompt/chat'
+            ],
             input: 'src/main.ts',
             output: {
                 format: 'esm',
-                entryFileNames: '[name].js',
-                preserveModules: true,
+                entryFileNames: 'main.js',
+                preserveModules: false,
                 exports: 'named',
             },
             plugins: [

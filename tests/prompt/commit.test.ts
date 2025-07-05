@@ -1,28 +1,10 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
-// Hold the builder mock instance so tests can assert against it
-var builderMock: any;
-
 // Mock the external @riotprompt/riotprompt module
 vi.mock('@riotprompt/riotprompt', () => {
-    // Helper to create a fresh mocked builder instance
-    const createBuilderMock = () => {
-        const instance: any = {};
-        instance.addPersonaPath = vi.fn().mockResolvedValue(instance);
-        instance.addInstructionPath = vi.fn().mockResolvedValue(instance);
-        instance.addContent = vi.fn().mockResolvedValue(instance);
-        instance.loadContext = vi.fn().mockResolvedValue(instance);
-        instance.addContext = vi.fn().mockResolvedValue(instance);
-        instance.build = vi.fn().mockResolvedValue('mock prompt');
-        return instance;
-    };
-
-    const localBuilder = createBuilderMock();
-    builderMock = localBuilder;
-
     return {
-        Builder: {
-            create: vi.fn(() => localBuilder)
+        quick: {
+            commit: vi.fn().mockResolvedValue('mock prompt')
         }
     };
 });
@@ -39,9 +21,8 @@ vi.mock('../../src/logging', () => ({
     })
 }));
 
-import { Builder } from '@riotprompt/riotprompt';
+import { quick } from '@riotprompt/riotprompt';
 import { createPrompt } from '../../src/prompt/commit';
-import { DEFAULT_INSTRUCTIONS_COMMIT_FILE, DEFAULT_PERSONA_YOU_FILE } from '../../src/constants';
 
 describe('createPrompt (commit)', () => {
     beforeEach(() => {
@@ -58,20 +39,18 @@ describe('createPrompt (commit)', () => {
 
         const result = await createPrompt({}, { diffContent }, {});
 
-        // Ensure Builder.create was invoked
-        expect(Builder.create).toHaveBeenCalledTimes(1);
+        // Ensure quick.commit was invoked with the expected parameters
+        expect(quick.commit).toHaveBeenCalledTimes(1);
+        expect(quick.commit).toHaveBeenCalledWith(diffContent, {
+            basePath: expect.stringContaining('/prompt'),
+            overridePaths: [],
+            overrides: false,
+            userDirection: undefined,
+            context: undefined,
+            directories: undefined
+        });
 
-        // Verify mandatory builder interactions
-        expect(builderMock.addPersonaPath).toHaveBeenCalledWith(DEFAULT_PERSONA_YOU_FILE);
-        expect(builderMock.addInstructionPath).toHaveBeenCalledWith(DEFAULT_INSTRUCTIONS_COMMIT_FILE);
-        expect(builderMock.addContent).toHaveBeenCalledWith(diffContent, { title: 'Diff', weight: 0.5 });
-
-        // Optional methods should not be invoked when inputs are absent
-        expect(builderMock.loadContext).not.toHaveBeenCalled();
-        expect(builderMock.addContext).not.toHaveBeenCalled();
-
-        // Final prompt should come from builder.build()
-        expect(builderMock.build).toHaveBeenCalled();
+        // Final prompt should come from quick.commit
         expect(result).toBe('mock prompt');
     });
 
@@ -84,36 +63,22 @@ describe('createPrompt (commit)', () => {
 
         await createPrompt(
             {
-                overridePath: '/custom/path',
+                overridePaths: ['/custom/path'],
                 overrides: true
             },
             { diffContent, userDirection },
             { context, logContext, directories }
         );
 
-        // User-supplied direction comes first with highest weight
-        expect(builderMock.addContent).toHaveBeenCalledWith(userDirection, {
-            title: 'User Direction',
-            weight: 1.0
-        });
-
-        // Diff should always be included
-        expect(builderMock.addContent).toHaveBeenCalledWith(diffContent, {
-            title: 'Diff',
-            weight: 0.5
-        });
-
-        // Directories trigger loadContext
-        expect(builderMock.loadContext).toHaveBeenCalledWith(directories, { weight: 0.5 });
-
-        // Free-form context and log context should be appended
-        expect(builderMock.addContext).toHaveBeenCalledWith(context, {
-            title: 'User Context',
-            weight: 1.0
-        });
-        expect(builderMock.addContext).toHaveBeenCalledWith(logContext, {
-            title: 'Log Context',
-            weight: 0.5
+        // Verify quick.commit was called with all the parameters
+        expect(quick.commit).toHaveBeenCalledTimes(1);
+        expect(quick.commit).toHaveBeenCalledWith(diffContent, {
+            basePath: expect.stringContaining('/prompt'),
+            overridePaths: ['/custom/path'],
+            overrides: true,
+            userDirection,
+            context,
+            directories
         });
     });
 });

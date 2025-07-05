@@ -423,7 +423,7 @@ This command will:
 1. List available audio input devices on your system
 2. Allow you to interactively select your preferred microphone
 3. Test the selected device to ensure it works
-4. Save the configuration to `~/.kodrdriv/audio-device.yaml`
+4. Save the configuration to `~/.unplayable/config.json`
 
 **Note**: You must run this command before using any audio features for the first time.
 

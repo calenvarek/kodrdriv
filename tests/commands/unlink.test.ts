@@ -71,6 +71,8 @@ describe('Unlink Command', () => {
 
         mockConfig = {
             ...KODRDRIV_DEFAULTS,
+            discoveredConfigDirs: [],
+            resolvedConfigDirs: [],
             link: {
                 scopeRoots: { '@test': '../test-packages' },
                 workspaceFile: 'pnpm-workspace.yaml',

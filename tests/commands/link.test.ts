@@ -83,6 +83,8 @@ describe('link command', () => {
             model: 'gpt-4o-mini',
             contextDirectories: [],
             configDirectory: '.kodrdriv',
+            discoveredConfigDirs: [],
+            resolvedConfigDirs: [],
             commit: {
                 add: false,
                 cached: false,
