@@ -1,4 +1,4 @@
-import { ContentItem, cook, Prompt } from '@riotprompt/riotprompt';
+import { ContentItem, Prompt, recipe } from '@riotprompt/riotprompt';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -23,47 +23,49 @@ export type Context = {
     directories?: string[];
 };
 
+/**
+ * Build a review prompt using RiotPrompt Recipes.
+ */
 export const createPrompt = async (
-    { overridePaths, overrides }: Config,
+    { overridePaths: _overridePaths, overrides: _overrides }: Config,
     { notes }: Content,
     { logContext, diffContext, releaseNotesContext, issuesContext, context, directories }: Context = {}
 ): Promise<Prompt> => {
-    // Prepare content array for the recipe
-    const content = [
-        { content: notes, title: 'Review Notes', weight: 1.0 }
-    ];
+    const basePath = __dirname;
 
-    // Prepare context array for the recipe
-    const contextArray: ContentItem[] = [];
+    // Build content items for the prompt
+    const contentItems: ContentItem[] = [];
+    const contextItems: ContentItem[] = [];
+
+    if (notes) {
+        contentItems.push({ content: notes, title: 'Review Notes' });
+    }
 
     if (logContext) {
-        contextArray.push({ content: logContext, title: 'Log Context', weight: 0.5 });
+        contextItems.push({ content: logContext, title: 'Log Context' });
     }
     if (diffContext) {
-        contextArray.push({ content: diffContext, title: 'Diff Context', weight: 0.5 });
+        contextItems.push({ content: diffContext, title: 'Diff Context' });
     }
     if (releaseNotesContext) {
-        contextArray.push({ content: releaseNotesContext, title: 'Release Notes Context', weight: 0.5 });
+        contextItems.push({ content: releaseNotesContext, title: 'Release Notes Context' });
     }
     if (issuesContext) {
-        contextArray.push({ content: issuesContext, title: 'Issues Context', weight: 0.5 });
+        contextItems.push({ content: issuesContext, title: 'Issues Context' });
     }
     if (context) {
-        contextArray.push({ content: context, title: 'User Context', weight: 1.0 });
+        contextItems.push({ content: context, title: 'User Context' });
     }
-    if (directories?.length) {
-        contextArray.push({ directories, weight: 0.5 });
+    if (directories && directories.length > 0) {
+        contextItems.push({ directories, title: 'Directories' });
     }
 
-    // Use the new cook recipe with template
-    // Use __dirname directly since it already points to the correct location after build
-    const basePath = __dirname;
-    return cook({
-        basePath,
-        overridePaths: overridePaths || [],
-        overrides: overrides || false,
-        template: 'review',
-        content,
-        context: contextArray
-    });
+    return recipe(basePath)
+        .persona({ path: 'personas/you.md' })
+        .instructions({ path: 'instructions/review.md' })
+        .overridePaths(_overridePaths ?? [])
+        .overrides(_overrides ?? true)
+        .content(...contentItems)
+        .context(...contextItems)
+        .cook();
 }; 
