@@ -56,6 +56,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
         return 'DRY RUN: Review command would analyze note, gather context, and create GitHub issues';
     }
 
+    // Fail fast if STDIN is piped but sendit mode is not enabled
+    if (!process.stdin.isTTY && !runConfig.review?.sendit) {
+        logger.error('❌ STDIN is piped but --sendit flag is not enabled');
+        logger.error('   Interactive prompts cannot be used when input is piped');
+        logger.error('   Solutions:');
+        logger.error('   • Add --sendit flag to auto-create all issues');
+        logger.error('   • Use terminal input instead of piping');
+        logger.error('   • Example: echo "note" | kodrdriv review --sendit');
+        throw new Error('Piped input requires --sendit flag for non-interactive operation');
+    }
+
     // Get the review note from configuration
     let reviewNote = runConfig.review?.note;
 
