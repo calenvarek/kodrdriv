@@ -13,7 +13,7 @@
     },
     "packageManager": "pnpm@10.12.4",
     "scripts": {
-        "build": "pnpm run lint && tsc --noEmit && vite build && copyfiles \"src/**/*.md\" dist",
+        "build": "pnpm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist",
         "start": "dist/main.js",
         "dev": "vite",
         "watch": "vite build --watch",
