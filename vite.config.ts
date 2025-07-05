@@ -79,8 +79,8 @@ export default defineConfig({
             input: 'src/main.ts',
             output: {
                 format: 'esm',
-                entryFileNames: 'main.js',
-                preserveModules: false,
+                entryFileNames: '[name].js',
+                preserveModules: true,
                 exports: 'named',
             },
             plugins: [
