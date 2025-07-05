@@ -1,4 +1,4 @@
-import { Prompt, quick } from '@riotprompt/riotprompt';
+import { ContentItem, Prompt, recipe } from '@riotprompt/riotprompt';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -12,12 +12,12 @@ export type Config = {
 }
 
 export type Content = {
+    releaseFocus?: string;
     logContent: string;
     diffContent: string;
 };
 
 export type Context = {
-    releaseFocus?: string;
     context?: string;
     directories?: string[];
 };
@@ -26,19 +26,43 @@ export type Context = {
  * Build a release prompt using RiotPrompt Recipes.
  */
 export const createPrompt = async (
-    { overrides, overridePaths }: Config,
-    { logContent, diffContent }: Content,
-    { releaseFocus, context, directories }: Context = {}
+    { overrides: _overrides, overridePaths: _overridePaths }: Config,
+    { releaseFocus, logContent, diffContent }: Content,
+    { context, directories }: Context = {}
 ): Promise<Prompt> => {
-    // Use the new quick.release recipe - much simpler!
-    // Use __dirname directly since it already points to the correct location after build
     const basePath = __dirname;
-    return quick.release(logContent, diffContent, {
-        basePath,
-        overridePaths: overridePaths || [],
-        overrides: overrides || false,
-        releaseFocus,
-        context,
-        directories
-    });
+
+    // Build content items for the prompt
+    const contentItems: ContentItem[] = [];
+    const contextItems: ContentItem[] = [];
+
+    if (diffContent) {
+        contentItems.push({ content: diffContent, title: 'Diff' });
+    }
+    if (logContent) {
+        contentItems.push({ content: logContent, title: 'Log Context' });
+    }
+    if (releaseFocus) {
+        contentItems.push({ content: releaseFocus, title: 'Release Focus' });
+    }
+
+    if (context) {
+        contextItems.push({ content: context, title: 'User Context' });
+    }
+    if (directories && directories.length > 0) {
+        contextItems.push({ content: directories.join('\n'), title: 'Directories' });
+    }
+
+
+    // eslint-disable-next-line no-console
+    console.log("BEEATCH CONTENT: ", JSON.stringify(contentItems, null, 2));
+    // eslint-disable-next-line no-console
+    console.log("BEEATCH CONTEXT: ", JSON.stringify(contextItems, null, 2));
+
+    return recipe(basePath)
+        .persona({ path: 'personas/releaser.md' })
+        .instructions({ path: 'instructions/release.md' })
+        .content(...contentItems)
+        .context(...contextItems)
+        .cook();
 }; 

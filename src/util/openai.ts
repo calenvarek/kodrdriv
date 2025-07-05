@@ -29,6 +29,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         // Create the client which we'll close in the finally block.
         openai = new OpenAI({
             apiKey: apiKey,
+            timeout: 180000, // 180 seconds timeout
         });
 
         logger.debug('Sending prompt to OpenAI: %j', messages);
@@ -46,12 +47,19 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
             logger.debug('Wrote request debug file to %s', debugFile);
         }
 
-        const completion = await openai.chat.completions.create({
+        // Add timeout wrapper to the OpenAI API call
+        const completionPromise = openai.chat.completions.create({
             model: options.model || "gpt-4o-mini",
             messages,
             max_completion_tokens: 10000,
             response_format: options.responseFormat,
         });
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new OpenAIError('OpenAI API call timed out after 180 seconds')), 180000);
+        });
+
+        const completion = await Promise.race([completionPromise, timeoutPromise]);
 
         // Save response debug file if enabled
         if (options.debug && (options.debugResponseFile || options.debugFile)) {
