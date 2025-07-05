@@ -77,7 +77,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         const transcription = await transcribeAudio(audioFilePath, {
             model: "whisper-1",
-            debug: runConfig.debug
+            debug: runConfig.debug,
+            outputDirectory: path.join(runConfig.outputDirectory || 'output', 'kodrdriv')
         });
 
         audioContext = transcription.text;

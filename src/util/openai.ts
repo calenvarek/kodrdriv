@@ -2,6 +2,7 @@ import { OpenAI } from 'openai';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import * as Storage from './storage';
 import { getLogger } from '../logging';
+import { archiveAudio } from './general';
 // eslint-disable-next-line no-restricted-imports
 import fs from 'fs';
 
@@ -89,7 +90,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
     }
 }
 
-export async function transcribeAudio(filePath: string, options: { model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string } = { model: "whisper-1" }): Promise<Transcription> {
+export async function transcribeAudio(filePath: string, options: { model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, outputDirectory?: string } = { model: "whisper-1" }): Promise<Transcription> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
     let openai: OpenAI | null = null;
@@ -138,6 +139,16 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         }
 
         logger.debug('Received transcription from OpenAI: %s', response);
+
+        // Archive the audio file and transcription
+        try {
+            const outputDir = options.outputDirectory || 'output';
+            await archiveAudio(filePath, response.text, outputDir);
+        } catch (archiveError: any) {
+            // Don't fail the transcription if archiving fails, just log the error
+            logger.warn('Failed to archive audio file: %s', archiveError.message);
+        }
+
         return response;
 
     } catch (error: any) {

@@ -1,4 +1,8 @@
 import path from 'path';
+import * as Storage from './storage';
+import { getLogger } from '../logging';
+// eslint-disable-next-line no-restricted-imports
+import * as fs from 'fs';
 
 // Utility function for deep merging two objects.
 export function deepMerge(target: any, source: any): any {
@@ -136,4 +140,70 @@ export const getTimestampedReviewFilename = (): string => {
 
 export const getTimestampedReviewNotesFilename = (): string => {
     return getTimestampedFilename('review-notes', '.md');
+};
+
+export const getTimestampedArchivedAudioFilename = (originalExtension: string = '.wav'): string => {
+    return getTimestampedFilename('review-audio', originalExtension);
+};
+
+export const getTimestampedArchivedTranscriptFilename = (): string => {
+    return getTimestampedFilename('review-transcript', '.md');
+};
+
+/**
+ * Archives an audio file and its transcription to the output/kodrdriv directory
+ * @param originalAudioPath - Path to the original audio file
+ * @param transcriptionText - The raw transcription text
+ * @param outputDirectory - Base output directory (default: 'output')
+ * @returns Object containing the paths where files were archived
+ */
+export const archiveAudio = async (
+    originalAudioPath: string,
+    transcriptionText: string,
+    outputDirectory: string = 'output'
+): Promise<{ audioPath: string; transcriptPath: string }> => {
+    const logger = getLogger();
+    const storage = Storage.create({ log: logger.debug });
+
+    try {
+        // Ensure the output directory exists (should already be output/kodrdriv)
+        await storage.ensureDirectory(outputDirectory);
+
+        // Get file extension from original audio file
+        const originalExtension = path.extname(originalAudioPath);
+
+        // Generate timestamped filenames
+        const archivedAudioFilename = getTimestampedArchivedAudioFilename(originalExtension);
+        const archivedTranscriptFilename = getTimestampedArchivedTranscriptFilename();
+
+        // Full paths for archived files - directly in the output directory
+        const archivedAudioPath = path.join(outputDirectory, archivedAudioFilename);
+        const archivedTranscriptPath = path.join(outputDirectory, archivedTranscriptFilename);
+
+        // Copy audio file if it exists
+        if (await storage.isFileReadable(originalAudioPath)) {
+            // Read original audio file as buffer using fs directly for binary files
+            const audioBuffer = await fs.promises.readFile(originalAudioPath);
+            await storage.writeFile(archivedAudioPath, audioBuffer, 'binary');
+            logger.debug('Archived audio file to: %s', archivedAudioPath);
+        } else {
+            logger.warn('Original audio file not found or not readable: %s', originalAudioPath);
+        }
+
+        // Save transcription text
+        const transcriptContent = `# Audio Transcription Archive\n\n**Original Audio File:** ${originalAudioPath}\n**Archived:** ${new Date().toISOString()}\n\n## Transcription\n\n${transcriptionText}`;
+        await storage.writeFile(archivedTranscriptPath, transcriptContent, 'utf8');
+        logger.debug('Archived transcription to: %s', archivedTranscriptPath);
+
+        logger.info('📁 Audio archived successfully - Audio: %s, Transcript: %s', archivedAudioFilename, archivedTranscriptFilename);
+
+        return {
+            audioPath: archivedAudioPath,
+            transcriptPath: archivedTranscriptPath
+        };
+
+    } catch (error: any) {
+        logger.error('Failed to archive audio: %s', error.message);
+        throw new Error(`Audio archiving failed: ${error.message}`);
+    }
 };
