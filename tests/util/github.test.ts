@@ -97,7 +97,7 @@ describe('GitHub Utilities', () => {
         it('should throw an error for an invalid url', async () => {
             mockRun.mockResolvedValue({ stdout: 'invalid-url' });
             await expect(GitHub.getRepoDetails()).rejects.toThrow(
-                'Could not parse repository owner and name from origin URL.'
+                'Could not parse repository owner and name from origin URL: "invalid-url". Expected format: git@github.com:owner/repo.git or https://github.com/owner/repo.git'
             );
         });
     });

@@ -52,15 +52,19 @@ const createTransports = (level: string) => {
             })
         );
     } else {
-        // For debug/verbose levels, add console transport for warn/error/info
+        // For debug/verbose levels, add console transport that shows info and above
         transports.push(
             new winston.transports.Console({
-                level: 'warn', // Only show warnings and errors on console
+                level: 'info', // Show info, warn, and error on console
                 format: winston.format.combine(
                     winston.format.colorize(),
-                    winston.format.printf(({ timestamp, level, message, ...meta }) => {
+                    winston.format.printf(({ timestamp, level, message, ...meta }): string => {
+                        // For info level messages, use simpler format without timestamp
+                        if (level.includes('info')) {
+                            return String(message);
+                        }
                         const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-                        return `${timestamp} ${level}: ${message}${metaStr}`;
+                        return `${timestamp} ${level}: ${String(message)}${metaStr}`;
                     })
                 )
             })

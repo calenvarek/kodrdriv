@@ -35,8 +35,10 @@ export const createPrompt = async (
     { logContext, context, directories }: Context = {}
 ): Promise<Prompt> => {
     // Use the new quick.commit recipe - much simpler!
+    // Adjust basePath for single-file build
+    const basePath = path.resolve(__dirname, 'src', 'prompt');
     return quick.commit(diffContent, {
-        basePath: __dirname,
+        basePath,
         overridePaths: overridePaths || [],
         overrides: overrides || false,
         userDirection,
