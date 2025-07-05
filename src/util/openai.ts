@@ -29,6 +29,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         // Create the client which we'll close in the finally block.
         openai = new OpenAI({
             apiKey: apiKey,
+            timeout: 180000, // 180 seconds timeout
         });
 
         logger.debug('Sending prompt to OpenAI: %j', messages);
@@ -46,12 +47,19 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
             logger.debug('Wrote request debug file to %s', debugFile);
         }
 
-        const completion = await openai.chat.completions.create({
+        // Add timeout wrapper to the OpenAI API call
+        const completionPromise = openai.chat.completions.create({
             model: options.model || "gpt-4o-mini",
             messages,
             max_completion_tokens: 10000,
             response_format: options.responseFormat,
         });
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new OpenAIError('OpenAI API call timed out after 180 seconds')), 180000);
+        });
+
+        const completion = await Promise.race([completionPromise, timeoutPromise]);
 
         // Save response debug file if enabled
         if (options.debug && (options.debugResponseFile || options.debugFile)) {
@@ -76,17 +84,8 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         logger.error('Error calling OpenAI API: %s %s', error.message, error.stack);
         throw new OpenAIError(`Failed to create completion: ${error.message}`);
     } finally {
-        // Ensure we close the OpenAI client to release underlying keep-alive sockets
-        try {
-            // openai.close() returns a promise; awaiting ensures proper cleanup
-            // but if it throws we silently ignore as it's best-effort.
-
-            if (openai && typeof (openai as any).close === 'function') {
-                await (openai as any).close();
-            }
-        } catch (closeErr) {
-            logger.debug('Failed to close OpenAI client: %s', (closeErr as Error).message);
-        }
+        // OpenAI client cleanup is handled automatically by the library
+        // No manual cleanup needed for newer versions
     }
 }
 
@@ -153,12 +152,7 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         } catch (streamErr) {
             logger.debug('Failed to close audio read stream: %s', (streamErr as Error).message);
         }
-        try {
-            if (openai && typeof (openai as any).close === 'function') {
-                await (openai as any).close();
-            }
-        } catch (closeErr) {
-            logger.debug('Failed to close OpenAI client: %s', (closeErr as Error).message);
-        }
+        // OpenAI client cleanup is handled automatically by the library
+        // No manual cleanup needed for newer versions
     }
 }

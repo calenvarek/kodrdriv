@@ -1,4 +1,4 @@
-import { Prompt, quick } from '@riotprompt/riotprompt';
+import { Prompt, recipe } from '@riotprompt/riotprompt';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -30,19 +30,37 @@ export type Config = {
  * @param ctx         Optional contextual inputs configured by the user
  */
 export const createPrompt = async (
-    { overridePaths, overrides }: Config,
+    { overridePaths: _overridePaths, overrides: _overrides }: Config,
     { diffContent, userDirection }: Content,
     { logContext, context, directories }: Context = {}
 ): Promise<Prompt> => {
-    // Use the new quick.commit recipe - much simpler!
-    // Adjust basePath for single-file build
-    const basePath = path.resolve(__dirname, 'src', 'prompt');
-    return quick.commit(diffContent, {
-        basePath,
-        overridePaths: overridePaths || [],
-        overrides: overrides || false,
-        userDirection,
-        context,
-        directories
-    });
+    const basePath = __dirname;
+
+    // Build content items for the prompt
+    const contentItems = [];
+    const contextItems = [];
+
+    if (userDirection) {
+        contentItems.push({ content: userDirection, title: 'User Direction' });
+    }
+    if (diffContent) {
+        contentItems.push({ content: diffContent, title: 'Diff' });
+    }
+
+    if (logContext) {
+        contextItems.push({ content: logContext, title: 'Log Context' });
+    }
+    if (context) {
+        contextItems.push({ content: context, title: 'User Context' });
+    }
+    if (directories && directories.length > 0) {
+        contextItems.push({ content: directories.join('\n'), title: 'Directories' });
+    }
+
+    return recipe(basePath)
+        .persona({ path: 'personas/you.md' })
+        .instructions({ path: 'instructions/commit.md' })
+        .content(...contentItems)
+        .context(...contextItems)
+        .cook();
 }; 

@@ -12,14 +12,14 @@ importers:
         specifier: ^22.0.0
         version: 22.0.0
       '@riotprompt/riotprompt':
-        specifier: ^0.0.3
-        version: 0.0.3
+        specifier: ^0.0.6
+        version: 0.0.6
       '@theunwalked/cardigantime':
-        specifier: ^0.0.13
-        version: 0.0.13
-      '@theunwalked/unplayable':
         specifier: ^0.0.14
         version: 0.0.14
+      '@theunwalked/unplayable':
+        specifier: ^0.0.19
+        version: 0.0.19
       audify:
         specifier: ^1.9.0
         version: 1.9.0
@@ -473,8 +473,8 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
-  '@riotprompt/riotprompt@0.0.3':
-    resolution: {integrity: sha512-jFbHqottIuFge0vjIP1moHXwMKboXeGLBD7csfNq6WckxpXnn4JtjuQhb3pFzDeDJqVL/6VfsqCfqEyjvo4e5w==}
+  '@riotprompt/riotprompt@0.0.6':
+    resolution: {integrity: sha512-ZXi3Ah0imTrJqtm4auldck0uuLn3nX5fVT+S9MC3gkMwfQvtwYJJab58j6nBw5OqEuFFs74FEDMiOSySHyMULw==}
 
   '@rollup/plugin-replace@6.0.2':
     resolution: {integrity: sha512-7QaYCf8bqF04dOy7w/eHmJeNExxTYwvKAmlSAH/EaWWUzbT0h5sbF6bktFoX/0F/0qwng5/dWFMyf3gzaM8DsQ==}
@@ -676,11 +676,11 @@ packages:
   '@swc/types@0.1.23':
     resolution: {integrity: sha512-u1iIVZV9Q0jxY+yM2vw/hZGDNudsN85bBpTqzAQ9rzkxW9D+e3aEM4Han+ow518gSewkXgjmEK0BD79ZcNVgPw==}
 
-  '@theunwalked/cardigantime@0.0.13':
-    resolution: {integrity: sha512-vhuTEdidKog7J1q/q5W/jC1dnSBvC6clEd9hqe9qoYJWdNWPn7NPfOJEkDgZS5UMIS99gykFPBIM6lRJTrMkBw==}
+  '@theunwalked/cardigantime@0.0.14':
+    resolution: {integrity: sha512-jIRQpQk/fnJXCeZZLGGuBNCM/2uNCVIlVY8jkxPDZqXFsrDzwBz11DkrlD2lQfikBZANCKaWLb1clm5/2lw+Qg==}
 
-  '@theunwalked/unplayable@0.0.14':
-    resolution: {integrity: sha512-obZIeWAKvFYAn4x23VJveF+u5pEyXUl/ciO1pYw87WEtTyVCGrHzVJpCNMIfPbbzlTMjkvZuUjpIvi8yBzGsiA==}
+  '@theunwalked/unplayable@0.0.19':
+    resolution: {integrity: sha512-oEnzGIA/4VzAhPLlxVrFN16XpXiUG0OiwRJS1uiwDR98sCnSUF2ElPlA2RQHiCN0TvkwmuM3Gr1BS7Gftar2jA==}
 
   '@types/chai@5.2.2':
     resolution: {integrity: sha512-8kB30R7Hwqf40JPiKhVzodJs2Qc1ZJ5zuT3uzw5Hq/dhNCl3G3l83jfpdI1e20BP348+fV7VIL/+FxaXkqBmWg==}
@@ -2785,7 +2785,7 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
-  '@riotprompt/riotprompt@0.0.3':
+  '@riotprompt/riotprompt@0.0.6':
     dependencies:
       glob: 11.0.3
       marked: 16.0.0
@@ -2925,7 +2925,7 @@ snapshots:
     dependencies:
       '@swc/counter': 0.1.3
 
-  '@theunwalked/cardigantime@0.0.13':
+  '@theunwalked/cardigantime@0.0.14':
     dependencies:
       commander: 14.0.0
       dotenv: 17.0.1
@@ -2934,7 +2934,7 @@ snapshots:
       winston: 3.17.0
       zod: 3.25.74
 
-  '@theunwalked/unplayable@0.0.14':
+  '@theunwalked/unplayable@0.0.19':
     dependencies:
       audify: 1.9.0
       commander: 14.0.0

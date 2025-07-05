@@ -36,6 +36,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const promptContext = {
         context: runConfig.release?.context,
     };
+
     const prompt = await ReleasePrompt.createPrompt(promptConfig, promptContent, promptContext);
 
     const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);

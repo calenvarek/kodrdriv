@@ -57,7 +57,19 @@ vi.mock('@riotprompt/riotprompt', () => {
         // Add the new quick API functions
         quick: {
             commit: vi.fn().mockResolvedValue('mock prompt')
-        }
+        },
+        // Add the recipe function used by the prompt files
+        recipe: vi.fn().mockImplementation(() => ({
+            persona: vi.fn().mockImplementation(() => ({
+                instructions: vi.fn().mockImplementation(() => ({
+                    content: vi.fn().mockImplementation(() => ({
+                        context: vi.fn().mockImplementation(() => ({
+                            cook: vi.fn().mockResolvedValue('mock prompt')
+                        }))
+                    }))
+                }))
+            }))
+        }))
     };
 });
 

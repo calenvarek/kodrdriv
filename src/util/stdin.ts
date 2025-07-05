@@ -5,30 +5,50 @@ export async function readStdin(): Promise<string | null> {
         return new Promise((resolve) => {
             let input = '';
             let hasData = false;
+            let resolved = false;
 
             const timeout = setTimeout(() => {
-                if (!hasData) {
+                if (!hasData && !resolved) {
+                    resolved = true;
+                    cleanup();
                     resolve(null);
                 }
             }, 10); // Very short timeout for tests
 
-            process.stdin.setEncoding('utf8');
-
-            process.stdin.on('data', (chunk) => {
+            const onData = (chunk: string) => {
                 hasData = true;
                 clearTimeout(timeout);
                 input += chunk;
-            });
+            };
 
-            process.stdin.on('end', () => {
-                resolve(input.trim() || null);
-            });
+            const onEnd = () => {
+                if (!resolved) {
+                    resolved = true;
+                    cleanup();
+                    resolve(input.trim() || null);
+                }
+            };
 
-            process.stdin.on('error', () => {
-                clearTimeout(timeout);
-                resolve(null);
-            });
+            const onError = () => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    cleanup();
+                    resolve(null);
+                }
+            };
 
+            const cleanup = () => {
+                process.stdin.removeListener('data', onData);
+                process.stdin.removeListener('end', onEnd);
+                process.stdin.removeListener('error', onError);
+                process.stdin.pause();
+            };
+
+            process.stdin.setEncoding('utf8');
+            process.stdin.on('data', onData);
+            process.stdin.on('end', onEnd);
+            process.stdin.on('error', onError);
             process.stdin.resume();
         });
     }
@@ -42,29 +62,50 @@ export async function readStdin(): Promise<string | null> {
 
         let input = '';
         let hasData = false;
+        let resolved = false;
 
         const timeout = setTimeout(() => {
-            if (!hasData) {
+            if (!hasData && !resolved) {
+                resolved = true;
+                cleanup();
                 resolve(null);
             }
         }, 100); // Short timeout to detect if data is available
 
-        process.stdin.setEncoding('utf8');
-
-        process.stdin.on('data', (chunk) => {
+        const onData = (chunk: string) => {
             hasData = true;
             clearTimeout(timeout);
             input += chunk;
-        });
+        };
 
-        process.stdin.on('end', () => {
-            resolve(input.trim() || null);
-        });
+        const onEnd = () => {
+            if (!resolved) {
+                resolved = true;
+                cleanup();
+                resolve(input.trim() || null);
+            }
+        };
 
-        process.stdin.on('error', () => {
-            clearTimeout(timeout);
-            resolve(null);
-        });
+        const onError = () => {
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timeout);
+                cleanup();
+                resolve(null);
+            }
+        };
+
+        const cleanup = () => {
+            process.stdin.removeListener('data', onData);
+            process.stdin.removeListener('end', onEnd);
+            process.stdin.removeListener('error', onError);
+            process.stdin.pause();
+        };
+
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', onData);
+        process.stdin.on('end', onEnd);
+        process.stdin.on('error', onError);
 
         // If no data comes in quickly, assume no stdin
         process.stdin.resume();

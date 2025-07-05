@@ -1,11 +1,19 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
-// Mock the external @riotprompt/riotprompt module
+// Mock the RiotPrompt recipe API
 vi.mock('@riotprompt/riotprompt', () => {
     return {
-        quick: {
-            commit: vi.fn().mockResolvedValue('mock prompt')
-        }
+        recipe: vi.fn().mockImplementation(() => ({
+            persona: vi.fn().mockImplementation(() => ({
+                instructions: vi.fn().mockImplementation(() => ({
+                    content: vi.fn().mockImplementation(() => ({
+                        context: vi.fn().mockImplementation(() => ({
+                            cook: vi.fn().mockResolvedValue('mock prompt')
+                        }))
+                    }))
+                }))
+            }))
+        }))
     };
 });
 
@@ -21,7 +29,7 @@ vi.mock('../../src/logging', () => ({
     })
 }));
 
-import { quick } from '@riotprompt/riotprompt';
+import { recipe } from '@riotprompt/riotprompt';
 import { createPrompt } from '../../src/prompt/commit';
 
 describe('createPrompt (commit)', () => {
@@ -39,18 +47,11 @@ describe('createPrompt (commit)', () => {
 
         const result = await createPrompt({}, { diffContent }, {});
 
-        // Ensure quick.commit was invoked with the expected parameters
-        expect(quick.commit).toHaveBeenCalledTimes(1);
-        expect(quick.commit).toHaveBeenCalledWith(diffContent, {
-            basePath: expect.stringContaining('/prompt'),
-            overridePaths: [],
-            overrides: false,
-            userDirection: undefined,
-            context: undefined,
-            directories: undefined
-        });
+        // Verify the recipe function was called
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
 
-        // Final prompt should come from quick.commit
+        // Final prompt should come from the recipe chain
         expect(result).toBe('mock prompt');
     });
 
@@ -61,7 +62,7 @@ describe('createPrompt (commit)', () => {
         const logContext = 'Previous commit logs';
         const directories = ['src', 'tests'];
 
-        await createPrompt(
+        const result = await createPrompt(
             {
                 overridePaths: ['/custom/path'],
                 overrides: true
@@ -70,15 +71,11 @@ describe('createPrompt (commit)', () => {
             { context, logContext, directories }
         );
 
-        // Verify quick.commit was called with all the parameters
-        expect(quick.commit).toHaveBeenCalledTimes(1);
-        expect(quick.commit).toHaveBeenCalledWith(diffContent, {
-            basePath: expect.stringContaining('/prompt'),
-            overridePaths: ['/custom/path'],
-            overrides: true,
-            userDirection,
-            context,
-            directories
-        });
+        // Verify the recipe function was called
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
+
+        // Final prompt should come from the recipe chain
+        expect(result).toBe('mock prompt');
     });
 });
