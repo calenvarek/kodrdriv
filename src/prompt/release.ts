@@ -50,7 +50,7 @@ export const createPrompt = async (
         contextItems.push({ content: context, title: 'User Context' });
     }
     if (directories && directories.length > 0) {
-        contextItems.push({ content: directories.join('\n'), title: 'Directories' });
+        contextItems.push({ directories, title: 'Directories' });
     }
 
 
