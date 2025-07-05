@@ -12,8 +12,8 @@ importers:
         specifier: ^22.0.0
         version: 22.0.0
       '@riotprompt/riotprompt':
-        specifier: ^0.0.4
-        version: 0.0.4
+        specifier: ^0.0.6
+        version: 0.0.6
       '@theunwalked/cardigantime':
         specifier: ^0.0.14
         version: 0.0.14
@@ -473,8 +473,8 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
-  '@riotprompt/riotprompt@0.0.4':
-    resolution: {integrity: sha512-O52UXstfBvEeyw/oGPpwGU6I1RywFhit5JffPA00jEEb8Z4K6x9do+TdMISsj8cfcFREoj30+iw0tpJWlLz4yg==}
+  '@riotprompt/riotprompt@0.0.6':
+    resolution: {integrity: sha512-ZXi3Ah0imTrJqtm4auldck0uuLn3nX5fVT+S9MC3gkMwfQvtwYJJab58j6nBw5OqEuFFs74FEDMiOSySHyMULw==}
 
   '@rollup/plugin-replace@6.0.2':
     resolution: {integrity: sha512-7QaYCf8bqF04dOy7w/eHmJeNExxTYwvKAmlSAH/EaWWUzbT0h5sbF6bktFoX/0F/0qwng5/dWFMyf3gzaM8DsQ==}
@@ -2785,7 +2785,7 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
-  '@riotprompt/riotprompt@0.0.4':
+  '@riotprompt/riotprompt@0.0.6':
     dependencies:
       glob: 11.0.3
       marked: 16.0.0
