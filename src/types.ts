@@ -58,6 +58,7 @@ export const ConfigSchema = z.object({
         maxRecordingTime: z.number().optional(),
         audioDevice: z.string().optional(),
         file: z.string().optional(),
+        directory: z.string().optional(),
         keepTemp: z.boolean().optional(),
     }).optional(),
     publish: z.object({
@@ -137,6 +138,7 @@ export type AudioReviewConfig = {
     maxRecordingTime?: number;
     audioDevice?: string;
     file?: string;
+    directory?: string;
     keepTemp?: boolean;
 }
 

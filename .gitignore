@@ -4,7 +4,9 @@ node_modules
 *.log
 .vscode
 coverage/
+input/
 output/
+processed/
 RELEASE_NOTES.md
 RELEASE_TITLE.md
 tsconfig.tsbuildinfo

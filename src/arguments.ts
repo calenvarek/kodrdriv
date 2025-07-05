@@ -42,6 +42,7 @@ export const InputSchema = z.object({
     releaseNotesLimit: z.number().optional(),
     githubIssuesLimit: z.number().optional(),
     file: z.string().optional(), // Audio file path for audio-commit and audio-review
+    directory: z.string().optional(), // Add directory option at top level
     keepTemp: z.boolean().optional(), // Keep temporary recording files
 });
 
@@ -125,6 +126,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         finalCliArgs.releaseNotesLimit !== undefined ||
         finalCliArgs.githubIssuesLimit !== undefined ||
         finalCliArgs.file !== undefined ||
+        finalCliArgs.directory !== undefined ||
         finalCliArgs.keepTemp !== undefined) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
@@ -138,6 +140,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.context !== undefined) transformedCliArgs.audioReview.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.audioReview.sendit = finalCliArgs.sendit;
         if (finalCliArgs.file !== undefined) transformedCliArgs.audioReview.file = finalCliArgs.file;
+        if (finalCliArgs.directory !== undefined) transformedCliArgs.audioReview.directory = finalCliArgs.directory;
         if (finalCliArgs.keepTemp !== undefined) transformedCliArgs.audioReview.keepTemp = finalCliArgs.keepTemp;
     }
 
@@ -422,6 +425,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
         .option('--context <context>', 'additional context for the audio review')
         .option('--file <file>', 'audio file path')
+        .option('--directory <directory>', 'directory containing audio files to process')
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
@@ -659,6 +663,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             maxRecordingTime: options.audioReview?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioReview.maxRecordingTime,
             audioDevice: options.audioReview?.audioDevice ?? KODRDRIV_DEFAULTS.audioReview.audioDevice,
             file: options.audioReview?.file,
+            directory: options.audioReview?.directory,
             keepTemp: options.audioReview?.keepTemp,
         },
         review: {
