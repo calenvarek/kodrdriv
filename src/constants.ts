@@ -187,6 +187,7 @@ export const KODRDRIV_DEFAULTS = {
         sendit: DEFAULT_SENDIT_MODE,
         maxRecordingTime: 300, // 5 minutes default
         audioDevice: undefined, // Auto-detect by default
+        directory: undefined, // No default directory
     },
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,
