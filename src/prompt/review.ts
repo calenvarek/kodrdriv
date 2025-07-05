@@ -1,4 +1,4 @@
-import { cook, Prompt } from '@riotprompt/riotprompt';
+import { ContentItem, cook, Prompt } from '@riotprompt/riotprompt';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -34,7 +34,7 @@ export const createPrompt = async (
     ];
 
     // Prepare context array for the recipe
-    const contextArray = [];
+    const contextArray: ContentItem[] = [];
 
     if (logContext) {
         contextArray.push({ content: logContext, title: 'Log Context', weight: 0.5 });
