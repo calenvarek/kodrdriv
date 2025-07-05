@@ -32,9 +32,11 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const promptContent = {
         logContent,
         diffContent,
+        releaseFocus: runConfig.release?.focus,
     };
     const promptContext = {
         context: runConfig.release?.context,
+        directories: runConfig.contextDirectories,
     };
 
     const prompt = await ReleasePrompt.createPrompt(promptConfig, promptContent, promptContext);
