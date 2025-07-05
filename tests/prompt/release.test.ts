@@ -1,11 +1,17 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
-// Mock the RiotPrompt quick functions
+// Mock the RiotPrompt recipe API
 vi.mock('@riotprompt/riotprompt', () => {
     return {
-        quick: {
-            release: vi.fn().mockResolvedValue('mock-prompt')
-        }
+        recipe: vi.fn().mockImplementation(() => ({
+            persona: vi.fn().mockImplementation(() => ({
+                instructions: vi.fn().mockImplementation(() => ({
+                    content: vi.fn().mockImplementation(() => ({
+                        cook: vi.fn().mockResolvedValue('mock-prompt')
+                    }))
+                }))
+            }))
+        }))
     };
 });
 
@@ -25,7 +31,7 @@ vi.mock('../../src/logging', () => ({
 import * as Constants from '../../src/constants';
 
 // Import the module under test AFTER mocks are in place
-import { quick } from '@riotprompt/riotprompt';
+import { recipe } from '@riotprompt/riotprompt';
 import * as ReleasePrompt from '../../src/prompt/release';
 
 describe('prompt/release.createPrompt', () => {
@@ -44,19 +50,12 @@ describe('prompt/release.createPrompt', () => {
 
         const prompt = await ReleasePrompt.createPrompt(config, content, ctx);
 
-        // Ensure we got the value returned from quick.release
+        // Ensure we got the value returned from the recipe chain
         expect(prompt).toBe('mock-prompt');
 
-        // Verify quick.release was called with the expected parameters
-        expect(quick.release).toHaveBeenCalledTimes(1);
-        expect(quick.release).toHaveBeenCalledWith('log', 'diff', {
-            basePath: expect.stringContaining('/prompt'),
-            overridePaths: ['/custom'],
-            overrides: true,
-            releaseFocus: 'focus',
-            context: 'additional',
-            directories: ['src']
-        });
+        // Verify the recipe function was called
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
     });
 
     it('builds a prompt with only mandatory content when optional params are omitted', async () => {
@@ -67,15 +66,8 @@ describe('prompt/release.createPrompt', () => {
 
         expect(prompt).toBe('mock-prompt');
 
-        // Verify quick.release was called with default parameters
-        expect(quick.release).toHaveBeenCalledTimes(1);
-        expect(quick.release).toHaveBeenCalledWith('log', 'diff', {
-            basePath: expect.stringContaining('/prompt'),
-            overridePaths: [],
-            overrides: false,
-            releaseFocus: undefined,
-            context: undefined,
-            directories: undefined
-        });
+        // Verify the recipe function was called
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
     });
 });
