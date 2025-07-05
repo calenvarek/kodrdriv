@@ -56,8 +56,10 @@ export const createPrompt = async (
     }
 
     // Use the new cook recipe with template
+    // Adjust basePath for single-file build
+    const basePath = path.resolve(__dirname, 'src', 'prompt');
     return cook({
-        basePath: __dirname,
+        basePath,
         overridePaths: overridePaths || [],
         overrides: overrides || false,
         template: 'review',

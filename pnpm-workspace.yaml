@@ -1,8 +1,2 @@
-packages:
-  - .
-  - '!docs'
 ignoredBuiltDependencies:
   - audify
-overrides:
-  '@riotprompt/riotprompt': link:../../StJustReckoning/riotprompt
-  '@theunwalked/cardigantime': link:../../SemicolonAmbulance/cardigantime

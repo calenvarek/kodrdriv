@@ -26,9 +26,9 @@ export const getRepoDetails = async (): Promise<{ owner: string; repo: string }>
     const { stdout } = await run('git remote get-url origin');
     const url = stdout.trim();
     // git@github.com:owner/repo.git or https://github.com/owner/repo.git
-    const match = url.match(/github\.com[/:]([\w-]+)\/([\w-]+)\.git/);
+    const match = url.match(/github\.com[/:]([\w-]+)\/([\w.-]+)\.git/);
     if (!match) {
-        throw new Error('Could not parse repository owner and name from origin URL.');
+        throw new Error(`Could not parse repository owner and name from origin URL: "${url}". Expected format: git@github.com:owner/repo.git or https://github.com/owner/repo.git`);
     }
     return { owner: match[1], repo: match[2] };
 };
@@ -57,15 +57,27 @@ export const createPullRequest = async (
 export const findOpenPullRequestByHeadRef = async (head: string): Promise<PullRequest | null> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
 
-    const response = await octokit.pulls.list({
-        owner,
-        repo,
-        state: 'open',
-        head: `${owner}:${head}`,
-    });
+    try {
+        logger.debug(`Searching for open pull requests with head: ${owner}:${head} in ${owner}/${repo}`);
 
-    return response.data[0] ?? null;
+        const response = await octokit.pulls.list({
+            owner,
+            repo,
+            state: 'open',
+            head: `${owner}:${head}`,
+        });
+
+        logger.debug(`Found ${response.data.length} open pull requests`);
+        return response.data[0] ?? null;
+    } catch (error: any) {
+        logger.error(`Failed to find open pull requests: ${error.message}`);
+        if (error.status === 404) {
+            logger.error(`Repository ${owner}/${repo} not found or access denied. Please check your GITHUB_TOKEN permissions.`);
+        }
+        throw error;
+    }
 };
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

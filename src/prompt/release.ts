@@ -31,8 +31,10 @@ export const createPrompt = async (
     { releaseFocus, context, directories }: Context = {}
 ): Promise<Prompt> => {
     // Use the new quick.release recipe - much simpler!
+    // Adjust basePath for single-file build
+    const basePath = path.resolve(__dirname, 'src', 'prompt');
     return quick.release(logContent, diffContent, {
-        basePath: __dirname,
+        basePath,
         overridePaths: overridePaths || [],
         overrides: overrides || false,
         releaseFocus,
