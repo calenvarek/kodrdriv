@@ -59,6 +59,8 @@ export const createPrompt = async (
     return recipe(basePath)
         .persona({ path: 'personas/releaser.md' })
         .instructions({ path: 'instructions/release.md' })
+        .overridePaths(_overridePaths ?? [])
+        .overrides(_overrides ?? true)
         .content(...contentItems)
         .context(...contextItems)
         .cook();
