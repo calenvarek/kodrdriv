@@ -54,10 +54,7 @@ export const createPrompt = async (
     }
 
 
-    // eslint-disable-next-line no-console
-    console.log("BEEATCH CONTENT: ", JSON.stringify(contentItems, null, 2));
-    // eslint-disable-next-line no-console
-    console.log("BEEATCH CONTEXT: ", JSON.stringify(contextItems, null, 2));
+
 
     return recipe(basePath)
         .persona({ path: 'personas/releaser.md' })
