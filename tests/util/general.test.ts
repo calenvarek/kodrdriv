@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'vitest';
-import { deepMerge, stringifyJSON, incrementPatchVersion } from '../../src/util/general';
+import { deepMerge, stringifyJSON, incrementPatchVersion, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio } from '../../src/util/general';
+import { beforeEach, afterEach, vi } from 'vitest';
+import * as Storage from '../../src/util/storage';
+import * as fs from 'fs';
+import * as Logging from '../../src/logging';
 
 describe('deepMerge', () => {
     test('should merge two flat objects', () => {
@@ -305,5 +309,301 @@ describe('incrementPatchVersion', () => {
     test('should handle floating point numbers in patch', () => {
         expect(() => incrementPatchVersion('1.2.3.5')).toThrow('Invalid version string: 1.2.3.5');
         expect(incrementPatchVersion('1.2.3')).toBe('1.2.4'); // 3.5 would be parsed as 3
+    });
+});
+
+describe('getOutputPath', () => {
+    test('should join output directory and filename correctly', () => {
+        expect(getOutputPath('output', 'test.json')).toBe('output/test.json');
+        expect(getOutputPath('/usr/local/output', 'data.txt')).toBe('/usr/local/output/data.txt');
+    });
+
+    test('should handle empty filename', () => {
+        expect(getOutputPath('output', '')).toBe('output');
+    });
+
+    test('should handle relative paths', () => {
+        expect(getOutputPath('../output', 'file.txt')).toBe('../output/file.txt');
+        expect(getOutputPath('./output', 'file.txt')).toBe('output/file.txt');
+    });
+
+    test('should handle nested directory structure', () => {
+        expect(getOutputPath('output/logs', 'app.log')).toBe('output/logs/app.log');
+    });
+});
+
+describe('getTimestampedFilename', () => {
+    let mockDate: Date;
+
+    beforeEach(() => {
+        // Mock Date to return a fixed timestamp
+        mockDate = new Date('2025-01-07T10:30:45Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(mockDate);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    test('should generate filename with default extension', () => {
+        const result = getTimestampedFilename('test');
+        expect(result).toBe('250107-0530-test.json');
+    });
+
+    test('should generate filename with custom extension', () => {
+        const result = getTimestampedFilename('test', '.txt');
+        expect(result).toBe('250107-0530-test.txt');
+    });
+
+    test('should generate filename with no extension', () => {
+        const result = getTimestampedFilename('test', '');
+        expect(result).toBe('250107-0530-test');
+    });
+
+    test('should handle baseName with spaces', () => {
+        const result = getTimestampedFilename('test file', '.log');
+        expect(result).toBe('250107-0530-test file.log');
+    });
+
+    test('should handle different times correctly', () => {
+        // Test with different time
+        const differentTime = new Date('2025-12-31T23:59:59Z');
+        vi.setSystemTime(differentTime);
+
+        const result = getTimestampedFilename('test');
+        expect(result).toBe('251231-1859-test.json');
+    });
+
+    test('should pad single digit months and days', () => {
+        const earlyDate = new Date('2025-01-01T09:05:00Z');
+        vi.setSystemTime(earlyDate);
+
+        const result = getTimestampedFilename('test');
+        expect(result).toBe('250101-0405-test.json');
+    });
+});
+
+describe('specific timestamped filename functions', () => {
+    beforeEach(() => {
+        const mockDate = new Date('2025-01-07T10:30:45Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(mockDate);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    test('getTimestampedRequestFilename should generate request filename', () => {
+        const result = getTimestampedRequestFilename('test');
+        expect(result).toBe('250107-0530-test.request.json');
+    });
+
+    test('getTimestampedResponseFilename should generate response filename', () => {
+        const result = getTimestampedResponseFilename('test');
+        expect(result).toBe('250107-0530-test.response.json');
+    });
+
+    test('getTimestampedCommitFilename should generate commit filename', () => {
+        const result = getTimestampedCommitFilename();
+        expect(result).toBe('250107-0530-commit-message.md');
+    });
+
+    test('getTimestampedReleaseNotesFilename should generate release notes filename', () => {
+        const result = getTimestampedReleaseNotesFilename();
+        expect(result).toBe('250107-0530-release-notes.md');
+    });
+
+    test('getTimestampedAudioFilename should generate audio filename', () => {
+        const result = getTimestampedAudioFilename();
+        expect(result).toBe('250107-0530-audio-recording.wav');
+    });
+
+    test('getTimestampedTranscriptFilename should generate transcript filename', () => {
+        const result = getTimestampedTranscriptFilename();
+        expect(result).toBe('250107-0530-audio-transcript.md');
+    });
+
+    test('getTimestampedReviewFilename should generate review filename', () => {
+        const result = getTimestampedReviewFilename();
+        expect(result).toBe('250107-0530-review-analysis.md');
+    });
+
+    test('getTimestampedReviewNotesFilename should generate review notes filename', () => {
+        const result = getTimestampedReviewNotesFilename();
+        expect(result).toBe('250107-0530-review-notes.md');
+    });
+
+    test('getTimestampedArchivedAudioFilename should generate archived audio filename with default extension', () => {
+        const result = getTimestampedArchivedAudioFilename();
+        expect(result).toBe('250107-0530-review-audio.wav');
+    });
+
+    test('getTimestampedArchivedAudioFilename should generate archived audio filename with custom extension', () => {
+        const result = getTimestampedArchivedAudioFilename('.mp3');
+        expect(result).toBe('250107-0530-review-audio.mp3');
+    });
+
+    test('getTimestampedArchivedTranscriptFilename should generate archived transcript filename', () => {
+        const result = getTimestampedArchivedTranscriptFilename();
+        expect(result).toBe('250107-0530-review-transcript.md');
+    });
+});
+
+describe('archiveAudio', () => {
+    let mockStorage: any;
+    let mockLogger: any;
+
+    beforeEach(() => {
+        // Mock Storage
+        mockStorage = {
+            ensureDirectory: vi.fn().mockResolvedValue(undefined),
+            isFileReadable: vi.fn(),
+            writeFile: vi.fn().mockResolvedValue(undefined)
+        };
+        vi.spyOn(Storage, 'create').mockReturnValue(mockStorage);
+
+        // Mock Logger
+        mockLogger = {
+            debug: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn()
+        };
+
+        // Mock the getLogger function
+        vi.spyOn(Logging, 'getLogger').mockReturnValue(mockLogger);
+
+        // Mock fs.promises.readFile
+        vi.spyOn(fs.promises, 'readFile').mockResolvedValue(Buffer.from('audio data'));
+
+        // Mock Date
+        const mockDate = new Date('2025-01-07T10:30:45Z');
+        vi.useFakeTimers();
+        vi.setSystemTime(mockDate);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.clearAllMocks();
+    });
+
+    test('should archive audio file and transcription successfully', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(true);
+
+        const result = await archiveAudio('/path/to/audio.wav', 'Test transcription', 'output');
+
+        expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('output');
+        expect(mockStorage.isFileReadable).toHaveBeenCalledWith('/path/to/audio.wav');
+        expect(fs.promises.readFile).toHaveBeenCalledWith('/path/to/audio.wav');
+        expect(mockStorage.writeFile).toHaveBeenCalledWith(
+            'output/250107-0530-review-audio.wav',
+            expect.any(Buffer),
+            'binary'
+        );
+        expect(mockStorage.writeFile).toHaveBeenCalledWith(
+            'output/250107-0530-review-transcript.md',
+            expect.stringContaining('Test transcription'),
+            'utf8'
+        );
+
+        expect(result).toEqual({
+            audioPath: 'output/250107-0530-review-audio.wav',
+            transcriptPath: 'output/250107-0530-review-transcript.md'
+        });
+    });
+
+    test('should handle missing audio file gracefully', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(false);
+
+        const result = await archiveAudio('/path/to/missing.wav', 'Test transcription', 'output');
+
+        expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('output');
+        expect(mockStorage.isFileReadable).toHaveBeenCalledWith('/path/to/missing.wav');
+        expect(fs.promises.readFile).not.toHaveBeenCalled();
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+            'Original audio file not found or not readable: %s',
+            '/path/to/missing.wav'
+        );
+
+        // Should still write transcription
+        expect(mockStorage.writeFile).toHaveBeenCalledWith(
+            'output/250107-0530-review-transcript.md',
+            expect.stringContaining('Test transcription'),
+            'utf8'
+        );
+
+        expect(result).toEqual({
+            audioPath: 'output/250107-0530-review-audio.wav',
+            transcriptPath: 'output/250107-0530-review-transcript.md'
+        });
+    });
+
+    test('should use default output directory when not specified', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(true);
+
+        const result = await archiveAudio('/path/to/audio.wav', 'Test transcription');
+
+        expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('output');
+        expect(result.audioPath).toBe('output/250107-0530-review-audio.wav');
+        expect(result.transcriptPath).toBe('output/250107-0530-review-transcript.md');
+    });
+
+    test('should handle different audio file extensions', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(true);
+
+        const result = await archiveAudio('/path/to/audio.mp3', 'Test transcription', 'output');
+
+        expect(result.audioPath).toBe('output/250107-0530-review-audio.mp3');
+    });
+
+    test('should format transcription content correctly', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(true);
+
+        await archiveAudio('/path/to/audio.wav', 'Test transcription text', 'output');
+
+        const transcriptCall = mockStorage.writeFile.mock.calls.find(
+            (call: any[]) => call[0].includes('review-transcript.md')
+        );
+        expect(transcriptCall[1]).toContain('# Audio Transcription Archive');
+        expect(transcriptCall[1]).toContain('**Original Audio File:** /path/to/audio.wav');
+        expect(transcriptCall[1]).toContain('**Archived:** 2025-01-07T10:30:45.000Z');
+        expect(transcriptCall[1]).toContain('## Transcription');
+        expect(transcriptCall[1]).toContain('Test transcription text');
+    });
+
+    test('should handle storage errors', async () => {
+        mockStorage.ensureDirectory.mockRejectedValue(new Error('Storage error'));
+
+        await expect(archiveAudio('/path/to/audio.wav', 'Test transcription', 'output'))
+            .rejects
+            .toThrow('Audio archiving failed: Storage error');
+
+        expect(mockLogger.error).toHaveBeenCalledWith(
+            'Failed to archive audio: %s',
+            'Storage error'
+        );
+    });
+
+    test('should handle file read errors', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(true);
+        vi.spyOn(fs.promises, 'readFile').mockRejectedValue(new Error('File read error'));
+
+        await expect(archiveAudio('/path/to/audio.wav', 'Test transcription', 'output'))
+            .rejects
+            .toThrow('Audio archiving failed: File read error');
+    });
+
+    test('should log success message', async () => {
+        mockStorage.isFileReadable.mockResolvedValue(true);
+
+        await archiveAudio('/path/to/audio.wav', 'Test transcription', 'output');
+
+        expect(mockLogger.info).toHaveBeenCalledWith(
+            '📁 Audio archived successfully - Audio: %s, Transcript: %s',
+            '250107-0530-review-audio.wav',
+            '250107-0530-review-transcript.md'
+        );
     });
 });
