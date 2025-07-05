@@ -84,17 +84,8 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         logger.error('Error calling OpenAI API: %s %s', error.message, error.stack);
         throw new OpenAIError(`Failed to create completion: ${error.message}`);
     } finally {
-        // Ensure we close the OpenAI client to release underlying keep-alive sockets
-        try {
-            // openai.close() returns a promise; awaiting ensures proper cleanup
-            // but if it throws we silently ignore as it's best-effort.
-
-            if (openai && typeof (openai as any).close === 'function') {
-                await (openai as any).close();
-            }
-        } catch (closeErr) {
-            logger.debug('Failed to close OpenAI client: %s', (closeErr as Error).message);
-        }
+        // OpenAI client cleanup is handled automatically by the library
+        // No manual cleanup needed for newer versions
     }
 }
 
@@ -161,12 +152,7 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         } catch (streamErr) {
             logger.debug('Failed to close audio read stream: %s', (streamErr as Error).message);
         }
-        try {
-            if (openai && typeof (openai as any).close === 'function') {
-                await (openai as any).close();
-            }
-        } catch (closeErr) {
-            logger.debug('Failed to close OpenAI client: %s', (closeErr as Error).message);
-        }
+        // OpenAI client cleanup is handled automatically by the library
+        // No manual cleanup needed for newer versions
     }
 }

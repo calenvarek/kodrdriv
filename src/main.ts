@@ -136,4 +136,11 @@ export async function main() {
     }
 }
 
-main();
+// Properly handle the main function with error handling and explicit process exit
+main().then(() => {
+    process.exit(0);
+}).catch((error) => {
+    const logger = getLogger();
+    logger.error('Unhandled error in main: %s', error.message || error);
+    process.exit(1);
+});
