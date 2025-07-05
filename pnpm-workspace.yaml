@@ -1,5 +1,2 @@
-packages:
-  - '.'
-  - '!docs'
 ignoredBuiltDependencies:
-  - 'audify'
+  - audify

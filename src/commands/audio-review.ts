@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-/* eslint-disable @typescript-eslint/no-unused-vars */
+
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeReview } from './review';
-import { processAudio } from '../audio';
+import { processAudio } from '@theunwalked/unplayable';
+import { transcribeAudio } from '../util/openai';
+import { getTimestampedAudioFilename } from '../util/general';
+import path from 'path';
 
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
@@ -32,55 +35,60 @@ export const execute = async (runConfig: Config): Promise<string> => {
     let audioContext: string;
 
     try {
-        // Process audio using the audio subsystem
-        logger.info('🎙️  Starting audio processing for review context...');
+        // Step 1: Record audio using unplayable (for audio file acquisition only)
+        logger.info('🎙️  Starting audio recording for review context...');
 
         if (!runConfig.audioReview?.file) {
-            logger.info('This command will use your system\'s default audio recording tool');
-            logger.info('💡 Tip: Run "kodrdriv select-audio" to choose a specific microphone');
             logger.info('Press Ctrl+C after you finish speaking to generate your review analysis');
         }
 
-        const result = await processAudio({
+        // Use processAudio but ignore its transcription - we only want the audio file
+        const audioResult = await processAudio({
             file: runConfig.audioReview?.file,
-            audioDevice: runConfig.audioReview?.audioDevice,
-            maxRecordingTime: runConfig.audioReview?.maxRecordingTime,
-            outputDirectory: runConfig.outputDirectory,
-            preferencesDirectory: runConfig.preferencesDirectory,
-            debug: runConfig.debug,
-            dryRun: isDryRun,
-            keepTemp: runConfig.audioReview?.keepTemp
+            maxRecordingTime: runConfig.audioReview?.maxRecordingTime
         });
 
-        // If the recording was cancelled, exit
-        if (result.cancelled) {
+        // Check if recording was cancelled
+        if (audioResult.cancelled) {
             logger.info('❌ Audio review cancelled by user');
             process.exit(0);
         }
 
-        audioContext = result.transcript;
+        // Step 2: Determine the audio file path
+        let audioFilePath: string;
+
+        if (runConfig.audioReview?.file) {
+            // Use the provided file path
+            audioFilePath = runConfig.audioReview.file;
+        } else {
+            // For recorded audio, we need to determine where unplayable saved the file
+            // This is a temporary solution - ideally unplayable should return the file path
+            const outputDir = runConfig.outputDirectory || 'output';
+            audioFilePath = path.join(outputDir, getTimestampedAudioFilename());
+            logger.warn('Using generated filename for recorded audio: %s', audioFilePath);
+            logger.warn('Note: This may not match the actual file created by unplayable');
+        }
+
+        // Step 3: Use kodrdriv's transcription functionality instead of unplayable's
+        logger.info('🤖 Transcribing audio locally using OpenAI Whisper...');
+        logger.info('📝 Ignoring transcript from unplayable, using kodrdriv transcription');
+
+        const transcription = await transcribeAudio(audioFilePath, {
+            model: "whisper-1",
+            debug: runConfig.debug
+        });
+
+        audioContext = transcription.text;
 
         if (!audioContext.trim()) {
             logger.warn('No audio content was transcribed. Proceeding without audio context.');
             audioContext = '';
         } else {
-            logger.info('📝 Using transcribed audio as review note');
+            logger.info('📝 Successfully transcribed audio using kodrdriv');
+            logger.debug('Transcribed text: %s', audioContext);
         }
 
     } catch (error: any) {
-        if (error.message.includes('No audio device configured')) {
-            logger.error('❌ No audio device configured. Please run "kodrdriv select-audio" first to configure your audio device.');
-            logger.info('💡 This will create %s/audio-device.yaml with your preferred audio device.', runConfig.preferencesDirectory);
-            process.exit(1);
-        }
-
-        // If audio recording failed, exit instead of continuing
-        if (error.message.includes('Audio recording failed')) {
-            logger.error('❌ Audio recording failed. Cannot proceed with audio-review command.');
-            logger.info('💡 Try running "kodrdriv select-audio" to choose a different audio device');
-            process.exit(1);
-        }
-
         logger.error('Audio processing failed: %s', error.message);
         logger.info('Proceeding with review analysis without audio context...');
         audioContext = '';
@@ -106,19 +114,6 @@ export const execute = async (runConfig: Config): Promise<string> => {
             note: audioContext.trim() || runConfig.review?.note || ''
         }
     });
-
-    // Final cleanup to ensure process can exit
-    try {
-        if (process.stdin.setRawMode) {
-            process.stdin.setRawMode(false);
-            process.stdin.pause();
-            process.stdin.removeAllListeners();
-        }
-        process.removeAllListeners('SIGINT');
-        process.removeAllListeners('SIGTERM');
-    } catch (error) {
-        // Ignore cleanup errors
-    }
 
     return result;
 }; 

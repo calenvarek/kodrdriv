@@ -129,3 +129,11 @@ export const getTimestampedAudioFilename = (): string => {
 export const getTimestampedTranscriptFilename = (): string => {
     return getTimestampedFilename('audio-transcript', '.md');
 };
+
+export const getTimestampedReviewFilename = (): string => {
+    return getTimestampedFilename('review-analysis', '.md');
+};
+
+export const getTimestampedReviewNotesFilename = (): string => {
+    return getTimestampedFilename('review-notes', '.md');
+};
