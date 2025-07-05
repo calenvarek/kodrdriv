@@ -1,6 +1,6 @@
 {
     "name": "@eldrforge/kodrdriv",
-    "version": "0.0.19",
+    "version": "0.0.23",
     "description": "Create Intelligent Release Notes or Change Logs from Git",
     "main": "dist/main.js",
     "type": "module",
@@ -13,7 +13,7 @@
     },
     "packageManager": "pnpm@10.12.4",
     "scripts": {
-        "build": "pnpm run lint && tsc --noEmit && vite build && copyfiles \"src/**/*.md\" dist",
+        "build": "pnpm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist",
         "start": "dist/main.js",
         "dev": "vite",
         "watch": "vite build --watch",
@@ -39,9 +39,9 @@
     "license": "Apache-2.0",
     "dependencies": {
         "@octokit/rest": "^22.0.0",
-        "@riotprompt/riotprompt": "^0.0.3",
-        "@theunwalked/cardigantime": "^0.0.13",
-        "@theunwalked/unplayable": "^0.0.14",
+        "@riotprompt/riotprompt": "^0.0.6",
+        "@theunwalked/cardigantime": "^0.0.14",
+        "@theunwalked/unplayable": "^0.0.19",
         "audify": "^1.9.0",
         "commander": "^14.0.0",
         "dayjs": "^1.11.13",

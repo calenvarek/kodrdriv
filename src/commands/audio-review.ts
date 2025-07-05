@@ -35,17 +35,19 @@ export const execute = async (runConfig: Config): Promise<string> => {
     let audioContext: string;
 
     try {
-        // Step 1: Record audio using unplayable (for audio file acquisition only)
+        // Step 1: Record audio using unplayable with new key handling
         logger.info('🎙️  Starting audio recording for review context...');
 
         if (!runConfig.audioReview?.file) {
-            logger.info('Press Ctrl+C after you finish speaking to generate your review analysis');
+            logger.info('Press ENTER to stop recording or C to cancel');
         }
 
-        // Use processAudio but ignore its transcription - we only want the audio file
+        // Use processAudio with proper configuration
         const audioResult = await processAudio({
             file: runConfig.audioReview?.file,
-            maxRecordingTime: runConfig.audioReview?.maxRecordingTime
+            maxRecordingTime: runConfig.audioReview?.maxRecordingTime,
+            outputDirectory: runConfig.outputDirectory || 'output',
+            debug: runConfig.debug
         });
 
         // Check if recording was cancelled
@@ -54,24 +56,25 @@ export const execute = async (runConfig: Config): Promise<string> => {
             process.exit(0);
         }
 
-        // Step 2: Determine the audio file path
+        // Step 2: Get the audio file path from the result
         let audioFilePath: string;
 
         if (runConfig.audioReview?.file) {
             // Use the provided file path
             audioFilePath = runConfig.audioReview.file;
+        } else if (audioResult.audioFilePath) {
+            // Use the file path returned by processAudio
+            audioFilePath = audioResult.audioFilePath;
         } else {
-            // For recorded audio, we need to determine where unplayable saved the file
-            // This is a temporary solution - ideally unplayable should return the file path
+            // Fallback to generated filename (this should rarely happen now)
             const outputDir = runConfig.outputDirectory || 'output';
             audioFilePath = path.join(outputDir, getTimestampedAudioFilename());
             logger.warn('Using generated filename for recorded audio: %s', audioFilePath);
             logger.warn('Note: This may not match the actual file created by unplayable');
         }
 
-        // Step 3: Use kodrdriv's transcription functionality instead of unplayable's
+        // Step 3: Use kodrdriv's transcription functionality
         logger.info('🤖 Transcribing audio locally using OpenAI Whisper...');
-        logger.info('📝 Ignoring transcript from unplayable, using kodrdriv transcription');
 
         const transcription = await transcribeAudio(audioFilePath, {
             model: "whisper-1",
