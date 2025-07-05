@@ -50,7 +50,7 @@ export const createPrompt = async (
         contextItems.push({ content: context, title: 'User Context' });
     }
     if (directories && directories.length > 0) {
-        contextItems.push({ content: directories.join('\n'), title: 'Directories' });
+        contextItems.push({ directories, title: 'Directories' });
     }
 
 
@@ -59,6 +59,8 @@ export const createPrompt = async (
     return recipe(basePath)
         .persona({ path: 'personas/releaser.md' })
         .instructions({ path: 'instructions/release.md' })
+        .overridePaths(_overridePaths ?? [])
+        .overrides(_overrides ?? true)
         .content(...contentItems)
         .context(...contextItems)
         .cook();

@@ -29,6 +29,7 @@ export const ConfigSchema = z.object({
         to: z.string().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+        focus: z.string().optional(),
     }).optional(),
     review: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -105,6 +106,7 @@ export type ReleaseConfig = {
     from?: string;
     to?: string;
     context?: string;
+    focus?: string;
 }
 
 export type ReviewConfig = {

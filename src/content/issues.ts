@@ -1,5 +1,9 @@
 import { getLogger } from '../logging';
 import { getOpenIssues, createIssue } from '../util/github';
+import path from 'path';
+import os from 'os';
+import { spawnSync } from 'child_process';
+import fs from 'fs/promises';
 
 export interface Issue {
     title: string;
@@ -48,6 +52,14 @@ async function getUserChoice(prompt: string, choices: Array<{ key: string, label
     });
     logger.info('');
 
+    // Check if stdin is a TTY (terminal) or piped
+    if (!process.stdin.isTTY) {
+        // STDIN is piped, we can't use interactive prompts
+        // This should not happen anymore due to fail-fast check in review.ts
+        logger.error('⚠️  Unexpected: STDIN is piped in interactive mode');
+        return 's'; // Default to skip
+    }
+
     return new Promise(resolve => {
         // Ensure stdin is referenced so the process doesn't exit while waiting for input
         if (typeof process.stdin.ref === 'function') {
@@ -73,52 +85,146 @@ async function getUserChoice(prompt: string, choices: Array<{ key: string, label
     });
 }
 
-// Helper function to edit issue interactively
-async function editIssueInteractively(issue: Issue): Promise<Issue> {
-    const logger = getLogger();
-    const readline = await import('readline');
+// Helper function to serialize issue to structured text format
+function serializeIssue(issue: Issue): string {
+    const lines = [
+        '# Issue Editor',
+        '',
+        '# Edit the issue details below. Lines starting with "#" are comments and will be ignored.',
+        '# Valid priorities: low, medium, high',
+        '# Valid categories: ui, content, functionality, accessibility, performance, other',
+        '# Suggestions should be one per line, preceded by a "-" or "•"',
+        '',
+        `Title: ${issue.title}`,
+        '',
+        `Priority: ${issue.priority}`,
+        '',
+        `Category: ${issue.category}`,
+        '',
+        'Description:',
+        issue.description,
+        '',
+        'Suggestions:',
+    ];
 
-    // Ensure stdin is referenced during readline interaction
-    if (typeof process.stdin.ref === 'function') {
-        process.stdin.ref();
+    if (issue.suggestions && issue.suggestions.length > 0) {
+        issue.suggestions.forEach(suggestion => {
+            lines.push(`- ${suggestion}`);
+        });
+    } else {
+        lines.push('# Add suggestions here, one per line with "-" or "•"');
     }
 
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
+    return lines.join('\n');
+}
 
-    const question = (prompt: string): Promise<string> => {
-        return new Promise(resolve => {
-            rl.question(prompt, resolve);
-        });
-    };
+// Helper function to deserialize issue from structured text format
+function deserializeIssue(content: string): Issue {
+    const lines = content.split('\n');
 
-    try {
-        logger.info('📝 Edit issue details (press Enter to keep current value):');
+    // Parse the structured format
+    let title = '';
+    let priority: 'low' | 'medium' | 'high' = 'medium';
+    let category: 'ui' | 'content' | 'functionality' | 'accessibility' | 'performance' | 'other' = 'other';
+    let description = '';
+    const suggestions: string[] = [];
 
-        const newTitle = await question(`Title [${issue.title}]: `);
-        const newDescription = await question(`Description [${issue.description}]: `);
-        const newPriority = await question(`Priority (low/medium/high) [${issue.priority}]: `);
-        const newCategory = await question(`Category (ui/content/functionality/accessibility/performance/other) [${issue.category}]: `);
+    let currentSection = '';
+    let descriptionLines: string[] = [];
 
-        const updatedIssue: Issue = {
-            title: newTitle.trim() || issue.title,
-            description: newDescription.trim() || issue.description,
-            priority: (newPriority.trim() as any) || issue.priority,
-            category: (newCategory.trim() as any) || issue.category,
-            suggestions: issue.suggestions
-        };
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
 
-        logger.info('✅ Issue updated successfully');
-        return updatedIssue;
-    } finally {
-        rl.close();
-        // Detach stdin after interactive edit completes
-        if (typeof process.stdin.unref === 'function') {
-            process.stdin.unref();
+        // Skip comment lines
+        if (line.startsWith('#')) {
+            continue;
+        }
+
+        // Parse field lines
+        if (line.startsWith('Title:')) {
+            title = line.substring(6).trim();
+        } else if (line.startsWith('Priority:')) {
+            const priorityValue = line.substring(9).trim().toLowerCase();
+            if (priorityValue === 'low' || priorityValue === 'medium' || priorityValue === 'high') {
+                priority = priorityValue;
+            }
+        } else if (line.startsWith('Category:')) {
+            const categoryValue = line.substring(9).trim().toLowerCase();
+            if (['ui', 'content', 'functionality', 'accessibility', 'performance', 'other'].includes(categoryValue)) {
+                category = categoryValue as any;
+            }
+        } else if (line === 'Description:') {
+            currentSection = 'description';
+            descriptionLines = [];
+        } else if (line === 'Suggestions:') {
+            currentSection = 'suggestions';
+            // Process accumulated description lines
+            description = descriptionLines.join('\n').trim();
+        } else if (currentSection === 'description' && line !== '') {
+            descriptionLines.push(lines[i]); // Keep original line with spacing
+        } else if (currentSection === 'suggestions' && line !== '') {
+            // Parse suggestion line
+            const suggestionLine = line.replace(/^[-•]\s*/, '').trim();
+            if (suggestionLine) {
+                suggestions.push(suggestionLine);
+            }
         }
     }
+
+    // If we didn't encounter suggestions section, description might still be accumulating
+    if (currentSection === 'description') {
+        description = descriptionLines.join('\n').trim();
+    }
+
+    return {
+        title: title || 'Untitled Issue',
+        priority,
+        category,
+        description: description || 'No description provided',
+        suggestions: suggestions.length > 0 ? suggestions : undefined
+    };
+}
+
+// Helper function to edit issue using editor
+async function editIssueInteractively(issue: Issue): Promise<Issue> {
+    const logger = getLogger();
+    const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
+
+    // Create a temporary file for the user to edit
+    const tmpDir = os.tmpdir();
+    const tmpFilePath = path.join(tmpDir, `kodrdriv_issue_${Date.now()}.txt`);
+
+    // Serialize the issue to structured text format
+    const issueContent = serializeIssue(issue);
+
+    await fs.writeFile(tmpFilePath, issueContent, 'utf8');
+
+    logger.info(`📝 Opening ${editor} to edit issue...`);
+
+    // Open the editor synchronously so execution resumes after the user closes it
+    const result = spawnSync(editor, [tmpFilePath], { stdio: 'inherit' });
+
+    if (result.error) {
+        throw new Error(`Failed to launch editor '${editor}': ${result.error.message}`);
+    }
+
+    // Read the file back and deserialize it
+    const editedContent = await fs.readFile(tmpFilePath, 'utf8');
+
+    // Clean up the temporary file (best-effort – ignore errors)
+    try {
+        await fs.unlink(tmpFilePath);
+    } catch {
+        /* ignore */
+    }
+
+    // Deserialize the edited content back to an Issue object
+    const editedIssue = deserializeIssue(editedContent);
+
+    logger.info('✅ Issue updated successfully');
+    logger.debug('Updated issue: %s', JSON.stringify(editedIssue, null, 2));
+
+    return editedIssue;
 }
 
 // Helper function to format issue body for GitHub
@@ -254,35 +360,39 @@ export const handleIssueCreation = async (
     logger.info(`🔍 Found ${result.issues.length} issues to potentially create as GitHub issues`);
 
     for (let i = 0; i < result.issues.length; i++) {
-        const issue = result.issues[i];
+        let issue = result.issues[i];
         let shouldCreateIssue = senditMode;
 
         if (!senditMode) {
-            // Interactive confirmation for each issue
-            logger.info(`\n📋 Issue ${i + 1} of ${result.issues.length}:`);
-            logger.info(`   Title: ${issue.title}`);
-            logger.info(`   Priority: ${issue.priority} | Category: ${issue.category}`);
-            logger.info(`   Description: ${issue.description}`);
-            if (issue.suggestions && issue.suggestions.length > 0) {
-                logger.info(`   Suggestions: ${issue.suggestions.join(', ')}`);
-            }
+            // Interactive confirmation for each issue - keep looping until user decides
+            let userChoice = '';
+            while (userChoice !== 'c' && userChoice !== 's') {
+                // Display issue details
+                logger.info(`\n📋 Issue ${i + 1} of ${result.issues.length}:`);
+                logger.info(`   Title: ${issue.title}`);
+                logger.info(`   Priority: ${issue.priority} | Category: ${issue.category}`);
+                logger.info(`   Description: ${issue.description}`);
+                if (issue.suggestions && issue.suggestions.length > 0) {
+                    logger.info(`   Suggestions: ${issue.suggestions.join(', ')}`);
+                }
 
-            // Get user choice
-            const choice = await getUserChoice('\nWhat would you like to do with this issue?', [
-                { key: 'c', label: 'Create GitHub issue' },
-                { key: 's', label: 'Skip this issue' },
-                { key: 'e', label: 'Edit issue details' }
-            ]);
+                // Get user choice
+                userChoice = await getUserChoice('\nWhat would you like to do with this issue?', [
+                    { key: 'c', label: 'Create GitHub issue' },
+                    { key: 's', label: 'Skip this issue' },
+                    { key: 'e', label: 'Edit issue details' }
+                ]);
 
-            if (choice === 'c') {
-                shouldCreateIssue = true;
-            } else if (choice === 'e') {
-                // Allow user to edit the issue
-                const editedIssue = await editIssueInteractively(issue);
-                result.issues[i] = editedIssue;
-                shouldCreateIssue = true;
+                if (userChoice === 'c') {
+                    shouldCreateIssue = true;
+                } else if (userChoice === 'e') {
+                    // Allow user to edit the issue
+                    issue = await editIssueInteractively(issue);
+                    result.issues[i] = issue; // Update the issue in the result
+                    // Continue the loop to show the updated issue and ask again
+                }
+                // If choice is 's', loop will exit and shouldCreateIssue remains false
             }
-            // If choice is 's', shouldCreateIssue remains false
         }
 
         if (shouldCreateIssue) {
