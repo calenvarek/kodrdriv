@@ -62,9 +62,13 @@ vi.mock('@riotprompt/riotprompt', () => {
         recipe: vi.fn().mockImplementation(() => ({
             persona: vi.fn().mockImplementation(() => ({
                 instructions: vi.fn().mockImplementation(() => ({
-                    content: vi.fn().mockImplementation(() => ({
-                        context: vi.fn().mockImplementation(() => ({
-                            cook: vi.fn().mockResolvedValue('mock prompt')
+                    overridePaths: vi.fn().mockImplementation(() => ({
+                        overrides: vi.fn().mockImplementation(() => ({
+                            content: vi.fn().mockImplementation(() => ({
+                                context: vi.fn().mockImplementation(() => ({
+                                    cook: vi.fn().mockResolvedValue('mock prompt')
+                                }))
+                            }))
                         }))
                     }))
                 }))

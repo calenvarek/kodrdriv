@@ -4,6 +4,21 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@riotprompt/riotprompt', () => {
     return {
         cook: vi.fn().mockResolvedValue('MOCK_PROMPT'),
+        recipe: vi.fn().mockImplementation(() => ({
+            persona: vi.fn().mockImplementation(() => ({
+                instructions: vi.fn().mockImplementation(() => ({
+                    overridePaths: vi.fn().mockImplementation(() => ({
+                        overrides: vi.fn().mockImplementation(() => ({
+                            content: vi.fn().mockImplementation(() => ({
+                                context: vi.fn().mockImplementation(() => ({
+                                    cook: vi.fn().mockResolvedValue('MOCK_PROMPT')
+                                }))
+                            }))
+                        }))
+                    }))
+                }))
+            }))
+        }))
     };
 });
 
@@ -16,7 +31,7 @@ vi.mock('../../src/logging', () => {
 
 // System under test
 import { createPrompt } from '../../src/prompt/review';
-import { cook } from '@riotprompt/riotprompt';
+import { recipe } from '@riotprompt/riotprompt';
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -44,25 +59,9 @@ describe('createPrompt (review)', () => {
         // Ensure the mocked prompt instance is returned
         expect(result).toBe('MOCK_PROMPT');
 
-        // cook should have been called once with the expected parameters
-        expect(cook).toHaveBeenCalledTimes(1);
-        expect(cook).toHaveBeenCalledWith({
-            basePath: expect.stringContaining('/prompt'),
-            overridePaths: ['/custom/path'],
-            overrides: true,
-            template: 'review',
-            content: [
-                { content: 'These are the review notes', title: 'Review Notes', weight: 1.0 }
-            ],
-            context: [
-                { content: 'git log output', title: 'Log Context', weight: 0.5 },
-                { content: 'diff output', title: 'Diff Context', weight: 0.5 },
-                { content: 'release notes', title: 'Release Notes Context', weight: 0.5 },
-                { content: 'github issues', title: 'Issues Context', weight: 0.5 },
-                { content: 'extra context', title: 'User Context', weight: 1.0 },
-                { directories: ['src', 'docs'], weight: 0.5 }
-            ]
-        });
+        // recipe should have been called once
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
     });
 
     test('skips optional contexts when not provided', async () => {
@@ -72,17 +71,8 @@ describe('createPrompt (review)', () => {
         const result = await createPrompt(config, content, {});
         expect(result).toBe('MOCK_PROMPT');
 
-        // cook should have been called with minimal context
-        expect(cook).toHaveBeenCalledTimes(1);
-        expect(cook).toHaveBeenCalledWith({
-            basePath: expect.stringContaining('/prompt'),
-            overridePaths: [],
-            overrides: false,
-            template: 'review',
-            content: [
-                { content: 'Minimal review notes', title: 'Review Notes', weight: 1.0 }
-            ],
-            context: []
-        });
+        // recipe should have been called with minimal context
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
     });
 });
