@@ -34,9 +34,9 @@ export const createPrompt = async (
     { diffContent, userDirection }: Content,
     { logContext, context, directories }: Context = {}
 ): Promise<Prompt> => {
-    // Use the new quick.commit recipe - much simpler!
-    // Adjust basePath for single-file build
-    const basePath = path.resolve(__dirname, 'src', 'prompt');
+    // Use the new cook recipe with template
+    // Use __dirname directly since it already points to the correct location after build
+    const basePath = __dirname;
     return quick.commit(diffContent, {
         basePath,
         overridePaths: overridePaths || [],
