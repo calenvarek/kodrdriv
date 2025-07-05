@@ -7,7 +7,9 @@ vi.mock('@riotprompt/riotprompt', () => {
             persona: vi.fn().mockImplementation(() => ({
                 instructions: vi.fn().mockImplementation(() => ({
                     content: vi.fn().mockImplementation(() => ({
-                        cook: vi.fn().mockResolvedValue('mock prompt')
+                        context: vi.fn().mockImplementation(() => ({
+                            cook: vi.fn().mockResolvedValue('mock prompt')
+                        }))
                     }))
                 }))
             }))
