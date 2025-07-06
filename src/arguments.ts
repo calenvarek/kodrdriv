@@ -97,9 +97,10 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     }
 
     // Nested mappings for 'publish' options
-    if (finalCliArgs.mergeMethod !== undefined) {
+    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.sendit !== undefined) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
+        if (finalCliArgs.sendit !== undefined) transformedCliArgs.publish.sendit = finalCliArgs.sendit;
     }
 
     // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
@@ -392,6 +393,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
     const publishCommand = program
         .command('publish')
         .option('--merge-method <method>', 'method to merge PR (merge, squash, rebase)', 'squash')
+        .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
@@ -685,6 +687,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             requiredEnvVars: options.publish?.requiredEnvVars ?? KODRDRIV_DEFAULTS.publish.requiredEnvVars,
             linkWorkspacePackages: options.publish?.linkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.linkWorkspacePackages,
             unlinkWorkspacePackages: options.publish?.unlinkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.unlinkWorkspacePackages,
+            sendit: options.publish?.sendit ?? KODRDRIV_DEFAULTS.publish.sendit,
         },
         link: {
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
