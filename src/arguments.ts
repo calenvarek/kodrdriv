@@ -392,6 +392,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
     const publishCommand = program
         .command('publish')
         .option('--merge-method <method>', 'method to merge PR (merge, squash, rebase)', 'squash')
+        .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
@@ -685,6 +686,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             requiredEnvVars: options.publish?.requiredEnvVars ?? KODRDRIV_DEFAULTS.publish.requiredEnvVars,
             linkWorkspacePackages: options.publish?.linkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.linkWorkspacePackages,
             unlinkWorkspacePackages: options.publish?.unlinkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.unlinkWorkspacePackages,
+            sendit: options.publish?.sendit ?? KODRDRIV_DEFAULTS.publish.sendit,
         },
         link: {
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
