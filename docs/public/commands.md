@@ -306,18 +306,54 @@ The `publish` command orchestrates a comprehensive release workflow, designed to
    - It pushes the changes and tags to the origin.
    - It creates a new pull request for the release.
    - It waits for all status checks on the pull request to pass.
-   - Once checks are complete, it automatically merges the pull request using the configured merge method (default: squash).
+   - If no GitHub Actions workflows or status checks are configured, the command will detect this automatically and either proceed immediately or ask for user confirmation (depending on configuration).
+   - Once checks are complete (or if no checks exist), it automatically merges the pull request using the configured merge method (default: squash).
 
 7. **GitHub Release**: After the PR is merged, it checks out the `main` branch, pulls the latest changes, and creates a new GitHub release with the tag and release notes.
 
 8. **New Release Branch**: Finally, it creates and pushes a new release branch for the next version (e.g., `release/0.0.5`).
 
-This command is designed for repositories that follow a pull-request-based release workflow with required status checks. It streamlines the process, reducing manual steps and potential for error.
+This command is designed for repositories that follow a pull-request-based release workflow with or without status checks. It automatically handles repositories that have no CI/CD configured and streamlines the process, reducing manual steps and potential for error.
+
+> [!TIP]
+> ### No Checks Scenario
+> 
+> If your repository doesn't have GitHub Actions workflows or status checks configured, the publish command will automatically detect this and avoid waiting indefinitely. By default, it will ask for user confirmation before proceeding with the merge. You can configure this behavior using the `skipUserConfirmation` option to automatically proceed in non-interactive environments.
 
 ### Publish Command Options
 
 - `--merge-method <method>`: Method to merge pull requests during the publish process (default: 'squash')
   - Available methods: 'merge', 'squash', 'rebase'
+- `--sendit`: Skip all confirmation prompts and proceed automatically (useful for automated workflows)
+
+### Publish Configuration
+
+You can configure the publish command behavior in your `.kodrdriv/config.json` file:
+
+```json
+{
+  "publish": {
+    "mergeMethod": "squash",
+    "dependencyUpdatePatterns": ["@mycompany/*", "@utils/*"],
+    "requiredEnvVars": ["NPM_TOKEN", "GITHUB_TOKEN"],
+    "linkWorkspacePackages": true,
+    "unlinkWorkspacePackages": true,
+    "checksTimeout": 300000,
+    "skipUserConfirmation": false,
+    "sendit": false
+  }
+}
+```
+
+**Configuration Options:**
+- `mergeMethod`: Default merge method for pull requests ('merge', 'squash', 'rebase')
+- `dependencyUpdatePatterns`: Array of patterns to match dependencies for updating (if not specified, all dependencies are updated)
+- `requiredEnvVars`: Array of environment variables that must be set before publishing
+- `linkWorkspacePackages`: Whether to restore linked packages after publishing (default: true)
+- `unlinkWorkspacePackages`: Whether to unlink workspace packages before publishing (default: true)
+- `checksTimeout`: Maximum time in milliseconds to wait for PR checks (default: 300000 = 5 minutes)
+- `skipUserConfirmation`: Skip user confirmation when no checks are configured (default: false, useful for CI/CD environments)
+- `sendit`: Skip all confirmation prompts and proceed automatically (default: false, overrides `skipUserConfirmation` when true)
 
 ### Examples
 
@@ -330,6 +366,12 @@ kodrdriv publish --merge-method merge
 
 # Publish with rebase
 kodrdriv publish --merge-method rebase
+
+# Automated publish workflow (skip all confirmations)
+kodrdriv publish --sendit
+
+# Automated publish with custom merge method
+kodrdriv publish --sendit --merge-method merge
 ```
 
 ## Link Command
@@ -459,37 +501,4 @@ Initialize configuration files:
 kodrdriv --init-config
 ```
 
-This flag creates initial configuration files with default settings in your project's `.kodrdriv` directory.
-
-## Global Options
-
-All commands support these global options:
-
-- `--dry-run`: Perform a dry run without making changes
-- `--verbose`: Enable verbose logging
-- `--debug`: Enable debug logging with detailed output
-- `--model <model>`: Specify OpenAI model to use (default: 'gpt-4o-mini')
-- `--config-dir <configDir>`: Configuration directory path
-- `--output-dir <outputDir>`: Output directory for generated files
-- `--preferences-dir <preferencesDir>`: Preferences directory for personal settings
-- `-d, --context-directories [dirs...]`: Additional directories to scan for context
-- `--excluded-paths [patterns...]`: Paths to exclude from analysis
-
-### Global Examples
-
-```bash
-# Run any command in dry-run mode
-kodrdriv commit --dry-run
-
-# Use verbose logging
-kodrdriv review --verbose "performance issues"
-
-# Use custom model
-kodrdriv release --model gpt-4o
-
-# Custom output directory
-kodrdriv commit --output-dir ./my-output "bug fixes"
-
-# Additional context directories
-kodrdriv commit --context-directories src tests docs
-``` 
+This flag creates initial configuration files with default settings in your project's `.kodrdriv`

@@ -1,3 +1,4 @@
+
 // Function to read from STDIN if available
 export async function readStdin(): Promise<string | null> {
     // In test environment, allow mocking to work by skipping TTY check
@@ -108,6 +109,44 @@ export async function readStdin(): Promise<string | null> {
         process.stdin.on('error', onError);
 
         // If no data comes in quickly, assume no stdin
+        process.stdin.resume();
+    });
+}
+
+// Function to prompt user for confirmation (y/n)
+export async function promptConfirmation(message: string): Promise<boolean> {
+    // In test environment, return true by default
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+        return true;
+    }
+
+    // Use process.stdout.write instead of console.log to avoid linter issues
+    process.stdout.write(message + '\n');
+    process.stdout.write('Please enter "y" for yes or "n" for no: ');
+
+    return new Promise((resolve) => {
+        const handleInput = (chunk: string) => {
+            const input = chunk.toString().trim().toLowerCase();
+
+            if (input === 'y' || input === 'yes') {
+                cleanup();
+                resolve(true);
+            } else if (input === 'n' || input === 'no') {
+                cleanup();
+                resolve(false);
+            } else {
+                process.stdout.write('Please enter "y" for yes or "n" for no: ');
+                // Continue listening for input
+            }
+        };
+
+        const cleanup = () => {
+            process.stdin.removeListener('data', handleInput);
+            process.stdin.pause();
+        };
+
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', handleInput);
         process.stdin.resume();
     });
 } 

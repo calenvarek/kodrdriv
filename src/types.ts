@@ -67,6 +67,9 @@ export const ConfigSchema = z.object({
         requiredEnvVars: z.array(z.string()).optional(),
         linkWorkspacePackages: z.boolean().optional(),
         unlinkWorkspacePackages: z.boolean().optional(),
+        checksTimeout: z.number().optional(),
+        skipUserConfirmation: z.boolean().optional(),
+        sendit: z.boolean().optional(),
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
