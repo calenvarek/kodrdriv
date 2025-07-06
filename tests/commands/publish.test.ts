@@ -755,7 +755,10 @@ cache=\${CACHE_DIR}/npm
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push --follow-tags', false);
             expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
-            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123);
+            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
+                timeout: 300000,
+                skipUserConfirmation: false
+            });
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', false);
@@ -808,7 +811,10 @@ cache=\${CACHE_DIR}/npm
             expect(Child.run).not.toHaveBeenCalledWith('pnpm update --latest'); // Should skip dependency updates
             expect(Commit.execute).not.toHaveBeenCalled(); // Should skip commit
             expect(GitHub.createPullRequest).not.toHaveBeenCalled(); // Should skip PR creation
-            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(456);
+            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(456, {
+                timeout: 300000,
+                skipUserConfirmation: false
+            });
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash');
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
             expect(Link.execute).toHaveBeenCalledWith(mockConfig);
@@ -1038,6 +1044,159 @@ cache=\${CACHE_DIR}/npm
             await expect(Publish.execute(mockConfig)).rejects.toThrow('GitHub API error');
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
             expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+        });
+
+        it('should pass custom timeout and skipUserConfirmation options to waitForPullRequestChecks', async () => {
+            // Arrange
+            setupPrecheckMocks();
+
+            const mockConfigWithChecksOptions = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                publish: {
+                    checksTimeout: 600000, // 10 minutes
+                    skipUserConfirmation: true
+                }
+            };
+
+            const mockBranchName = 'release/0.0.4';
+            const mockPR = {
+                number: 123,
+                html_url: 'https://github.com/owner/repo/pull/123'
+            };
+
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename === 'RELEASE_NOTES.md') {
+                    return Promise.resolve('# Release Notes');
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve('Release Title');
+                }
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                }
+                return Promise.resolve('');
+            });
+
+            GitHub.createRelease.mockResolvedValue(undefined);
+            General.incrementPatchVersion.mockReturnValue('0.0.5');
+
+            // Act
+            await Publish.execute(mockConfigWithChecksOptions);
+
+            // Assert - Verify options are passed to waitForPullRequestChecks
+            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
+                timeout: 600000,
+                skipUserConfirmation: true
+            });
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithChecksOptions);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithChecksOptions);
+        });
+
+        it('should use default timeout and skipUserConfirmation when not specified', async () => {
+            // Arrange
+            setupPrecheckMocks();
+
+            const mockConfigWithoutChecksOptions = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config'
+                // No publish configuration
+            };
+
+            const mockBranchName = 'release/0.0.4';
+            const mockPR = {
+                number: 123,
+                html_url: 'https://github.com/owner/repo/pull/123'
+            };
+
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename === 'RELEASE_NOTES.md') {
+                    return Promise.resolve('# Release Notes');
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve('Release Title');
+                }
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                }
+                return Promise.resolve('');
+            });
+
+            GitHub.createRelease.mockResolvedValue(undefined);
+            General.incrementPatchVersion.mockReturnValue('0.0.5');
+
+            // Act
+            await Publish.execute(mockConfigWithoutChecksOptions);
+
+            // Assert - Verify default options are used
+            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
+                timeout: 300000, // 5 minutes default
+                skipUserConfirmation: false
+            });
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutChecksOptions);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutChecksOptions);
+        });
+
+        it('should override skipUserConfirmation when sendit flag is true', async () => {
+            // Arrange
+            setupPrecheckMocks();
+
+            const mockConfigWithSendit = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                publish: {
+                    sendit: true,
+                    skipUserConfirmation: false // This should be overridden by sendit
+                }
+            };
+
+            const mockBranchName = 'release/0.0.4';
+            const mockPR = {
+                number: 123,
+                html_url: 'https://github.com/owner/repo/pull/123'
+            };
+
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename === 'RELEASE_NOTES.md') {
+                    return Promise.resolve('# Release Notes');
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve('Release Title');
+                }
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                }
+                return Promise.resolve('');
+            });
+
+            GitHub.createRelease.mockResolvedValue(undefined);
+            General.incrementPatchVersion.mockReturnValue('0.0.5');
+
+            // Act
+            await Publish.execute(mockConfigWithSendit);
+
+            // Assert - Verify sendit overrides skipUserConfirmation
+            expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
+                timeout: 300000, // 5 minutes default
+                skipUserConfirmation: true // Should be true because sendit=true overrides skipUserConfirmation=false
+            });
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithSendit);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithSendit);
         });
 
         it('should handle release creation failure', async () => {

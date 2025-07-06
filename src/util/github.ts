@@ -2,6 +2,7 @@ import { Octokit } from '@octokit/rest';
 import { getLogger } from '../logging';
 import { PullRequest, MergeMethod } from '../types';
 import { run } from './child';
+import { promptConfirmation } from './stdin';
 
 export const getOctokit = (): Octokit => {
     const logger = getLogger();
@@ -82,12 +83,61 @@ export const findOpenPullRequestByHeadRef = async (head: string): Promise<PullRe
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export const waitForPullRequestChecks = async (prNumber: number): Promise<void> => {
+// Check if repository has GitHub Actions workflows configured
+const hasWorkflowsConfigured = async (): Promise<boolean> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+
+    try {
+        const response = await octokit.actions.listRepoWorkflows({
+            owner,
+            repo,
+        });
+
+        return response.data.workflows.length > 0;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (error: any) {
+        // If we can't check workflows (e.g., no Actions permission), assume they might exist
+        return true;
+    }
+};
+
+export const waitForPullRequestChecks = async (prNumber: number, options: { timeout?: number; skipUserConfirmation?: boolean } = {}): Promise<void> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
     const logger = getLogger();
+    const timeout = options.timeout || 300000; // 5 minutes default timeout
+    const skipUserConfirmation = options.skipUserConfirmation || false;
+
+    const startTime = Date.now();
+    let consecutiveNoChecksCount = 0;
+    const maxConsecutiveNoChecks = 6; // 6 consecutive checks (1 minute) with no checks before asking user
 
     while (true) {
+        const elapsedTime = Date.now() - startTime;
+
+        // Check for timeout
+        if (elapsedTime > timeout) {
+            logger.warn(`Timeout reached (${timeout / 1000}s) while waiting for PR #${prNumber} checks.`);
+
+            if (!skipUserConfirmation) {
+                const proceedWithoutChecks = await promptConfirmation(
+                    `⚠️  Timeout reached while waiting for PR #${prNumber} checks.\n` +
+                    `This might indicate that no checks are configured for this repository.\n` +
+                    `Do you want to proceed with merging the PR without waiting for checks?`
+                );
+
+                if (proceedWithoutChecks) {
+                    logger.info('User chose to proceed without waiting for checks.');
+                    return;
+                } else {
+                    throw new Error(`Timeout waiting for PR #${prNumber} checks. User chose not to proceed.`);
+                }
+            } else {
+                throw new Error(`Timeout waiting for PR #${prNumber} checks (${timeout / 1000}s)`);
+            }
+        }
+
         const pr = await octokit.pulls.get({
             owner,
             repo,
@@ -103,10 +153,48 @@ export const waitForPullRequestChecks = async (prNumber: number): Promise<void> 
         const checkRuns = checkRunsResponse.data.check_runs;
 
         if (checkRuns.length === 0) {
-            logger.info(`PR #${prNumber}: No checks found. Waiting...`);
+            consecutiveNoChecksCount++;
+            logger.info(`PR #${prNumber}: No checks found (${consecutiveNoChecksCount}/${maxConsecutiveNoChecks}). Waiting...`);
+
+            // After several consecutive "no checks" responses, check if workflows are configured
+            if (consecutiveNoChecksCount >= maxConsecutiveNoChecks) {
+                logger.info(`No checks detected for ${maxConsecutiveNoChecks} consecutive attempts. Checking repository configuration...`);
+
+                const hasWorkflows = await hasWorkflowsConfigured();
+
+                if (!hasWorkflows) {
+                    logger.warn(`No GitHub Actions workflows found in repository ${owner}/${repo}.`);
+
+                    if (!skipUserConfirmation) {
+                        const proceedWithoutChecks = await promptConfirmation(
+                            `⚠️  No GitHub Actions workflows or checks are configured for this repository.\n` +
+                            `PR #${prNumber} will never have status checks to wait for.\n` +
+                            `Do you want to proceed with merging the PR without checks?`
+                        );
+
+                        if (proceedWithoutChecks) {
+                            logger.info('User chose to proceed without checks (no workflows configured).');
+                            return;
+                        } else {
+                            throw new Error(`No checks configured for PR #${prNumber}. User chose not to proceed.`);
+                        }
+                    } else {
+                        // In non-interactive mode, proceed if no workflows are configured
+                        logger.info('No workflows configured, proceeding without checks.');
+                        return;
+                    }
+                } else {
+                    logger.info('GitHub Actions workflows are configured. Continuing to wait for checks...');
+                    consecutiveNoChecksCount = 0; // Reset counter since workflows exist
+                }
+            }
+
             await delay(10000);
             continue;
         }
+
+        // Reset the no-checks counter since we found some checks
+        consecutiveNoChecksCount = 0;
 
         const failingChecks = checkRuns.filter(
             (cr) => cr.conclusion && ['failure', 'timed_out', 'cancelled'].includes(cr.conclusion)
