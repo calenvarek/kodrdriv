@@ -97,10 +97,9 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     }
 
     // Nested mappings for 'publish' options
-    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.sendit !== undefined) {
+    if (finalCliArgs.mergeMethod !== undefined) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
-        if (finalCliArgs.sendit !== undefined) transformedCliArgs.publish.sendit = finalCliArgs.sendit;
     }
 
     // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
