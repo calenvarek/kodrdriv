@@ -194,6 +194,7 @@ export const KODRDRIV_DEFAULTS = {
         requiredEnvVars: ['GITHUB_TOKEN', 'OPENAI_API_KEY'],
         linkWorkspacePackages: true,
         unlinkWorkspacePackages: true,
+        sendit: DEFAULT_SENDIT_MODE,
     },
     link: {
         scopeRoots: {},

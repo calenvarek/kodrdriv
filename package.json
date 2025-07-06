@@ -1,6 +1,6 @@
 {
     "name": "@eldrforge/kodrdriv",
-    "version": "0.0.25",
+    "version": "0.0.26",
     "description": "Create Intelligent Release Notes or Change Logs from Git",
     "main": "dist/main.js",
     "type": "module",
@@ -40,7 +40,7 @@
     "dependencies": {
         "@octokit/rest": "^22.0.0",
         "@riotprompt/riotprompt": "^0.0.7",
-        "@theunwalked/cardigantime": "^0.0.14",
+        "@theunwalked/cardigantime": "^0.0.15",
         "@theunwalked/unplayable": "^0.0.20",
         "audify": "^1.9.0",
         "commander": "^14.0.0",

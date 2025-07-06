@@ -266,7 +266,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         logger.info(`${isDryRun ? 'DRY RUN: Would wait for' : 'Waiting for'} PR #${pr!.number} checks to complete...`);
         if (!isDryRun) {
-            await GitHub.waitForPullRequestChecks(pr!.number);
+            // Configure timeout and user confirmation behavior
+            const timeout = runConfig.publish?.checksTimeout || 300000; // 5 minutes default
+            const senditMode = runConfig.publish?.sendit || false;
+            // sendit flag overrides skipUserConfirmation - if sendit is true, skip confirmation
+            const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
+
+            await GitHub.waitForPullRequestChecks(pr!.number, {
+                timeout,
+                skipUserConfirmation
+            });
         }
 
         const mergeMethod = runConfig.publish?.mergeMethod || 'squash';
