@@ -35,3 +35,6 @@ pnpm-workspace.yaml
 tsconfig.tsbuildinfo
 vite.config.ts
 vitest.config.ts
+test.txt
+debug-test.txt
+
