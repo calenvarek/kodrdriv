@@ -40,7 +40,7 @@ importers:
         version: 0.6.0
       openai:
         specifier: ^5.8.4
-        version: 5.8.4(zod@4.0.2)
+        version: 5.9.0(zod@4.0.2)
       shell-escape:
         specifier: ^0.2.0
         version: 0.2.0
@@ -1869,8 +1869,8 @@ packages:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
 
-  openai@5.8.4:
-    resolution: {integrity: sha512-aVzelCIODrYQ1pW4Kf4FfaVyIBSi/6jNszQ4KuolwmEa0UNgMicOfczSPWIT6LsY58R6fvPWknBUGSDxjzkrLQ==}
+  openai@5.9.0:
+    resolution: {integrity: sha512-cmLC0pfqLLhBGxE4aZPyRPjydgYCncppV2ClQkKmW79hNjCvmzkfhz8rN5/YVDmjVQlFV+UsF1JIuNjNgeagyQ==}
     hasBin: true
     peerDependencies:
       ws: ^8.18.0
@@ -2936,7 +2936,7 @@ snapshots:
       commander: 14.0.0
       dotenv: 17.2.0
       glob: 11.0.3
-      openai: 5.8.4(zod@3.25.76)
+      openai: 5.9.0(zod@3.25.76)
       shell-escape: 0.2.0
       winston: 3.17.0
       zod: 3.25.76
@@ -4337,11 +4337,11 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
-  openai@5.8.4(zod@3.25.76):
+  openai@5.9.0(zod@3.25.76):
     optionalDependencies:
       zod: 3.25.76
 
-  openai@5.8.4(zod@4.0.2):
+  openai@5.9.0(zod@4.0.2):
     optionalDependencies:
       zod: 4.0.2
 
