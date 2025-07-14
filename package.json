@@ -41,7 +41,7 @@
         "@octokit/rest": "^22.0.0",
         "@riotprompt/riotprompt": "^0.0.7",
         "@theunwalked/cardigantime": "^0.0.15",
-        "@theunwalked/unplayable": "^0.0.20",
+        "@theunwalked/unplayable": "^0.0.21",
         "commander": "^14.0.0",
         "dayjs": "^1.11.13",
         "dotenv": "^17.2.0",
