@@ -200,6 +200,11 @@ describe('GitHub Utilities', () => {
     describe('waitForPullRequestChecks', () => {
         beforeEach(() => {
             vi.useFakeTimers();
+            // Mock getRepoDetails for error reporting
+            vi.spyOn(GitHub, 'getRepoDetails').mockResolvedValue({
+                owner: 'test-owner',
+                repo: 'test-repo',
+            });
         });
 
         afterEach(() => {
@@ -241,7 +246,7 @@ describe('GitHub Utilities', () => {
                 },
             });
 
-            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow('PR #123 checks failed.');
+            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow(/PR #123 checks failed.*github\.com.*pull\/123/);
         });
 
         it('should wait if no checks are found initially', async () => {
@@ -270,7 +275,7 @@ describe('GitHub Utilities', () => {
                 },
             });
 
-            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow('PR #123 checks failed.');
+            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow(/PR #123 checks failed.*github\.com.*pull\/123/);
         });
 
         it('should handle mixed check statuses', async () => {

@@ -201,11 +201,43 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
         );
 
         if (failingChecks.length > 0) {
-            logger.error(`PR #${prNumber} has failing checks:`);
+            // Get PR details for the link
+            const { owner, repo } = await getRepoDetails();
+            const prUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
+
+            logger.error(`❌ PR #${prNumber} checks have failed!`);
+            logger.error(`📋 View full details: ${prUrl}`);
+            logger.error('');
+            logger.error('💥 Failed checks:');
+
             for (const check of failingChecks) {
-                logger.error(`- ${check.name}: ${check.conclusion}`);
+                logger.error(`   • ${check.name}: ${check.conclusion?.toUpperCase() || 'UNKNOWN'}`);
+
+                // Show check details if available
+                if (check.html_url) {
+                    logger.error(`     🔗 Details: ${check.html_url}`);
+                }
+
+                // Show failure summary if available
+                if (check.output?.summary && check.output.summary.trim()) {
+                    logger.error(`     📝 Summary: ${check.output.summary.substring(0, 200)}${check.output.summary.length > 200 ? '...' : ''}`);
+                }
+
+                // Show specific error text if available
+                if (check.output?.text && check.output.text.trim()) {
+                    const errorText = check.output.text.substring(0, 300);
+                    logger.error(`     ⚠️  Details: ${errorText}${check.output.text.length > 300 ? '...' : ''}`);
+                }
+
+                // Show details_url if different from html_url
+                if (check.details_url && check.details_url !== check.html_url) {
+                    logger.error(`     🔍 More info: ${check.details_url}`);
+                }
+
+                logger.error(''); // Empty line between checks
             }
-            throw new Error(`PR #${prNumber} checks failed.`);
+
+            throw new Error(`PR #${prNumber} checks failed. See details above or visit: ${prUrl}`);
         }
 
         const allChecksCompleted = checkRuns.every((cr) => cr.status === 'completed');
