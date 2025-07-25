@@ -413,33 +413,44 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                 const releaseRuns = runsResponse.data.workflow_runs.filter(run => {
                     // Must be a release event
                     if (run.event !== 'release') {
+                        logger.debug(`Excluding workflow run ${run.id}: not a release event (${run.event})`);
                         return false;
                     }
 
                     // Must have required data
                     if (!run.head_sha || !run.created_at) {
+                        logger.debug(`Excluding workflow run ${run.id}: missing required data (head_sha: ${run.head_sha}, created_at: ${run.created_at})`);
                         return false;
                     }
 
-                    // If we have release info, filter by creation time (only runs created after the release)
+                    // If we have release info, filter by creation time more strictly
                     if (releaseCreatedAt) {
                         const runCreatedAt = new Date(run.created_at).getTime();
                         const releaseCreatedAtTime = new Date(releaseCreatedAt).getTime();
 
-                        // Only include runs created after or very close to the release (within 1 minute before for clock skew)
-                        if (runCreatedAt < (releaseCreatedAtTime - 60000)) {
-                            logger.debug(`Excluding workflow run ${run.id} created before release (run: ${run.created_at}, release: ${releaseCreatedAt})`);
+                        // Be more strict: only include runs created within 10 minutes after the release
+                        // This helps exclude old workflow runs that might match other criteria
+                        const timeDiff = runCreatedAt - releaseCreatedAtTime;
+                        if (timeDiff < -30000 || timeDiff > 600000) { // 30 seconds before to 10 minutes after
+                            logger.debug(`Excluding workflow run ${run.id}: outside time window (run: ${run.created_at}, release: ${releaseCreatedAt}, diff: ${timeDiff}ms)`);
                             return false;
                         }
                     }
 
-                    // If we have the release commit SHA, prefer runs that match it
+                    // Additional check: if we have the release commit SHA, be stricter about matching it
                     if (releaseCommitSha && run.head_sha !== releaseCommitSha) {
-                        logger.debug(`Workflow run ${run.id} has different commit SHA (run: ${run.head_sha}, release: ${releaseCommitSha})`);
-                        // Don't exclude entirely, as the release might trigger workflows on different commits
-                        // but this helps us prioritize the right runs
+                        logger.debug(`Excluding workflow run ${run.id}: commit SHA mismatch (run: ${run.head_sha}, release: ${releaseCommitSha})`);
+                        return false; // Be strict about commit SHA matching
                     }
 
+                    // If we don't have release info but it's a release event, check if it matches our tag name
+                    // Look for the tag name in run references (this is a fallback when we can't get release info)
+                    if (!releaseCreatedAt && run.head_branch && !run.head_branch.includes(tagName.replace('v', ''))) {
+                        logger.debug(`Excluding workflow run ${run.id}: branch doesn't match tag pattern (branch: ${run.head_branch}, tag: ${tagName})`);
+                        return false;
+                    }
+
+                    logger.debug(`Including workflow run ${run.id}: ${run.name} (${run.status}/${run.conclusion}) created ${run.created_at}`);
                     return true;
                 });
 
@@ -596,6 +607,17 @@ export const waitForReleaseWorkflows = async (
         const completedCount = workflowRuns.filter(run => run.status === 'completed').length;
         const runningCount = workflowRuns.filter(run => run.status === 'in_progress').length;
         const queuedCount = workflowRuns.filter(run => run.status === 'queued').length;
+
+        // Log detailed information about each workflow run being tracked
+        if (workflowRuns.length > 0) {
+            logger.debug(`Tracking ${workflowRuns.length} workflow runs for release ${tagName}:`);
+            workflowRuns.forEach(run => {
+                const statusIcon = run.status === 'completed' ?
+                    (run.conclusion === 'success' ? '✅' : run.conclusion === 'failure' ? '❌' : '⚠️') :
+                    run.status === 'in_progress' ? '🔄' : '⏳';
+                logger.debug(`  ${statusIcon} ${run.name} (${run.status}${run.conclusion ? `/${run.conclusion}` : ''}) - created ${run.created_at}`);
+            });
+        }
 
         logger.info(
             `Release workflows for ${tagName}: ${completedCount} completed, ${runningCount} running, ${queuedCount} queued (${workflowRuns.length} total)`
