@@ -44,7 +44,8 @@ vi.mock('../../src/util/github', () => ({
     createPullRequest: vi.fn(),
     waitForPullRequestChecks: vi.fn(),
     mergePullRequest: vi.fn(),
-    createRelease: vi.fn()
+    createRelease: vi.fn(),
+    waitForReleaseWorkflows: vi.fn()
 }));
 
 vi.mock('../../src/util/storage', () => ({
@@ -749,11 +750,11 @@ cache=\${CACHE_DIR}/npm
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm run prepublishOnly', false);
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm version patch', false);
+
             expect(Release.execute).toHaveBeenCalledWith(mockConfig);
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotesBody, 'utf-8');
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push --follow-tags', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push', false);
             expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
                 timeout: 300000,
@@ -1667,8 +1668,8 @@ cache=\${CACHE_DIR}/npm
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json pnpm-lock.yaml', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm run prepublishOnly', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm version patch', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push --follow-tags', true);
+
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', true);
             expect(GitHub.createPullRequest).not.toHaveBeenCalled();
