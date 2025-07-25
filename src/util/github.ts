@@ -518,3 +518,99 @@ export const waitForReleaseWorkflows = async (
         await delay(15000); // wait 15 seconds
     }
 };
+
+export const getWorkflowsTriggeredByRelease = async (): Promise<string[]> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug('Analyzing workflows to find those triggered by release events...');
+
+        // Get all workflows
+        const workflowsResponse = await octokit.actions.listRepoWorkflows({
+            owner,
+            repo,
+        });
+
+        const releaseWorkflows: string[] = [];
+
+        // Check each workflow's configuration
+        for (const workflow of workflowsResponse.data.workflows) {
+            try {
+                // Get the workflow file content
+                const workflowPath = workflow.path;
+                logger.debug(`Analyzing workflow: ${workflow.name} (${workflowPath})`);
+
+                const contentResponse = await octokit.repos.getContent({
+                    owner,
+                    repo,
+                    path: workflowPath,
+                });
+
+                // Handle the response - it could be a file or directory
+                if ('content' in contentResponse.data && contentResponse.data.type === 'file') {
+                    // Decode the base64 content
+                    const content = Buffer.from(contentResponse.data.content, 'base64').toString('utf-8');
+
+                    // Parse the YAML to check trigger conditions
+                    if (isTriggeredByRelease(content, workflow.name)) {
+                        logger.debug(`✓ Workflow "${workflow.name}" will be triggered by release events`);
+                        releaseWorkflows.push(workflow.name);
+                    } else {
+                        logger.debug(`✗ Workflow "${workflow.name}" will not be triggered by release events`);
+                    }
+                } else {
+                    logger.warn(`Could not read content for workflow ${workflow.name}`);
+                }
+            } catch (error: any) {
+                logger.warn(`Failed to analyze workflow ${workflow.name}: ${error.message}`);
+            }
+        }
+
+        logger.info(`Found ${releaseWorkflows.length} workflows that will be triggered by release events: ${releaseWorkflows.join(', ')}`);
+        return releaseWorkflows;
+    } catch (error: any) {
+        logger.error(`Failed to analyze workflows: ${error.message}`);
+        return [];
+    }
+};
+
+const isTriggeredByRelease = (workflowContent: string, workflowName: string): boolean => {
+    const logger = getLogger();
+
+    try {
+        // Simple regex-based parsing since we don't want to add a YAML dependency
+        // Look for common release trigger patterns
+
+        // Pattern 1: on.release (with or without types)
+        // on:
+        //   release:
+        //     types: [published, created, ...]
+        const releaseEventPattern = /(?:^|\n)\s*on\s*:\s*(?:\n|\r\n)(?:\s+[^\S\r\n]+)*(?:\s+release\s*:)/m;
+
+        // Pattern 2: on: [push, release] or on: release
+        const onReleasePattern = /(?:^|\n)\s*on\s*:\s*(?:\[.*release.*\]|release)\s*(?:\n|$)/m;
+
+        // Pattern 3: push with tag patterns that look like releases
+        // on:
+        //   push:
+        //     tags:
+        //       - 'v*'
+        //       - 'release/*'
+        const tagPushPattern = /(?:^|\r?\n)[^\S\r\n]*on\s*:\s*\r?\n(?:[^\S\r\n]*[^\r\n]+(?:\r?\n))*?[^\S\r\n]*push\s*:\s*\r?\n(?:[^\S\r\n]*tags\s*:\s*(?:\r?\n|\[)[^\]\r\n]*(?:v\*|release|tag)[^\]\r\n]*)/mi;
+
+        const isTriggered = releaseEventPattern.test(workflowContent) ||
+                           onReleasePattern.test(workflowContent) ||
+                           tagPushPattern.test(workflowContent);
+
+        if (isTriggered) {
+            logger.debug(`Workflow "${workflowName}" trigger patterns detected in content`);
+        }
+
+        return isTriggered;
+    } catch (error: any) {
+        logger.warn(`Failed to parse workflow content for ${workflowName}: ${error.message}`);
+        return false;
+    }
+};

@@ -177,9 +177,9 @@ You can also set the model via command line:
 
 > [!NOTE]
 > ### Security Considerations
-> 
+>
 > The OpenAI API key should be handled securely and is only available via environment variables. KodrDriv automatically loads environment variables from a `.env` file in your current working directory.
-> 
+>
 > While environment variables are a common approach for configuration, they can still pose security risks if not properly managed. We strongly encourage users to utilize secure credential management solutions like 1Password, HashiCorp Vault, or other keystores to protect sensitive information. This helps prevent accidental exposure of API keys and other credentials in logs, process listings, or environment dumps.
 
 ### GitHub Configuration
@@ -258,6 +258,39 @@ publish:
     - NODE_AUTH_TOKEN
   linkWorkspacePackages: true
   unlinkWorkspacePackages: true
+  waitForReleaseWorkflows: true
+  releaseWorkflowsTimeout: 600000
+  releaseWorkflowNames:
+    - "Release to NPM"
+    - "Deploy to Production"
+```
+
+#### Automatic Workflow Detection
+
+By default, KodrDriv will automatically detect which GitHub Actions workflows will be triggered by release events by analyzing your workflow files (`.github/workflows/*.yml`). This includes workflows that:
+
+- Are triggered by `release` events (e.g., `on: release` or `on: { release: { types: [published] } }`)
+- Are triggered by `push` events on version tags (e.g., `on: { push: { tags: ['v*'] } }`)
+
+If you want to override this automatic detection, you can specify `releaseWorkflowNames` in your configuration. When specified, KodrDriv will only wait for those specific workflows to complete.
+
+**Example workflow patterns that are automatically detected:**
+
+```yaml
+# Release event trigger
+on:
+  release:
+    types: [published, created]
+
+# Tag push trigger
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'release/*'
+
+# Multiple triggers including release
+on: [push, release]
 ```
 
 ### Link Configuration
@@ -281,4 +314,4 @@ Global options that apply to all commands:
 - `--config-dir <configDir>`: Specify a custom configuration directory (default: '.kodrdriv')
 - `--check-config`: Display the current configuration hierarchy showing how values are merged from defaults, config files, and CLI arguments. This is useful for debugging configuration issues and understanding which settings are active.
 - `--init-config`: Generate an initial configuration file with common default values in the specified config directory (default: '.kodrdriv')
-- `--version`: Display version information 
+- `--version`: Display version information

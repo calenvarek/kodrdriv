@@ -3,6 +3,7 @@ import './Navigation.css'
 
 const navigationItems = [
     { path: '/', label: 'Getting Started', file: 'README.md' },
+    { path: '/installation', label: 'Installation', file: 'installation.md' },
     { path: '/commands', label: 'Commands', file: 'commands.md' },
     { path: '/configuration', label: 'Configuration', file: 'configuration.md' },
     { path: '/advanced-usage', label: 'Advanced Usage', file: 'advanced-usage.md' },
@@ -33,4 +34,4 @@ function Navigation() {
 }
 
 export default Navigation
-export { navigationItems } 
+export { navigationItems }
