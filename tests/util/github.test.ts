@@ -37,10 +37,14 @@ describe('GitHub Utilities', () => {
         },
         repos: {
             createRelease: vi.fn(),
+            getContent: vi.fn(),
         },
         issues: {
             listForRepo: vi.fn(),
             create: vi.fn(),
+        },
+        actions: {
+            listRepoWorkflows: vi.fn(),
         },
     };
 
@@ -613,4 +617,6 @@ describe('GitHub Utilities', () => {
             await expect(GitHub.createIssue('Test Issue', 'Test body')).rejects.toThrow('Failed to create issue');
         });
     });
-}); 
+});
+
+// TODO: Add tests for getWorkflowsTriggeredByRelease function

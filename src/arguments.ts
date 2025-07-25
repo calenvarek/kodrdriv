@@ -36,6 +36,7 @@ export const InputSchema = z.object({
     workspaceFile: z.string().optional(),
     startFrom: z.string().optional(),
     script: z.string().optional(),
+    cmd: z.string().optional(),
     publish: z.boolean().optional(),
     includeCommitHistory: z.boolean().optional(),
     includeRecentDiffs: z.boolean().optional(),
@@ -177,12 +178,13 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
 
     // Nested mappings for 'publishTree' options
     const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-    if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.publish !== undefined) {
+    if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined) {
         transformedCliArgs.publishTree = {};
         if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
         if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
         if (finalCliArgs.startFrom !== undefined) transformedCliArgs.publishTree.startFrom = finalCliArgs.startFrom;
         if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
+        if (finalCliArgs.cmd !== undefined) transformedCliArgs.publishTree.cmd = finalCliArgs.cmd;
         if (finalCliArgs.publish !== undefined) transformedCliArgs.publishTree.publish = finalCliArgs.publish;
     }
 
@@ -417,6 +419,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
         .option('--start-from <startFrom>', 'resume build order from this package directory name (useful for restarting failed builds)')
         .option('--script <script>', 'script command to execute in each package directory (e.g., "npm run build")')
+        .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "git add -A")')
         .option('--publish', 'execute kodrdriv publish command in each package directory')
         .description('Analyze package dependencies in workspace and determine publish order');
     addSharedOptions(publishTreeCommand);
@@ -725,6 +728,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             excludedPatterns: options.publishTree?.excludedPatterns,
             startFrom: options.publishTree?.startFrom,
             script: options.publishTree?.script,
+            cmd: options.publishTree?.cmd,
             publish: options.publishTree?.publish,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
