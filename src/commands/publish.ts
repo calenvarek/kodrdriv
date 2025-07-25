@@ -347,7 +347,24 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 const workflowTimeout = runConfig.publish?.releaseWorkflowsTimeout || 600000; // 10 minutes default
                 const senditMode = runConfig.publish?.sendit || false;
                 const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
-                const workflowNames = runConfig.publish?.releaseWorkflowNames;
+
+                // Get workflow names - either from config or auto-detect
+                let workflowNames = runConfig.publish?.releaseWorkflowNames;
+
+                if (!workflowNames || workflowNames.length === 0) {
+                    logger.info('No specific workflow names configured, auto-detecting workflows triggered by release events...');
+                    try {
+                        workflowNames = await GitHub.getWorkflowsTriggeredByRelease();
+                        if (workflowNames.length === 0) {
+                            logger.info('No workflows found that are triggered by release events.');
+                        } else {
+                            logger.info(`Auto-detected release workflows: ${workflowNames.join(', ')}`);
+                        }
+                    } catch (error: any) {
+                        logger.warn(`Failed to auto-detect release workflows: ${error.message}`);
+                        workflowNames = undefined; // Fall back to monitoring all workflows
+                    }
+                }
 
                 await GitHub.waitForReleaseWorkflows(tagName, {
                     timeout: workflowTimeout,

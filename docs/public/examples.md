@@ -181,18 +181,114 @@ kodrdriv --check-config
    kodrdriv commit --context "Cross-package refactoring"
    ```
 
+### Workspace Build and Publish Workflow
+
+1. **Analyze workspace structure** (dry run to preview):
+   ```bash
+   kodrdriv publish-tree --directory ./packages
+   ```
+
+2. **Build all packages in dependency order**:
+   ```bash
+   kodrdriv publish-tree --script "pnpm run build" --excluded-paths "**/test-*/**"
+   ```
+
+3. **Test packages after build**:
+   ```bash
+   kodrdriv publish-tree --script "pnpm run test"
+   ```
+
+4. **Publish all packages with dependency awareness**:
+   ```bash
+   kodrdriv publish-tree --publish
+   ```
+
+5. **Resume from failed package** (if publish fails):
+   ```bash
+   kodrdriv publish-tree --publish --start-from failed-package-name
+   ```
+
+### Complex Workspace Management
+
+**Multi-step workspace processing**:
+```bash
+# 1. Clean all packages
+kodrdriv publish-tree --cmd "pnpm run clean" --directory ./workspace
+
+# 2. Install dependencies in correct order
+kodrdriv publish-tree --cmd "pnpm install --frozen-lockfile"
+
+# 3. Build packages with exclusions
+kodrdriv publish-tree \
+  --script "pnpm run build" \
+  --excluded-paths "**/examples/**,**/*-demo,**/node_modules/**"
+
+# 4. Run quality checks
+kodrdriv publish-tree --script "pnpm run lint && pnpm run test"
+
+# 5. Publish packages
+kodrdriv publish-tree --publish --start-from core-lib
+```
+
+**Incremental workspace updates**:
+```bash
+# Update only packages starting from a specific one
+kodrdriv publish-tree \
+  --cmd "pnpm update --latest" \
+  --start-from api-client \
+  --excluded-paths "**/legacy-*/**"
+```
+
 ## Environment-Specific Examples
 
 ### CI/CD Pipeline
 
+**Basic CI/CD setup:**
 ```bash
 # Set required environment variables
 export GITHUB_TOKEN="your-token"
 export OPENAI_API_KEY="your-key"
 export NODE_AUTH_TOKEN="your-npm-token"
 
-# Run publish command in CI
+# Run publish command in CI with workflow awareness
 kodrdriv publish --verbose
+```
+
+**Repository with GitHub Actions:**
+```bash
+# Automated publish that waits for all workflows
+kodrdriv publish --sendit
+
+# Custom timeout for long-running workflows
+kodrdriv publish --sendit  # with checksTimeout: 900000 in config
+```
+
+**Repository without CI/CD workflows:**
+```bash
+# Skip all confirmations for repositories without workflows
+kodrdriv publish --sendit
+
+# Or configure to auto-proceed when no workflows detected
+# In .kodrdriv/config.json:
+# {
+#   "publish": {
+#     "skipUserConfirmation": true
+#   }
+# }
+kodrdriv publish
+```
+
+**Advanced CI/CD with release workflows:**
+```bash
+# Wait for specific deployment workflows after release
+kodrdriv publish
+# Configured with:
+# {
+#   "publish": {
+#     "releaseWorkflowNames": ["deploy-production", "update-docs"],
+#     "releaseWorkflowsTimeout": 1200000
+#   }
+# }
 ```
 
 ### Local Development
@@ -337,4 +433,4 @@ kodrdriv publish
 # Always test with dry run first
 kodrdriv publish --dry-run
 kodrdriv link --scope-roots '{"@company": "../"}' --dry-run
-``` 
+```

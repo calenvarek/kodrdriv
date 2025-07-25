@@ -121,12 +121,4 @@ Apache-2.0 - see [LICENSE](LICENSE) file for details.
 
 ## About the Name
 
-Ski carving and efficient software development have a lot in common. Carving uses edge control to follow a smooth, energy-efficient arc — just like automation uses clean, repeatable scripts to replace manual work. Both are about flow: linking turns or commits without hesitation. As carving unlocks speed and control, automation unlocks scalability and momentum. The result is clean tracks — razor-thin arcs on snow, or tidy diffs in code. And when you've mastered your craft, you don't stop to think about your last move. Your code leaves a clean trail — and your commit message can be automated straight from the diff.
-
-
-
-
-
-
-
-
+Like Thor's hammer, this tool smashes through your repetitive coding tasks. But unlike Mjölnir, it won't make you worthy — it'll just make you faster. Strike through commits, forge releases, and channel the lightning of AI to automate your workflow. Because sometimes you need a hammer, and sometimes you need a tool that actually works. Pirate.
