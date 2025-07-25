@@ -63,6 +63,7 @@ export const COMMAND_RELEASE = 'release';
 export const COMMAND_REVIEW = 'review';
 export const COMMAND_AUDIO_REVIEW = 'audio-review';
 export const COMMAND_PUBLISH = 'publish';
+export const COMMAND_PUBLISH_TREE = 'publish-tree';
 export const COMMAND_LINK = 'link';
 export const COMMAND_UNLINK = 'unlink';
 export const COMMAND_CLEAN = 'clean';
@@ -77,6 +78,7 @@ export const ALLOWED_COMMANDS = [
     COMMAND_REVIEW,
     COMMAND_AUDIO_REVIEW,
     COMMAND_PUBLISH,
+    COMMAND_PUBLISH_TREE,
     COMMAND_LINK,
     COMMAND_UNLINK,
     COMMAND_CLEAN

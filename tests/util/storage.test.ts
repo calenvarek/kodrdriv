@@ -129,7 +129,6 @@ describe('Storage Utility', () => {
 
             expect(result).toBe(false);
             expect(mockStat).toHaveBeenCalledWith('/test/file');
-            expect(mockLog).toHaveBeenCalledWith('/test/file is not a directory');
         });
     });
 
@@ -157,7 +156,6 @@ describe('Storage Utility', () => {
 
             expect(result).toBe(false);
             expect(mockStat).toHaveBeenCalledWith('/test/dir');
-            expect(mockLog).toHaveBeenCalledWith('/test/dir is not a file');
         });
     });
 
@@ -372,7 +370,8 @@ describe('Storage Utility', () => {
 
                 await utilWithDefaultLogger.isDirectory('/test/file');
 
-                expect(mockConsoleLog).toHaveBeenCalledWith('/test/file is not a directory');
+                // Note: isDirectory no longer logs when path is not a directory
+                // This is expected behavior when scanning mixed file/directory structures
             } finally {
                 console.log = originalConsoleLog;
             }

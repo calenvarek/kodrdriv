@@ -6,8 +6,8 @@ import crypto from 'crypto';
 /**
  * This module exists to isolate filesystem operations from the rest of the codebase.
  * This makes testing easier by avoiding direct fs mocking in jest configuration.
- * 
- * Additionally, abstracting storage operations allows for future flexibility - 
+ *
+ * Additionally, abstracting storage operations allows for future flexibility -
  * this export utility may need to work with storage systems other than the local filesystem
  * (e.g. S3, Google Cloud Storage, etc).
  */
@@ -51,7 +51,8 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
     const isDirectory = async (path: string): Promise<boolean> => {
         const stats = await fs.promises.stat(path);
         if (!stats.isDirectory()) {
-            log(`${path} is not a directory`);
+            // Log at debug level since this is expected when scanning directories
+            // that contain both files and directories
             return false;
         }
         return true;
@@ -60,7 +61,7 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
     const isFile = async (path: string): Promise<boolean> => {
         const stats = await fs.promises.stat(path);
         if (!stats.isFile()) {
-            log(`${path} is not a file`);
+            // Log removed since this is expected when checking file types
             return false;
         }
         return true;

@@ -26,6 +26,7 @@ export const InputSchema = z.object({
     from: z.string().optional(),
     to: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
+    excludedPaths: z.array(z.string()).optional(),
     context: z.string().optional(),
     note: z.string().optional(), // For review command positional argument/STDIN
     direction: z.string().optional(),
@@ -33,6 +34,9 @@ export const InputSchema = z.object({
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
     workspaceFile: z.string().optional(),
+    startFrom: z.string().optional(),
+    script: z.string().optional(),
+    publish: z.boolean().optional(),
     includeCommitHistory: z.boolean().optional(),
     includeRecentDiffs: z.boolean().optional(),
     includeReleaseNotes: z.boolean().optional(),
@@ -171,8 +175,20 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
     }
 
-    if (finalCliArgs.excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = finalCliArgs.excludedPatterns;
+    // Nested mappings for 'publishTree' options
+    const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
+    if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.publish !== undefined) {
+        transformedCliArgs.publishTree = {};
+        if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
+        if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
+        if (finalCliArgs.startFrom !== undefined) transformedCliArgs.publishTree.startFrom = finalCliArgs.startFrom;
+        if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
+        if (finalCliArgs.publish !== undefined) transformedCliArgs.publishTree.publish = finalCliArgs.publish;
+    }
 
+    // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
+    const excludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
+    if (excludedPatterns !== undefined) transformedCliArgs.excludedPatterns = excludedPatterns;
 
     // Note: openaiApiKey is handled separately via environment variable only
 
@@ -396,6 +412,15 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
+    const publishTreeCommand = program
+        .command('publish-tree')
+        .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
+        .option('--start-from <startFrom>', 'resume build order from this package directory name (useful for restarting failed builds)')
+        .option('--script <script>', 'script command to execute in each package directory (e.g., "npm run build")')
+        .option('--publish', 'execute kodrdriv publish command in each package directory')
+        .description('Analyze package dependencies in workspace and determine publish order');
+    addSharedOptions(publishTreeCommand);
+
     const linkCommand = program
         .command('link')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
@@ -557,6 +582,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             commandOptions = releaseCommand.opts<Partial<Input>>();
         } else if (commandName === 'publish' && publishCommand.opts) {
             commandOptions = publishCommand.opts<Partial<Input>>();
+        } else if (commandName === 'publish-tree' && publishTreeCommand.opts) {
+            commandOptions = publishTreeCommand.opts<Partial<Input>>();
         } else if (commandName === 'link' && linkCommand.opts) {
             commandOptions = linkCommand.opts<Partial<Input>>();
         } else if (commandName === 'unlink' && unlinkCommand.opts) {
@@ -692,6 +719,13 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
             workspaceFile: options.link?.workspaceFile ?? KODRDRIV_DEFAULTS.link.workspaceFile,
             dryRun: options.link?.dryRun ?? KODRDRIV_DEFAULTS.link.dryRun,
+        },
+        publishTree: {
+            directory: options.publishTree?.directory,
+            excludedPatterns: options.publishTree?.excludedPatterns,
+            startFrom: options.publishTree?.startFrom,
+            script: options.publishTree?.script,
+            publish: options.publishTree?.publish,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

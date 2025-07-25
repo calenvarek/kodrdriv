@@ -228,7 +228,23 @@ export const execute = async (runConfig: Config): Promise<void> => {
             }
 
             logger.info(isDryRun ? 'DRY RUN: Would bump version...' : 'Bumping version...');
-            await runWithDryRunSupport('pnpm version patch', isDryRun);
+            // Manually increment version without creating a tag
+            if (isDryRun) {
+                logger.info('DRY RUN: Would manually increment patch version in package.json and commit');
+            } else {
+                const packageJsonContents = await storage.readFile('package.json', 'utf-8');
+                const packageJson = JSON.parse(packageJsonContents);
+                const currentVersion = packageJson.version;
+                const newVersion = incrementPatchVersion(currentVersion);
+                packageJson.version = newVersion;
+                await storage.writeFile('package.json', JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
+                logger.info(`Version bumped from ${currentVersion} to ${newVersion}`);
+
+                // Stage and commit the version change
+                await run('git add package.json');
+                await run(`git commit -m "chore: bump version to ${newVersion}"`);
+                logger.info(`Version change committed: ${newVersion}`);
+            }
 
             logger.info(isDryRun ? 'DRY RUN: Would generate release notes...' : 'Generating release notes...');
             const releaseSummary = await Release.execute(runConfig);
@@ -248,7 +264,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
             }
 
             logger.info(isDryRun ? 'DRY RUN: Would push to origin...' : 'Pushing to origin...');
-            await runWithDryRunSupport('git push --follow-tags', isDryRun);
+            await runWithDryRunSupport('git push', isDryRun);
 
             logger.info(isDryRun ? 'DRY RUN: Would create pull request...' : 'Creating pull request...');
             if (isDryRun) {
@@ -289,13 +305,28 @@ export const execute = async (runConfig: Config): Promise<void> => {
         await runWithDryRunSupport('git checkout main', isDryRun);
         await runWithDryRunSupport('git pull origin main', isDryRun);
 
-        logger.info(isDryRun ? 'DRY RUN: Would create GitHub release...' : 'Creating GitHub release...');
+        // Now create and push the tag on the main branch
+        logger.info(isDryRun ? 'DRY RUN: Would create release tag...' : 'Creating release tag...');
         if (isDryRun) {
-            logger.info('DRY RUN: Would read package.json version and create GitHub release');
+            logger.info('DRY RUN: Would read package.json version and create git tag');
         } else {
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
             const { version } = JSON.parse(packageJsonContents);
             const tagName = `v${version}`;
+            await run(`git tag ${tagName}`);
+            await run(`git push origin ${tagName}`);
+            logger.info(`Created and pushed tag: ${tagName}`);
+        }
+
+        logger.info(isDryRun ? 'DRY RUN: Would create GitHub release...' : 'Creating GitHub release...');
+        let tagName: string;
+        if (isDryRun) {
+            logger.info('DRY RUN: Would read package.json version and create GitHub release');
+            tagName = 'v1.0.0'; // Mock version for dry run
+        } else {
+            const packageJsonContents = await storage.readFile('package.json', 'utf-8');
+            const { version } = JSON.parse(packageJsonContents);
+            tagName = `v${version}`;
 
             const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
             const releaseNotesPath = getOutputPath(outputDirectory, 'RELEASE_NOTES.md');
@@ -304,6 +335,28 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const releaseNotesContent = await storage.readFile(releaseNotesPath, 'utf-8');
             const releaseTitle = await storage.readFile(releaseTitlePath, 'utf-8');
             await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
+        }
+
+        // Wait for release workflows to complete (if enabled)
+        const waitForWorkflows = runConfig.publish?.waitForReleaseWorkflows !== false; // default to true
+        if (waitForWorkflows) {
+            logger.info(isDryRun ? 'DRY RUN: Would wait for release workflows...' : 'Waiting for release workflows...');
+            if (isDryRun) {
+                logger.info('DRY RUN: Would monitor GitHub Actions workflows triggered by release');
+            } else {
+                const workflowTimeout = runConfig.publish?.releaseWorkflowsTimeout || 600000; // 10 minutes default
+                const senditMode = runConfig.publish?.sendit || false;
+                const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
+                const workflowNames = runConfig.publish?.releaseWorkflowNames;
+
+                await GitHub.waitForReleaseWorkflows(tagName, {
+                    timeout: workflowTimeout,
+                    workflowNames,
+                    skipUserConfirmation
+                });
+            }
+        } else {
+            logger.verbose(isDryRun ? 'DRY RUN: Would skip waiting for release workflows (disabled in config).' : 'Skipping waiting for release workflows (disabled in config).');
         }
 
         logger.info(isDryRun ? 'DRY RUN: Would create new release branch...' : 'Creating new release branch...');
@@ -330,4 +383,4 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.verbose(isDryRun ? 'DRY RUN: Would skip restore linked packages (disabled in config).' : 'Skipping restore linked packages (disabled in config).');
         }
     }
-}; 
+};
