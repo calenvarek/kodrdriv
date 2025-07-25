@@ -70,11 +70,21 @@ export const ConfigSchema = z.object({
         checksTimeout: z.number().optional(),
         skipUserConfirmation: z.boolean().optional(),
         sendit: z.boolean().optional(),
+        waitForReleaseWorkflows: z.boolean().optional(),
+        releaseWorkflowsTimeout: z.number().optional(),
+        releaseWorkflowNames: z.array(z.string()).optional(),
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
         workspaceFile: z.string().optional(),
         dryRun: z.boolean().optional(),
+    }).optional(),
+    publishTree: z.object({
+        directory: z.string().optional(),
+        excludedPatterns: z.array(z.string()).optional(),
+        startFrom: z.string().optional(),
+        script: z.string().optional(),
+        publish: z.boolean().optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
