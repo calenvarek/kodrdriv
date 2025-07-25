@@ -293,7 +293,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.warn('Both --script and --publish provided. Using --publish (ignoring --script).');
         }
 
-        const commandToRun: string | undefined = shouldPublish ? 'kodrdriv publish' : script;
+        const commandToRun: string | undefined = shouldPublish ? 'pnpm dlx @eldrforge/kodrdriv publish' : script;
         const actionName = shouldPublish ? 'publish' : 'script';
 
         if (commandToRun) {
