@@ -598,7 +598,7 @@ const isTriggeredByRelease = (workflowContent: string, workflowName: string): bo
         //     tags:
         //       - 'v*'
         //       - 'release/*'
-        const tagPushPattern = /(?:^|\n)\s*on\s*:\s*(?:\n|\r\n)(?:\s+.*(?:\n|\r\n))*?\s+push\s*:\s*(?:\n|\r\n)(?:\s+.*(?:\n|\r\n))*?\s+tags\s*:\s*(?:\n|\r\n|\[)(?:[^\n\]]*(?:v\*|release|tag)[^\n\]]*)/mi;
+        const tagPushPattern = /(?:^|\n)\s*on\s*:\s*(?:\n|\r\n)(?:\s+[^\S\r\n]*[^\n\r]+(?:\n|\r\n))*?\s+push\s*:\s*(?:\n|\r\n)(?:\s+[^\S\r\n]*tags\s*:\s*(?:\n|\r\n|\[)[^\n\]]*(?:v\*|release|tag)[^\n\]]*)/mi;
 
         const isTriggered = releaseEventPattern.test(workflowContent) ||
                            onReleasePattern.test(workflowContent) ||
