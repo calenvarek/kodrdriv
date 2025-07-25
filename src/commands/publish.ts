@@ -313,9 +313,44 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
             const { version } = JSON.parse(packageJsonContents);
             const tagName = `v${version}`;
-            await run(`git tag ${tagName}`);
-            await run(`git push origin ${tagName}`);
-            logger.info(`Created and pushed tag: ${tagName}`);
+
+            // Check if tag already exists locally
+            try {
+                const { stdout } = await run(`git tag -l ${tagName}`);
+                if (stdout.trim() === tagName) {
+                    logger.info(`Tag ${tagName} already exists locally, skipping tag creation`);
+                } else {
+                    await run(`git tag ${tagName}`);
+                    logger.info(`Created local tag: ${tagName}`);
+                }
+            } catch (error) {
+                // If git tag -l fails, create the tag anyway
+                await run(`git tag ${tagName}`);
+                logger.info(`Created local tag: ${tagName}`);
+            }
+
+            // Check if tag exists on remote before pushing
+            try {
+                const { stdout } = await run(`git ls-remote origin refs/tags/${tagName}`);
+                if (stdout.trim()) {
+                    logger.info(`Tag ${tagName} already exists on remote, skipping push`);
+                } else {
+                    await run(`git push origin ${tagName}`);
+                    logger.info(`Pushed tag to remote: ${tagName}`);
+                }
+            } catch (error) {
+                // If ls-remote fails, try to push anyway (might be a new remote)
+                try {
+                    await run(`git push origin ${tagName}`);
+                    logger.info(`Pushed tag to remote: ${tagName}`);
+                } catch (pushError: any) {
+                    if (pushError.message && pushError.message.includes('already exists')) {
+                        logger.info(`Tag ${tagName} already exists on remote, continuing...`);
+                    } else {
+                        throw pushError;
+                    }
+                }
+            }
         }
 
         logger.info(isDryRun ? 'DRY RUN: Would create GitHub release...' : 'Creating GitHub release...');
