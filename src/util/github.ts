@@ -268,6 +268,26 @@ export const createRelease = async (tagName: string, title: string, notes: strin
     logger.info(`Release ${tagName} created.`);
 };
 
+export const getReleaseByTagName = async (tagName: string): Promise<any> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        const response = await octokit.repos.getReleaseByTag({
+            owner,
+            repo,
+            tag: tagName,
+        });
+
+        logger.debug(`Found release for tag ${tagName}: created at ${response.data.created_at}`);
+        return response.data;
+    } catch (error: any) {
+        logger.debug(`Failed to get release for tag ${tagName}: ${error.message}`);
+        throw error;
+    }
+};
+
 export const getOpenIssues = async (limit: number = 20): Promise<string> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
@@ -345,6 +365,21 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
     try {
         logger.debug(`Fetching workflow runs triggered by release ${tagName}...`);
 
+        // Get release information to filter by creation time and commit SHA
+        let releaseInfo: any;
+        try {
+            releaseInfo = await getReleaseByTagName(tagName);
+        } catch (error: any) {
+            logger.warn(`Could not get release info for ${tagName}: ${error.message}. Will use fallback filtering.`);
+        }
+
+        const releaseCreatedAt = releaseInfo?.created_at;
+        const releaseCommitSha = releaseInfo?.target_commitish;
+
+        if (releaseCreatedAt) {
+            logger.debug(`Release ${tagName} was created at ${releaseCreatedAt}, filtering workflows created after this time`);
+        }
+
         // Get all workflows
         const workflowsResponse = await octokit.actions.listRepoWorkflows({
             owner,
@@ -371,25 +406,76 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                     owner,
                     repo,
                     workflow_id: workflow.id,
-                    per_page: 10, // Check last 10 runs
+                    per_page: 20, // Check more runs to account for filtering
                 });
 
-                // Filter runs that were triggered by our release
+                // Filter runs that were triggered by our specific release
                 const releaseRuns = runsResponse.data.workflow_runs.filter(run => {
-                    // Check if the run was triggered by a release event and matches our tag
-                    return run.event === 'release' && run.head_sha && run.created_at;
+                    // Must be a release event
+                    if (run.event !== 'release') {
+                        return false;
+                    }
+
+                    // Must have required data
+                    if (!run.head_sha || !run.created_at) {
+                        return false;
+                    }
+
+                    // If we have release info, filter by creation time (only runs created after the release)
+                    if (releaseCreatedAt) {
+                        const runCreatedAt = new Date(run.created_at).getTime();
+                        const releaseCreatedAtTime = new Date(releaseCreatedAt).getTime();
+
+                        // Only include runs created after or very close to the release (within 1 minute before for clock skew)
+                        if (runCreatedAt < (releaseCreatedAtTime - 60000)) {
+                            logger.debug(`Excluding workflow run ${run.id} created before release (run: ${run.created_at}, release: ${releaseCreatedAt})`);
+                            return false;
+                        }
+                    }
+
+                    // If we have the release commit SHA, prefer runs that match it
+                    if (releaseCommitSha && run.head_sha !== releaseCommitSha) {
+                        logger.debug(`Workflow run ${run.id} has different commit SHA (run: ${run.head_sha}, release: ${releaseCommitSha})`);
+                        // Don't exclude entirely, as the release might trigger workflows on different commits
+                        // but this helps us prioritize the right runs
+                    }
+
+                    return true;
                 });
 
                 allRuns.push(...releaseRuns);
+
+                if (releaseRuns.length > 0) {
+                    logger.debug(`Found ${releaseRuns.length} relevant workflow runs for ${workflow.name}`);
+                }
             } catch (error: any) {
                 logger.warn(`Failed to get runs for workflow ${workflow.name}: ${error.message}`);
             }
         }
 
-        // Sort by creation time (newest first) and take the most recent ones
-        allRuns.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        // Sort by creation time (newest first) and prioritize runs with matching commit SHA
+        allRuns.sort((a, b) => {
+            // First, prioritize runs with matching commit SHA if we have release info
+            if (releaseCommitSha) {
+                const aMatches = a.head_sha === releaseCommitSha;
+                const bMatches = b.head_sha === releaseCommitSha;
+                if (aMatches && !bMatches) return -1;
+                if (!aMatches && bMatches) return 1;
+            }
 
-        logger.debug(`Found ${allRuns.length} workflow runs triggered by release events`);
+            // Then sort by creation time (newest first)
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+
+        logger.debug(`Found ${allRuns.length} workflow runs triggered by release ${tagName}`);
+
+        if (allRuns.length > 0 && releaseCreatedAt) {
+            logger.debug(`Workflow runs created after release ${tagName}:`);
+            allRuns.forEach(run => {
+                logger.debug(`- ${run.name}: created ${run.created_at}, commit ${run.head_sha?.substring(0, 7)}`);
+            });
+        }
+
         return allRuns;
     } catch (error: any) {
         logger.warn(`Failed to fetch workflow runs: ${error.message}`);
