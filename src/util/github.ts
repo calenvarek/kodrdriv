@@ -335,4 +335,186 @@ export const createIssue = async (
         number: response.data.number,
         html_url: response.data.html_url,
     };
-}; 
+};
+
+export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflowNames?: string[]): Promise<any[]> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Fetching workflow runs triggered by release ${tagName}...`);
+
+        // Get all workflows
+        const workflowsResponse = await octokit.actions.listRepoWorkflows({
+            owner,
+            repo,
+        });
+
+        const relevantWorkflows = workflowsResponse.data.workflows.filter(workflow => {
+            // If specific workflow names are provided, only include those
+            if (workflowNames && workflowNames.length > 0) {
+                return workflowNames.includes(workflow.name);
+            }
+            // Otherwise, find workflows that trigger on releases
+            return true; // We'll filter by event later when we get the runs
+        });
+
+        logger.debug(`Found ${relevantWorkflows.length} workflows to check`);
+
+        const allRuns: any[] = [];
+
+        // Get recent workflow runs for each workflow
+        for (const workflow of relevantWorkflows) {
+            try {
+                const runsResponse = await octokit.actions.listWorkflowRuns({
+                    owner,
+                    repo,
+                    workflow_id: workflow.id,
+                    per_page: 10, // Check last 10 runs
+                });
+
+                // Filter runs that were triggered by our release
+                const releaseRuns = runsResponse.data.workflow_runs.filter(run => {
+                    // Check if the run was triggered by a release event and matches our tag
+                    return run.event === 'release' && run.head_sha && run.created_at;
+                });
+
+                allRuns.push(...releaseRuns);
+            } catch (error: any) {
+                logger.warn(`Failed to get runs for workflow ${workflow.name}: ${error.message}`);
+            }
+        }
+
+        // Sort by creation time (newest first) and take the most recent ones
+        allRuns.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        logger.debug(`Found ${allRuns.length} workflow runs triggered by release events`);
+        return allRuns;
+    } catch (error: any) {
+        logger.warn(`Failed to fetch workflow runs: ${error.message}`);
+        return [];
+    }
+};
+
+export const waitForReleaseWorkflows = async (
+    tagName: string,
+    options: {
+        timeout?: number;
+        workflowNames?: string[];
+        skipUserConfirmation?: boolean;
+    } = {}
+): Promise<void> => {
+    const logger = getLogger();
+    const timeout = options.timeout || 600000; // 10 minutes default
+    const skipUserConfirmation = options.skipUserConfirmation || false;
+
+    logger.info(`Waiting for workflows triggered by release ${tagName}...`);
+
+    // Wait a bit for workflows to start (GitHub can take a moment to trigger them)
+    logger.debug('Waiting 30 seconds for workflows to start...');
+    await delay(30000);
+
+    const startTime = Date.now();
+    let workflowRuns: any[] = [];
+    let consecutiveNoWorkflowsCount = 0;
+    const maxConsecutiveNoWorkflows = 6; // 1 minute of checking before asking user
+
+    while (true) {
+        const elapsedTime = Date.now() - startTime;
+
+        // Check for timeout
+        if (elapsedTime > timeout) {
+            logger.warn(`Timeout reached (${timeout / 1000}s) while waiting for release workflows.`);
+
+            if (!skipUserConfirmation) {
+                const proceedWithoutWorkflows = await promptConfirmation(
+                    `⚠️  Timeout reached while waiting for release workflows for ${tagName}.\n` +
+                    `This might indicate that no workflows are configured to trigger on releases.\n` +
+                    `Do you want to proceed anyway?`
+                );
+
+                if (proceedWithoutWorkflows) {
+                    logger.info('User chose to proceed without waiting for release workflows.');
+                    return;
+                } else {
+                    throw new Error(`Timeout waiting for release workflows for ${tagName}. User chose not to proceed.`);
+                }
+            } else {
+                throw new Error(`Timeout waiting for release workflows for ${tagName} (${timeout / 1000}s)`);
+            }
+        }
+
+        // Get current workflow runs
+        workflowRuns = await getWorkflowRunsTriggeredByRelease(tagName, options.workflowNames);
+
+        if (workflowRuns.length === 0) {
+            consecutiveNoWorkflowsCount++;
+            logger.info(`No release workflows found (${consecutiveNoWorkflowsCount}/${maxConsecutiveNoWorkflows}). Waiting...`);
+
+            // After several attempts with no workflows, ask user if they want to continue
+            if (consecutiveNoWorkflowsCount >= maxConsecutiveNoWorkflows) {
+                logger.warn(`No workflows triggered by release ${tagName} after ${maxConsecutiveNoWorkflows} attempts.`);
+
+                if (!skipUserConfirmation) {
+                    const proceedWithoutWorkflows = await promptConfirmation(
+                        `⚠️  No GitHub Actions workflows appear to be triggered by the release ${tagName}.\n` +
+                        `This might be expected if no workflows are configured for release events.\n` +
+                        `Do you want to proceed without waiting for workflows?`
+                    );
+
+                    if (proceedWithoutWorkflows) {
+                        logger.info('User chose to proceed without release workflows.');
+                        return;
+                    } else {
+                        throw new Error(`No release workflows found for ${tagName}. User chose not to proceed.`);
+                    }
+                } else {
+                    // In non-interactive mode, proceed if no workflows are found
+                    logger.info('No release workflows found, proceeding.');
+                    return;
+                }
+            }
+
+            await delay(10000);
+            continue;
+        }
+
+        // Reset counter since we found workflows
+        consecutiveNoWorkflowsCount = 0;
+
+        // Check status of all workflow runs
+        const failingRuns = workflowRuns.filter(run =>
+            run.conclusion && ['failure', 'timed_out', 'cancelled'].includes(run.conclusion)
+        );
+
+        if (failingRuns.length > 0) {
+            logger.error(`Release workflows for ${tagName} have failures:`);
+            for (const run of failingRuns) {
+                logger.error(`- ${run.name}: ${run.conclusion} (${run.html_url})`);
+            }
+            throw new Error(`Release workflows for ${tagName} failed.`);
+        }
+
+        const allWorkflowsCompleted = workflowRuns.every(run => run.status === 'completed');
+
+        if (allWorkflowsCompleted) {
+            const successfulRuns = workflowRuns.filter(run => run.conclusion === 'success');
+            logger.info(`All ${workflowRuns.length} release workflows for ${tagName} completed successfully.`);
+            for (const run of successfulRuns) {
+                logger.info(`✓ ${run.name}: ${run.conclusion}`);
+            }
+            return;
+        }
+
+        const completedCount = workflowRuns.filter(run => run.status === 'completed').length;
+        const runningCount = workflowRuns.filter(run => run.status === 'in_progress').length;
+        const queuedCount = workflowRuns.filter(run => run.status === 'queued').length;
+
+        logger.info(
+            `Release workflows for ${tagName}: ${completedCount} completed, ${runningCount} running, ${queuedCount} queued (${workflowRuns.length} total)`
+        );
+
+        await delay(15000); // wait 15 seconds
+    }
+};

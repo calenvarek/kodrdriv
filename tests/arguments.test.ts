@@ -1251,6 +1251,9 @@ describe('Argument Parsing and Configuration', () => {
                 publish: {
                     mergeMethod: 'rebase',
                 },
+                publishTree: {
+                    excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
+                },
                 link: {
                     scopeRoots: { "@core": "../core", "@utils": "../utils" },
                     workspaceFile: 'custom-workspace.yaml',

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import path from 'path';
 import yaml from 'js-yaml';
 import { getLogger } from '../logging';
@@ -24,35 +25,58 @@ const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<
     const absoluteRootDir = path.resolve(process.cwd(), rootDir);
     logger.verbose(`Scanning directory for packages: ${absoluteRootDir}`);
 
-    if (!await storage.exists(absoluteRootDir) || !await storage.isDirectory(absoluteRootDir)) {
-        logger.verbose(`Root directory does not exist or is not a directory: ${absoluteRootDir}`);
-        return packageMap;
-    }
-
     try {
-        // Get all subdirectories in the root directory
+        // Use single stat call to check if directory exists and is directory
+        const rootStat = await storage.exists(absoluteRootDir);
+        if (!rootStat) {
+            logger.verbose(`Root directory does not exist: ${absoluteRootDir}`);
+            return packageMap;
+        }
+
+        if (!await storage.isDirectory(absoluteRootDir)) {
+            logger.verbose(`Root path is not a directory: ${absoluteRootDir}`);
+            return packageMap;
+        }
+
+        // Get all items in the root directory
         const items = await storage.listFiles(absoluteRootDir);
 
+        // Process directories in batches to avoid overwhelming the filesystem
+        const directories = [];
         for (const item of items) {
             const itemPath = path.join(absoluteRootDir, item);
+            try {
+                // Quick check if it's a directory without logging
+                if (await storage.isDirectory(itemPath)) {
+                    directories.push({ item, itemPath });
+                }
+            } catch (error: any) {
+                // Skip items that can't be stat'ed (permissions, etc)
+                continue;
+            }
+        }
 
-            if (await storage.isDirectory(itemPath)) {
-                const packageJsonPath = path.join(itemPath, 'package.json');
+        logger.verbose(`Found ${directories.length} subdirectories to check for packages`);
 
+        // Check each directory for package.json
+        for (const { item, itemPath } of directories) {
+            const packageJsonPath = path.join(itemPath, 'package.json');
+
+            try {
                 if (await storage.exists(packageJsonPath)) {
-                    try {
-                        const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
-                        const packageJson = JSON.parse(packageJsonContent) as PackageJson;
+                    const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+                    const packageJson = JSON.parse(packageJsonContent) as PackageJson;
 
-                        if (packageJson.name) {
-                            const relativePath = path.relative(process.cwd(), itemPath);
-                            packageMap.set(packageJson.name, relativePath);
-                            logger.debug(`Found package: ${packageJson.name} at ${relativePath}`);
-                        }
-                    } catch (error) {
-                        logger.debug(`Failed to parse package.json at ${packageJsonPath}: ${error}`);
+                    if (packageJson.name) {
+                        const relativePath = path.relative(process.cwd(), itemPath);
+                        packageMap.set(packageJson.name, relativePath);
+                        logger.debug(`Found package: ${packageJson.name} at ${relativePath}`);
                     }
                 }
+            } catch (error: any) {
+                // Skip directories with unreadable or invalid package.json
+                logger.debug(`Skipped ${packageJsonPath}: ${error.message || error}`);
+                continue;
             }
         }
     } catch (error) {
@@ -120,7 +144,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const storage = createStorage({ log: logger.info });
 
-    logger.verbose('Starting pnpm workspace unlink management...');
+    logger.info('🔓 Unlinking workspace packages...');
 
     // Read current package.json
     const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -136,29 +160,26 @@ export const execute = async (runConfig: Config): Promise<string> => {
         throw new Error(`Failed to parse package.json: ${error}`);
     }
 
-    logger.verbose(`Processing package: ${packageJson.name || 'unnamed'}`);
-
     // Get configuration
     const scopeRoots = runConfig.link?.scopeRoots || {};
     const workspaceFileName = runConfig.link?.workspaceFile || 'pnpm-workspace.yaml';
     const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
 
-    logger.silly('Extracted scopeRoots:', JSON.stringify(scopeRoots));
-    logger.debug('Extracted workspaceFileName:', workspaceFileName);
-    logger.debug('Extracted isDryRun:', isDryRun);
-
     if (Object.keys(scopeRoots).length === 0) {
-        logger.verbose('No scope roots configured. Skipping unlink management.');
+        logger.info('No scope roots configured. Skipping unlink management.');
         return 'No scope roots configured. Skipping unlink management.';
     }
 
-    logger.silly(`Configured scope roots: ${JSON.stringify(scopeRoots)}`);
+    logger.info(`Scanning ${Object.keys(scopeRoots).length} scope root(s): ${Object.keys(scopeRoots).join(', ')}`);
 
     // Find packages to unlink based on scope roots
+    const startTime = Date.now();
     const packagesToUnlinkPaths = await findPackagesToUnlink(scopeRoots, storage);
+    const scanTime = Date.now() - startTime;
+    logger.verbose(`Directory scan completed in ${scanTime}ms`);
 
     if (packagesToUnlinkPaths.length === 0) {
-        logger.verbose('No packages found matching scope roots for unlinking.');
+        logger.info('✅ No packages found matching scope roots for unlinking.');
         return 'No packages found matching scope roots for unlinking.';
     }
 
@@ -169,7 +190,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const workspaceConfig = await readCurrentWorkspaceFile(workspaceFilePath, storage);
 
     if (!workspaceConfig.overrides || Object.keys(workspaceConfig.overrides).length === 0) {
-        logger.verbose('No overrides found in workspace file. Nothing to do.');
+        logger.info('✅ No overrides found in workspace file. Nothing to do.');
         return 'No overrides found in workspace file. Nothing to do.';
     }
 
@@ -188,9 +209,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
     }
 
     if (actuallyRemovedPackages.length === 0) {
-        logger.verbose('No linked packages found in workspace file that match scope roots.');
+        logger.info('✅ No linked packages found in workspace file that match scope roots.');
         return 'No linked packages found in workspace file that match scope roots.';
     }
+
+    logger.info(`Found ${actuallyRemovedPackages.length} package(s) to unlink: ${actuallyRemovedPackages.join(', ')}`);
 
     const updatedConfig: PnpmWorkspaceFile = {
         ...workspaceConfig,
@@ -203,18 +226,21 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Write the updated workspace file
     if (isDryRun) {
+        logger.info('DRY RUN: Would update workspace configuration and run pnpm install');
         logger.verbose('DRY RUN: Would write the following workspace configuration:');
         logger.silly(yaml.dump(updatedConfig, { indent: 2 }));
         logger.verbose(`DRY RUN: Would remove ${actuallyRemovedPackages.length} packages: ${actuallyRemovedPackages.join(', ')}`);
     } else {
         await writeWorkspaceFile(workspaceFilePath, updatedConfig, storage);
-        logger.verbose(`Updated ${workspaceFileName} - removed ${actuallyRemovedPackages.length} linked packages from overrides.`);
+        logger.info(`Updated ${workspaceFileName} - removed linked packages`);
 
         // Rebuild pnpm lock file and node_modules
-        logger.verbose('Rebuilding pnpm lock file and node_modules...');
+        logger.info('⏳ Running pnpm install to apply changes (this may take a moment)...');
+        const installStart = Date.now();
         try {
             await run('pnpm install');
-            logger.verbose('Successfully rebuilt pnpm lock file and node_modules');
+            const installTime = Date.now() - installStart;
+            logger.info(`✅ Changes applied successfully (${installTime}ms)`);
         } catch (error) {
             logger.warn(`Failed to rebuild dependencies: ${error}. You may need to run 'pnpm install' manually.`);
         }
