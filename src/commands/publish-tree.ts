@@ -6,6 +6,46 @@ import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { run } from '../util/child';
 
+// Helper function to format subproject error output
+const formatSubprojectError = (packageName: string, error: any): string => {
+    const lines: string[] = [];
+
+    lines.push(`❌ Script failed in package ${packageName}:`);
+
+    // Format the main error message with indentation
+    if (error.message) {
+        const indentedMessage = error.message
+            .split('\n')
+            .map((line: string) => `    ${line}`)
+            .join('\n');
+        lines.push(indentedMessage);
+    }
+
+    // If there's stderr output, show it indented as well
+    if (error.stderr && error.stderr.trim()) {
+        lines.push('    STDERR:');
+        const indentedStderr = error.stderr
+            .split('\n')
+            .filter((line: string) => line.trim())
+            .map((line: string) => `      ${line}`)
+            .join('\n');
+        lines.push(indentedStderr);
+    }
+
+    // If there's stdout output, show it indented as well
+    if (error.stdout && error.stdout.trim()) {
+        lines.push('    STDOUT:');
+        const indentedStdout = error.stdout
+            .split('\n')
+            .filter((line: string) => line.trim())
+            .map((line: string) => `      ${line}`)
+            .join('\n');
+        lines.push(indentedStdout);
+    }
+
+    return lines.join('\n');
+};
+
 const matchesPattern = (filePath: string, pattern: string): boolean => {
     // Convert simple glob patterns to regex
     const regexPattern = pattern
@@ -284,17 +324,33 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
         });
 
-        // Execute script or publish if provided
+        // Execute script, cmd, or publish if provided
         const script = runConfig.publishTree?.script;
+        const cmd = runConfig.publishTree?.cmd;
         const shouldPublish = runConfig.publishTree?.publish;
 
-        // Handle conflicts between --script and --publish
-        if (script && shouldPublish) {
-            logger.warn('Both --script and --publish provided. Using --publish (ignoring --script).');
-        }
+        // Handle conflicts between --script, --cmd, and --publish
+        // Priority order: --publish > --cmd > --script
+        let commandToRun: string | undefined;
+        let actionName: string = 'script'; // Default value
 
-        const commandToRun: string | undefined = shouldPublish ? 'pnpm dlx @eldrforge/kodrdriv publish' : script;
-        const actionName = shouldPublish ? 'publish' : 'script';
+        if (shouldPublish) {
+            if (script || cmd) {
+                const conflicting = [script && '--script', cmd && '--cmd'].filter(Boolean).join(' and ');
+                logger.warn(`Multiple execution options provided (${conflicting} and --publish). Using --publish (ignoring others).`);
+            }
+            commandToRun = 'pnpm dlx @eldrforge/kodrdriv publish';
+            actionName = 'publish';
+        } else if (cmd) {
+            if (script) {
+                logger.warn('Both --script and --cmd provided. Using --cmd (ignoring --script).');
+            }
+            commandToRun = cmd;
+            actionName = 'command';
+        } else if (script) {
+            commandToRun = script;
+            actionName = 'script';
+        }
 
         if (commandToRun) {
             logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${actionName} "${commandToRun}" in ${buildOrder.length} packages...`);
@@ -328,13 +384,22 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     }
                 } catch (error: any) {
                     failedPackage = packageName;
-                    const errorMsg = `❌ Script failed in package ${packageName}: ${error.message}`;
-                    logger.error(errorMsg);
+
+                    // Format the subproject error with proper indentation
+                    const formattedError = formatSubprojectError(packageName, error);
 
                     if (!isDryRun) {
+                        // Log the formatted subproject error first
+                        logger.error(formattedError);
                         logger.error(`Failed after ${successCount} successful packages.`);
-                        logger.error(`To resume from this package, use: --start-from ${path.basename(packageDir)}`);
-                        throw new Error(errorMsg);
+
+                        // Show recovery command last (most important info)
+                        const packageDirName = path.basename(packageDir);
+                        logger.error(`To resume from this package, run:`);
+                        logger.error(`    kodrdriv publish-tree --start-from ${packageDirName}`);
+
+                        // Create a concise error for the throw
+                        throw new Error(`Script failed in package ${packageName}`);
                     }
                     break;
                 }

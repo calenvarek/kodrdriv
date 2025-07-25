@@ -2,15 +2,15 @@
 
 > [!IMPORTANT]
 > ### Configuration Required
-> 
+>
 > Before using KodrDriv commands, you should configure the program through its configuration directory. By default, KodrDriv looks for configuration files in `./.kodrdriv` in your project root. This includes settings for AI models, API keys, instructions, and command-specific defaults.
-> 
+>
  > **Quick setup:**
 > ```bash
 > kodrdriv --init-config  # Create initial configuration files
 > kodrdriv --check-config # Validate your configuration
 > ```
-> 
+>
 > For detailed configuration options, see the [Configuration Documentation](configuration.md).
 
 KodrDriv provides comprehensive commands for automating Git workflows, generating intelligent documentation, and managing audio-driven development workflows.
@@ -47,12 +47,12 @@ STDIN input is particularly useful for:
 
 > [!TIP]
 > ### Working with Staged Changes
-> 
+>
 > When you have staged changes using `git add`, the `kodrdriv commit` command will automatically analyze the diff of your staged changes. This allows you to selectively stage files and generate a commit message that specifically addresses those changes, rather than all uncommitted changes in your working directory.
 
 > [!TIP]
 > ### Quick Commit with --sendit
-> 
+>
 > If you trust the quality of the generated commit messages, you can use the `--sendit` flag to automatically commit your changes with the generated message without review. This is useful for quick, routine changes where you want to streamline your workflow.
 
 ### Commit Command Options
@@ -98,7 +98,7 @@ The audio commit command allows you to speak your commit intentions, which are t
 
 > [!TIP]
 > ### Audio Device Setup
-> 
+>
 > Before using audio commands, run `kodrdriv select-audio` to configure your preferred microphone. This creates a configuration file in your preferences directory that will be used for all audio recording.
 
 ### Audio Commit Options
@@ -248,12 +248,12 @@ The release command analyzes changes between two Git references and generates st
 
 > [!TIP]
 > ### Custom Release Range
-> 
+>
 > The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it compares changes between the `main` branch and `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
 
 > [!TIP]
 > ### Comparing Releases
-> 
+>
 > You can use the `--from` and `--to` options to generate release notes comparing two different releases. For example, to see what changed between v1.0.0 and v1.1.0, you could use `kodrdriv release --from v1.0.0 --to v1.1.0`. This is particularly useful for creating detailed changelogs when preparing release documentation.
 
 ### Release Command Options
@@ -315,10 +315,89 @@ The `publish` command orchestrates a comprehensive release workflow, designed to
 
 This command is designed for repositories that follow a pull-request-based release workflow with or without status checks. It automatically handles repositories that have no CI/CD configured and streamlines the process, reducing manual steps and potential for error.
 
+## Workflow and Status Check Management
+
+The publish command intelligently manages GitHub Actions workflows and status checks throughout the release process:
+
+### Pull Request Checks
+
+**When PR is created on release branch:**
+1. **Automatic Check Detection**: Scans for GitHub Actions workflows and status checks on the PR
+2. **Intelligent Waiting**: Waits up to 5 minutes (configurable) for all checks to complete
+3. **Progress Monitoring**: Reports check completion status every 10 seconds
+4. **Failure Handling**: Stops the process if any checks fail
+
+**Scenarios handled:**
+
+- **✅ Repository with workflows**: Waits for all checks, proceeds when green
+- **⚠️ Repository without workflows**: Detects absence after 1 minute, prompts user
+- **⏰ Timeout reached**: Prompts user whether to proceed or abort
+- **❌ Failed checks**: Immediately stops and reports failing check names
+
+### Release Workflows (After Tag Creation)
+
+**When tag is pushed to main branch:**
+1. **Release Trigger Detection**: Looks for workflows triggered by release/tag events
+2. **Extended Timeout**: Waits up to 10 minutes (configurable) for release workflows
+3. **Workflow Monitoring**: Tracks status of deployment, publishing, or notification workflows
+4. **Smart Detection**: Automatically detects if no release workflows are configured
+
+### Configuration Options for Workflow Management
+
+```json
+{
+  "publish": {
+    "checksTimeout": 300000,              // PR check timeout (5 min default)
+    "skipUserConfirmation": false,        // Auto-proceed when no workflows found
+    "sendit": false,                      // Skip ALL confirmations
+    "waitForReleaseWorkflows": true,      // Wait for release workflows
+    "releaseWorkflowsTimeout": 600000,    // Release workflow timeout (10 min)
+    "releaseWorkflowNames": ["deploy", "publish"] // Specific workflows to wait for
+  }
+}
+```
+
+### User Interaction Scenarios
+
+**Interactive Mode (default):**
+```bash
+kodrdriv publish
+# Prompts when no workflows found:
+# "⚠️ No GitHub Actions workflows found. Proceed anyway? [y/N]"
+```
+
+**Automated Mode:**
+```bash
+kodrdriv publish --sendit
+# Skips all workflow confirmations, proceeds immediately
+```
+
+**Custom Timeout:**
+```json
+{
+  "publish": {
+    "checksTimeout": 600000  // Wait 10 minutes for PR checks
+  }
+}
+```
+
 > [!TIP]
-> ### No Checks Scenario
-> 
-> If your repository doesn't have GitHub Actions workflows or status checks configured, the publish command will automatically detect this and avoid waiting indefinitely. By default, it will ask for user confirmation before proceeding with the merge. You can configure this behavior using the `skipUserConfirmation` option to automatically proceed in non-interactive environments.
+> ### Workflow Management Best Practices
+>
+> - **For repositories with CI/CD**: Use default settings, kodrdriv will wait for your workflows
+> - **For repositories without workflows**: Set `skipUserConfirmation: true` for automation
+> - **For deployment workflows**: Configure `targetWorkflows` to wait for specific release workflows
+> - **For CI environments**: Use `--sendit` flag to skip all interactive prompts
+
+> [!NOTE]
+> ### No Workflows Detected
+>
+> If your repository doesn't have GitHub Actions workflows or status checks configured, the publish command will:
+> 1. Wait 1 minute to confirm no workflows exist
+> 2. Prompt for user confirmation (unless `skipUserConfirmation` is enabled)
+> 3. Proceed safely without waiting indefinitely
+>
+> This ensures the tool works seamlessly with any repository configuration.
 
 ### Publish Command Options
 
@@ -354,6 +433,9 @@ You can configure the publish command behavior in your `.kodrdriv/config.json` f
 - `checksTimeout`: Maximum time in milliseconds to wait for PR checks (default: 300000 = 5 minutes)
 - `skipUserConfirmation`: Skip user confirmation when no checks are configured (default: false, useful for CI/CD environments)
 - `sendit`: Skip all confirmation prompts and proceed automatically (default: false, overrides `skipUserConfirmation` when true)
+- `waitForReleaseWorkflows`: Whether to wait for workflows triggered by release tag creation (default: true)
+- `releaseWorkflowsTimeout`: Maximum time in milliseconds to wait for release workflows (default: 600000 = 10 minutes)
+- `releaseWorkflowNames`: Array of specific workflow names to wait for on release (if not specified, waits for all workflows)
 
 ### Examples
 
@@ -373,6 +455,196 @@ kodrdriv publish --sendit
 # Automated publish with custom merge method
 kodrdriv publish --sendit --merge-method merge
 ```
+
+### Workflow Management Examples
+
+**Repository with CI/CD workflows:**
+```bash
+# Standard workflow - waits for all checks and release workflows
+kodrdriv publish
+
+# Custom timeout for long-running tests
+kodrdriv publish  # with checksTimeout: 600000 in config
+```
+
+**Repository without workflows:**
+```bash
+# Interactive - will prompt when no workflows detected
+kodrdriv publish
+
+# Automated - skips prompts, proceeds immediately
+kodrdriv publish --sendit
+```
+
+**Advanced workflow configuration:**
+```json
+{
+  "publish": {
+    "checksTimeout": 450000,
+    "releaseWorkflowsTimeout": 900000,
+    "releaseWorkflowNames": ["deploy-production", "notify-slack"],
+    "skipUserConfirmation": true
+  }
+}
+```
+
+## Publish Tree Command
+
+Analyze and manage the build/publish order for multi-package workspaces and monorepos:
+
+```bash
+kodrdriv publish-tree
+```
+
+The `publish-tree` command is designed for complex workspace environments where you have multiple packages with interdependencies. It analyzes your workspace structure, builds a dependency graph, and determines the correct order for building, testing, or publishing packages to ensure dependencies are processed before dependent packages.
+
+### What It Does
+
+1. **Package Discovery**: Scans the target directory (current directory by default) for all `package.json` files in subdirectories
+2. **Dependency Analysis**: Reads each package's dependencies and identifies local workspace dependencies
+3. **Topological Sorting**: Creates a dependency graph and performs topological sorting to determine the correct build order
+4. **Execution**: Optionally executes scripts, commands, or the publish process in each package in the correct order
+
+### Key Features
+
+- **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
+- **Resume Capability**: Can resume from a specific package if a previous run failed
+- **Flexible Execution**: Supports custom scripts, shell commands, or the kodrdriv publish command
+- **Pattern Exclusion**: Exclude specific packages or directories from processing
+- **Dry Run Mode**: Preview the build order and execution plan without making changes
+
+### Publish Tree Command Options
+
+- `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
+- `--start-from <startFrom>`: Resume build order from this package directory name (useful for restarting failed builds)
+- `--script <script>`: Script command to execute in each package directory (e.g., `"npm run build"`)
+- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"git add -A"`)
+- `--publish`: Execute kodrdriv publish command in each package directory
+- `--excluded-paths <patterns>`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
+
+> [!NOTE]
+> ### Command Precedence
+>
+> If multiple execution options are provided, they are processed in this priority order:
+> 1. `--publish` (highest priority)
+> 2. `--cmd`
+> 3. `--script` (lowest priority)
+>
+> Higher priority options will override lower priority ones with a warning.
+
+### Usage Examples
+
+**Analyze workspace structure (dry run):**
+```bash
+kodrdriv publish-tree
+```
+
+**Build all packages in dependency order:**
+```bash
+kodrdriv publish-tree --script "npm run build"
+```
+
+**Publish all packages using kodrdriv:**
+```bash
+kodrdriv publish-tree --publish
+```
+
+**Resume from a specific package after failure:**
+```bash
+kodrdriv publish-tree --publish --start-from my-failed-package
+```
+
+**Execute custom shell commands:**
+```bash
+kodrdriv publish-tree --cmd "pnpm run test && pnpm run build"
+```
+
+**Process specific workspace directory with exclusions:**
+```bash
+kodrdriv publish-tree --directory ./packages --excluded-paths "**/test-packages/**" --script "npm run build"
+```
+
+**Complex workspace with specific scope:**
+```bash
+kodrdriv publish-tree \
+  --directory ./workspace \
+  --excluded-paths "examples/**,**/*-demo" \
+  --script "pnpm run lint && pnpm run build" \
+  --start-from core-package
+```
+
+### Configuration
+
+You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
+
+```json
+{
+  "publishTree": {
+    "directory": "./packages",
+    "excludedPatterns": ["**/node_modules/**", "**/dist/**", "**/examples/**"],
+    "script": "pnpm run build",
+    "startFrom": null,
+    "cmd": null,
+    "publish": false
+  }
+}
+```
+
+**Configuration Options:**
+- `directory`: Default target directory for package scanning
+- `excludedPatterns`: Array of glob patterns to exclude packages
+- `script`: Default script to execute in each package
+- `cmd`: Default shell command to execute in each package
+- `publish`: Whether to run kodrdriv publish by default
+- `startFrom`: Default package to start from (useful for automated retries)
+
+### Typical Workflows
+
+**CI/CD Pipeline Build:**
+```bash
+# Build all packages in correct dependency order
+kodrdriv publish-tree --script "pnpm run build"
+```
+
+**Incremental Publishing:**
+```bash
+# Publish packages that have changes
+kodrdriv publish-tree --publish --start-from updated-package
+```
+
+**Quality Assurance:**
+```bash
+# Run tests across all packages
+kodrdriv publish-tree --script "pnpm run test"
+```
+
+**Version Management:**
+```bash
+# Update version numbers across workspace
+kodrdriv publish-tree --cmd "npm version patch"
+```
+
+### Error Handling
+
+If a command fails in any package:
+- The process stops immediately
+- Error details are logged with the failing package name
+- A resume command suggestion is provided with the `--start-from` option
+- The number of successfully processed packages is reported
+
+**Example failure output:**
+```
+❌ Script failed in package @mycompany/api-client: Command 'npm run build' failed with exit code 1
+Failed after 3 successful packages.
+To resume from this package, use: --start-from api-client
+```
+
+### Performance Tips
+
+- Use `--excluded-paths` to skip unnecessary packages (tests, examples, etc.)
+- Consider using `--start-from` for large workspaces when resuming failed builds
+- Use dry run mode first to verify the build order makes sense
+- For parallel-safe operations, consider running commands in parallel per dependency level
 
 ## Link Command
 

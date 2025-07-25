@@ -84,6 +84,7 @@ export const ConfigSchema = z.object({
         excludedPatterns: z.array(z.string()).optional(),
         startFrom: z.string().optional(),
         script: z.string().optional(),
+        cmd: z.string().optional(),
         publish: z.boolean().optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
