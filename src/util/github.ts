@@ -587,7 +587,7 @@ const isTriggeredByRelease = (workflowContent: string, workflowName: string): bo
         // on:
         //   release:
         //     types: [published, created, ...]
-        const releaseEventPattern = /(?:^|\n)\s*on\s*:\s*(?:\n|\r\n)(?:\s+[^\S\r\n]*[^\n\r]+(?:\n|\r\n))*?\s+release\s*:/m;
+        const releaseEventPattern = /(?:^|\n)\s*on\s*:\s*(?:\n|\r\n)(?:\s+[^\S\r\n]+)*(?:\s+release\s*:)/m;
 
         // Pattern 2: on: [push, release] or on: release
         const onReleasePattern = /(?:^|\n)\s*on\s*:\s*(?:\[.*release.*\]|release)\s*(?:\n|$)/m;
