@@ -44,21 +44,36 @@ const validateSenditState = (config: Config, cached: boolean, isDryRun: boolean,
 
 // Better file save handling with fallbacks
 const saveCommitMessage = async (outputDirectory: string, summary: string, storage: any, logger: any): Promise<void> => {
-    try {
-        const timestampedFilename = getTimestampedCommitFilename();
-        const outputPath = getOutputPath(outputDirectory, timestampedFilename);
-        await storage.writeFile(outputPath, summary, 'utf-8');
-        logger.debug('Saved timestamped commit message: %s', outputPath);
-    } catch (error: any) {
-        logger.warn('Failed to save timestamped commit message: %s', error.message);
+    const timestampedFilename = getTimestampedCommitFilename();
+    const primaryPath = getOutputPath(outputDirectory, timestampedFilename);
 
-        // Fallback: try to save to current directory
+    try {
+        await storage.writeFile(primaryPath, summary, 'utf-8');
+        logger.debug('Saved timestamped commit message: %s', primaryPath);
+        return; // Success, no fallback needed
+    } catch (error: any) {
+        logger.warn('Failed to save commit message to primary location (%s): %s', primaryPath, error.message);
+        logger.debug('Primary save error details:', error);
+
+        // First fallback: try output directory root (in case subdirectory has issues)
+        try {
+            const outputRootPath = getOutputPath('output', timestampedFilename);
+            await storage.writeFile(outputRootPath, summary, 'utf-8');
+            logger.info('Saved commit message to output directory fallback: %s', outputRootPath);
+            return;
+        } catch (outputError: any) {
+            logger.warn('Failed to save to output directory fallback: %s', outputError.message);
+        }
+
+        // Last resort fallback: save to current directory (this creates the clutter!)
         try {
             const fallbackPath = `commit-message-${Date.now()}.txt`;
             await storage.writeFile(fallbackPath, summary, 'utf-8');
-            logger.info('Saved commit message to fallback location: %s', fallbackPath);
+            logger.warn('⚠️  Saved commit message to current directory as last resort: %s', fallbackPath);
+            logger.warn('⚠️  This file should be moved to the output directory and may clutter your workspace');
         } catch (fallbackError: any) {
             logger.error('Failed to save commit message anywhere: %s', fallbackError.message);
+            logger.error('Commit message will only be available in console output');
             // Continue execution - commit message is still returned
         }
     }

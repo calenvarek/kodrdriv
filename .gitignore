@@ -16,3 +16,6 @@ tsconfig.tsbuildinfo
 
 # Git hooks (environment-specific)
 .git/hooks/pre-commit
+
+# Fallback commit message files (should go to output/ directory)
+commit-message-*.txt
