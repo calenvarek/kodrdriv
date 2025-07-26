@@ -14,7 +14,6 @@ export const getReviewExcludedPatterns = (basePatterns: string[]): string[] => {
         // Lock files and dependency files (often massive)
         "*lock*",
         "*.lock",
-        "pnpm-lock.yaml",
         "package-lock.json",
         "yarn.lock",
         "bun.lockb",

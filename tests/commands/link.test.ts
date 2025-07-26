@@ -70,7 +70,8 @@ describe('link command', () => {
             isDirectory: vi.fn(),
             readFile: vi.fn(),
             writeFile: vi.fn(),
-            listFiles: vi.fn()
+            listFiles: vi.fn(),
+            deleteFile: vi.fn()
         };
 
         (Storage.create as any).mockReturnValue(mockStorage);
@@ -102,7 +103,6 @@ describe('link command', () => {
             },
             link: {
                 scopeRoots: { '@company': '../company-packages' },
-                workspaceFile: 'pnpm-workspace.yaml',
                 dryRun: false
             },
             excludedPatterns: []
@@ -115,16 +115,28 @@ describe('link command', () => {
             mockStorage.exists.mockResolvedValue(false);
 
             // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('package.json not found in current directory.');
+            await expect(Link.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories.');
         });
 
         it('should throw error when package.json is malformed', async () => {
             // Arrange
             mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue('invalid json');
+            mockStorage.isDirectory.mockResolvedValue(false);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                return Promise.resolve([]);
+            });
+            mockStorage.readFile.mockImplementation((filePath: string) => {
+                if (filePath === path.join(process.cwd(), 'package.json')) {
+                    return Promise.resolve('invalid json');
+                }
+                return Promise.resolve('{}');
+            });
 
             // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('Failed to parse package.json');
+            await expect(Link.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories');
         });
 
         it('should skip gracefully when no scope roots are configured', async () => {
@@ -133,7 +145,6 @@ describe('link command', () => {
                 ...mockConfig,
                 link: {
                     scopeRoots: {},
-                    workspaceFile: 'pnpm-workspace.yaml',
                     dryRun: false
                 }
             };
@@ -159,9 +170,20 @@ describe('link command', () => {
             };
 
             mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue(JSON.stringify(packageJson));
             mockStorage.isDirectory.mockResolvedValue(true);
-            mockStorage.listFiles.mockRejectedValue(new Error('Permission denied'));
+            mockStorage.readFile.mockImplementation((filePath: string) => {
+                if (filePath === path.join(process.cwd(), 'package.json')) {
+                    return Promise.resolve(JSON.stringify(packageJson));
+                }
+                return Promise.resolve('{}');
+            });
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                // Simulate filesystem errors for scope directories
+                return Promise.reject(new Error('Permission denied'));
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
@@ -185,7 +207,7 @@ describe('link command', () => {
                 if (filePath === path.join(process.cwd(), 'package.json')) {
                     return Promise.resolve(JSON.stringify(packageJson));
                 }
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
+                if (filePath.endsWith('package.json')) {
                     return Promise.resolve('invalid: yaml: [content');
                 }
                 if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
@@ -194,11 +216,20 @@ describe('link command', () => {
                 throw new Error('File not found');
             });
 
-            mockStorage.listFiles.mockResolvedValue(['cache']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
             mockStorage.isDirectory.mockResolvedValue(true);
 
-            // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('Failed to parse existing workspace file');
+            // Act & Assert - Should skip malformed package.json files and continue gracefully
+            const result = await Link.execute(mockConfig);
+            expect(result).toBe('No matching sibling packages found for linking.');
         });
     });
 
@@ -212,10 +243,7 @@ describe('link command', () => {
 
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
-            mockStorage.exists.mockImplementation((filePath: string) => {
-                if (filePath.endsWith('pnpm-workspace.yaml')) return Promise.resolve(false); // No existing file
-                return Promise.resolve(true);
-            });
+            mockStorage.exists.mockResolvedValue(true);
 
             mockStorage.isDirectory.mockResolvedValue(true);
 
@@ -232,22 +260,29 @@ describe('link command', () => {
                 throw new Error(`File not found: ${filePath}`);
             });
 
-            mockStorage.listFiles.mockResolvedValue(['cache', 'utils', 'other']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache', 'utils', 'other']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 2 sibling packages');
-            expect(result).toContain('@company/cache: link:../company-packages/cache');
-            expect(result).toContain('@company/utils: link:../company-packages/utils');
+            expect(result).toContain('Successfully linked 2 dependency reference(s) across 1 package.json file(s)');
+            expect(result).toContain('@company/cache: file:../company-packages/cache');
+            expect(result).toContain('@company/utils: file:../company-packages/utils');
 
             const writeFileCall = mockStorage.writeFile.mock.calls[0];
-            expect(writeFileCall[0]).toContain('pnpm-workspace.yaml');
-            expect(writeFileCall[1]).toContain('overrides:');
-            expect(writeFileCall[1]).toContain("'@company/cache': link:../company-packages/cache");
-            expect(writeFileCall[1]).toContain("'@company/utils': link:../company-packages/utils");
-            expect(Child.run).toHaveBeenCalledWith('pnpm install');
+            expect(writeFileCall[0]).toContain('package.json');
+            expect(writeFileCall[1]).toContain('"@company/cache": "file:../company-packages/cache"');
+            expect(writeFileCall[1]).toContain('"@company/utils": "file:../company-packages/utils"');
+            expect(Child.run).toHaveBeenCalledWith('npm install');
         });
 
         it('should merge with existing overrides in workspace file', async () => {
@@ -257,7 +292,6 @@ describe('link command', () => {
                 dependencies: { '@company/cache': '^1.0.0' }
             };
 
-            const existingWorkspace = "overrides:\n  '@company/existing': 'link:../company-packages/existing'\n";
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
             mockStorage.exists.mockResolvedValue(true);
@@ -267,28 +301,32 @@ describe('link command', () => {
                 if (filePath === path.join(process.cwd(), 'package.json')) {
                     return Promise.resolve(JSON.stringify(packageJson));
                 }
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
-                    return Promise.resolve(existingWorkspace);
-                }
                 if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
                     return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
                 }
-                throw new Error(`File not found: ${filePath}`);
+                return Promise.resolve('{}');
             });
 
-            mockStorage.listFiles.mockResolvedValue(['cache']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             await Link.execute(mockConfig);
 
             // Assert
-            const writeFileCall = mockStorage.writeFile.mock.calls[0];
-            expect(writeFileCall[1]).toContain("'@company/cache': link:../company-packages/cache");
-            expect(writeFileCall[1]).toContain("'@company/existing': link:../company-packages/existing");
-            expect(Child.run).toHaveBeenCalledWith('pnpm install');
+            const writeFileCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+            expect(writeFileCall[1]).toContain('"@company/cache": "file:../company-packages/cache"');
+            expect(Child.run).toHaveBeenCalledWith('npm install');
         });
 
-        it('should not run pnpm install in dry run mode', async () => {
+        it('should not run npm install in dry run mode', async () => {
             // Arrange
             const dryRunConfig = { ...mockConfig, dryRun: true };
             const packageJson = {
@@ -303,7 +341,7 @@ describe('link command', () => {
                 if (filePath === path.join(process.cwd(), 'package.json')) {
                     return Promise.resolve(JSON.stringify(packageJson));
                 }
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
+                if (filePath.endsWith('package.json')) {
                     return Promise.resolve('');
                 }
                 if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
@@ -311,7 +349,15 @@ describe('link command', () => {
                 }
                 throw new Error(`File not found: ${filePath}`);
             });
-            mockStorage.listFiles.mockResolvedValue(['cache']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             await Link.execute(dryRunConfig);
@@ -335,9 +381,6 @@ describe('link command', () => {
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
             mockStorage.exists.mockImplementation((filePath: string) => {
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
-                    return Promise.resolve(false);
-                }
                 return Promise.resolve(true);
             });
 
@@ -359,16 +402,24 @@ describe('link command', () => {
                 throw new Error('File not found');
             });
 
-            mockStorage.listFiles.mockResolvedValue(['cache', 'dev-utils', 'peer-lib']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache', 'dev-utils', 'peer-lib']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 3 sibling packages');
-            expect(result).toContain('@company/cache: link:../company-packages/cache');
-            expect(result).toContain('@company/dev-utils: link:../company-packages/dev-utils');
-            expect(result).toContain('@company/peer-lib: link:../company-packages/peer-lib');
+            expect(result).toContain('Successfully linked 3 dependency reference(s) across 1 package.json file(s)');
+            expect(result).toContain('@company/cache: file:../company-packages/cache');
+            expect(result).toContain('@company/dev-utils: file:../company-packages/dev-utils');
+            expect(result).toContain('@company/peer-lib: file:../company-packages/peer-lib');
         });
 
         it('should handle multiple scope roots', async () => {
@@ -396,10 +447,7 @@ describe('link command', () => {
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
             const differentScopePath = path.resolve(process.cwd(), '../different-scope');
 
-            mockStorage.exists.mockImplementation((filePath: string) => {
-                return !filePath.endsWith('pnpm-workspace.yaml');
-            });
-
+            mockStorage.exists.mockResolvedValue(true);
             mockStorage.isDirectory.mockResolvedValue(true);
 
             mockStorage.readFile.mockImplementation((filePath: string) => {
@@ -412,10 +460,13 @@ describe('link command', () => {
                 if (filePath === path.join(differentScopePath, 'pkg', 'package.json')) {
                     return Promise.resolve(JSON.stringify({ name: '@different/pkg' }));
                 }
-                throw new Error(`File not found: ${filePath}`);
+                return Promise.resolve('{}');
             });
 
             mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
                 if (dirPath === companyPackagesPath) {
                     return Promise.resolve(['cache', 'utils']);
                 }
@@ -429,9 +480,9 @@ describe('link command', () => {
             const result = await Link.execute(configWithMultipleScopes);
 
             // Assert
-            expect(result).toContain('Successfully linked 2 sibling packages');
-            expect(result).toContain('@company/cache: link:../company-packages/cache');
-            expect(result).toContain('@different/pkg: link:../different-scope/pkg');
+            expect(result).toContain('Successfully linked 2 dependency reference(s) across 1 package.json file(s)');
+            expect(result).toContain('@company/cache: file:../company-packages/cache');
+            expect(result).toContain('@different/pkg: file:../different-scope/pkg');
             expect(result).not.toContain('some-other-dep');
         });
 
@@ -446,7 +497,7 @@ describe('link command', () => {
             };
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
-            mockStorage.exists.mockImplementation((filePath: string) => !filePath.endsWith('pnpm-workspace.yaml'));
+            mockStorage.exists.mockResolvedValue(true);
             mockStorage.isDirectory.mockResolvedValue(true);
 
             mockStorage.readFile.mockImplementation((filePath: string) => {
@@ -460,10 +511,13 @@ describe('link command', () => {
                 if (filePath === path.join(companyPackagesPath, 'other-pkg', 'package.json')) {
                     return Promise.resolve(JSON.stringify({ name: '@other/package' }));
                 }
-                throw new Error(`File not found: ${filePath}`);
+                return Promise.resolve('{}');
             });
 
             mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
                 if (dirPath === companyPackagesPath) {
                     return Promise.resolve(['cache', 'other-pkg']);
                 }
@@ -474,8 +528,8 @@ describe('link command', () => {
             const result = await Link.execute(mockConfig); // uses default config with only @company scope
 
             // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
-            expect(result).toContain('@company/cache: link:../company-packages/cache');
+            expect(result).toContain('Successfully linked 1 dependency reference(s) across 1 package.json file(s)');
+            expect(result).toContain('@company/cache: file:../company-packages/cache');
             expect(result).not.toContain('@other/package');
         });
 
@@ -490,7 +544,7 @@ describe('link command', () => {
             };
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
-            mockStorage.exists.mockImplementation((filePath: string) => !filePath.endsWith('pnpm-workspace.yaml'));
+            mockStorage.exists.mockResolvedValue(true);
             mockStorage.isDirectory.mockResolvedValue(true);
 
             mockStorage.readFile.mockImplementation((filePath: string) => {
@@ -503,10 +557,13 @@ describe('link command', () => {
                 if (filePath === path.join(companyPackagesPath, 'utils', 'package.json')) {
                     return Promise.resolve('invalid json');
                 }
-                throw new Error(`File not found: ${filePath}`);
+                return Promise.resolve('{}');
             });
 
             mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
                 if (dirPath === companyPackagesPath) {
                     return Promise.resolve(['cache', 'utils']);
                 }
@@ -517,12 +574,12 @@ describe('link command', () => {
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
-            expect(result).toContain('@company/cache: link:../company-packages/cache');
+            expect(result).toContain('Successfully linked 1 dependency reference(s) across 1 package.json file(s)');
+            expect(result).toContain('@company/cache: file:../company-packages/cache');
             expect(result).not.toContain('@company/utils');
 
             const writeFileCall = mockStorage.writeFile.mock.calls[0];
-            expect(writeFileCall[1]).not.toContain('@company/utils');
+            expect(writeFileCall[1]).toContain('"@company/utils": "1.0.0"'); // Original version preserved since utils package was invalid
         });
     });
 
@@ -535,12 +592,7 @@ describe('link command', () => {
             };
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
-            mockStorage.exists.mockImplementation((filePath: string) => {
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
-                    return Promise.resolve(false);
-                }
-                return Promise.resolve(true);
-            });
+            mockStorage.exists.mockResolvedValue(true);
             mockStorage.isDirectory.mockResolvedValue(true);
             mockStorage.readFile.mockImplementation((filePath: string) => {
                 if (filePath === path.join(process.cwd(), 'package.json')) {
@@ -549,9 +601,12 @@ describe('link command', () => {
                 if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
                     return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
                 }
-                throw new Error(`not found ${filePath}`);
+                return Promise.resolve('{}');
             });
             mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
                 if (dirPath === companyPackagesPath) {
                     return Promise.resolve(['cache']);
                 }
@@ -561,10 +616,10 @@ describe('link command', () => {
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
+            expect(result).toContain('Successfully linked 1 dependency reference(s) across 1 package.json file(s)');
             expect(mockStorage.writeFile).toHaveBeenCalledWith(
-                expect.stringContaining('pnpm-workspace.yaml'),
-                expect.stringContaining("'@company/cache': link:../company-packages/cache"),
+                expect.stringContaining('package.json'),
+                expect.stringContaining('"@company/cache": "file:../company-packages/cache"'),
                 'utf-8'
             );
         });
@@ -573,10 +628,12 @@ describe('link command', () => {
             // Arrange
             const packageJson = {
                 name: '@company/providers',
-                dependencies: { '@company/cache': '^1.0.0' }
+                dependencies: {
+                    '@company/cache': '^1.0.0',
+                    '@company/existing': '^2.0.0'
+                }
             };
 
-            const existingWorkspace = "overrides:\n  '@company/existing': 'link:../company-packages/existing'\npackages:\n  - existing-package";
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
             mockStorage.exists.mockResolvedValue(true);
@@ -586,36 +643,45 @@ describe('link command', () => {
                 if (filePath === path.join(process.cwd(), 'package.json')) {
                     return Promise.resolve(JSON.stringify(packageJson));
                 }
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
-                    return Promise.resolve(existingWorkspace);
-                }
                 if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
                     return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
                 }
-                throw new Error('File not found');
+                if (filePath === path.join(companyPackagesPath, 'existing', 'package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: '@company/existing' }));
+                }
+                return Promise.resolve('{}');
             });
 
-            mockStorage.listFiles.mockResolvedValue(['cache']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache', 'existing']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
-            const writeCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('pnpm-workspace.yaml'));
-            expect(writeCall[1]).toContain('existing-package');
-            expect(writeCall[1]).toContain("'@company/existing': link:../company-packages/existing");
-            expect(writeCall[1]).toContain("'@company/cache': link:../company-packages/cache");
+            expect(result).toContain('Successfully linked 2 dependency reference(s) across 1 package.json file(s)');
+            const writeCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+            expect(writeCall[1]).toContain('"@company/existing": "file:../company-packages/existing"');
+            expect(writeCall[1]).toContain('"@company/cache": "file:../company-packages/cache"');
         });
 
         it('should avoid duplicate overrides in workspace file', async () => {
             // Arrange
             const packageJson = {
                 name: '@company/providers',
-                dependencies: { '@company/cache': '^1.0.0' }
+                dependencies: {
+                    '@company/cache': '^1.0.0',
+                    '@company/utils': '^2.0.0'
+                }
             };
 
-            const existingWorkspace = "overrides:\n  '@company/cache': 'link:../cache-old'\n";
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
 
             mockStorage.exists.mockResolvedValue(true);
@@ -625,69 +691,36 @@ describe('link command', () => {
                 if (filePath === path.join(process.cwd(), 'package.json')) {
                     return Promise.resolve(JSON.stringify(packageJson));
                 }
-                if (filePath.endsWith('pnpm-workspace.yaml')) {
-                    return Promise.resolve(existingWorkspace);
-                }
                 if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
                     return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
                 }
-                throw new Error('File not found');
+                if (filePath === path.join(companyPackagesPath, 'utils', 'package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: '@company/utils' }));
+                }
+                return Promise.resolve('{}');
             });
 
-            mockStorage.listFiles.mockResolvedValue(['cache']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache', 'utils']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
-            const writeCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('pnpm-workspace.yaml'));
-            expect(writeCall[1]).toContain("'@company/cache': link:../company-packages/cache");
-            expect(writeCall[1]).not.toContain('cache-old');
+            expect(result).toContain('Successfully linked 2 dependency reference(s) across 1 package.json file(s)');
+            const writeCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+            expect(writeCall[1]).toContain('"@company/cache": "file:../company-packages/cache"');
+            expect(writeCall[1]).toContain('"@company/utils": "file:../company-packages/utils"');
         });
 
-        it('should use custom workspace filename', async () => {
-            // Arrange
-            const customWorkspaceFilename = 'custom-pnpm-workspace.yaml';
-            const configWithCustomWorkspace = {
-                ...mockConfig,
-                link: {
-                    ...mockConfig.link,
-                    workspaceFile: customWorkspaceFilename,
-                }
-            };
-            const packageJson = {
-                name: '@company/providers',
-                dependencies: { '@company/cache': '^1.0.0' },
-            };
-            const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
-            mockStorage.exists.mockResolvedValue(true);
-            mockStorage.isDirectory.mockResolvedValue(true);
-            mockStorage.readFile.mockImplementation((filePath: string) => {
-                if (filePath === path.join(process.cwd(), 'package.json')) {
-                    return Promise.resolve(JSON.stringify(packageJson));
-                }
-                if (filePath.endsWith(customWorkspaceFilename)) {
-                    return Promise.resolve('');
-                }
-                if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
-                    return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
-                }
-                return Promise.resolve('');
-            });
-            mockStorage.listFiles.mockResolvedValue(['cache']);
-
-
-            const result = await Link.execute(configWithCustomWorkspace);
-
-            // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
-            expect(mockStorage.writeFile).toHaveBeenCalledWith(
-                expect.stringContaining(customWorkspaceFilename),
-                expect.stringContaining("'@company/cache': link:../company-packages/cache"),
-                'utf-8'
-            );
-        });
+        // Removed test for custom workspace filename - npm workspaces use package.json directly
 
         it('should perform dry run mode from global config', async () => {
             // Arrange
@@ -699,8 +732,30 @@ describe('link command', () => {
                 name: '@company/providers',
                 dependencies: { '@company/cache': '^1.0.0' },
             };
+            const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
+
             mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue(JSON.stringify(packageJson));
+            mockStorage.isDirectory.mockResolvedValue(true);
+
+            mockStorage.readFile.mockImplementation((filePath: string) => {
+                if (filePath === path.join(process.cwd(), 'package.json')) {
+                    return Promise.resolve(JSON.stringify(packageJson));
+                }
+                if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
+                }
+                return Promise.resolve('{}');
+            });
+
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
 
             const result = await Link.execute(dryRunConfig);
 
@@ -722,8 +777,30 @@ describe('link command', () => {
                 name: '@company/providers',
                 dependencies: { '@company/cache': '^1.0.0' },
             };
+            const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
+
             mockStorage.exists.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue(JSON.stringify(packageJson));
+            mockStorage.isDirectory.mockResolvedValue(true);
+
+            mockStorage.readFile.mockImplementation((filePath: string) => {
+                if (filePath === path.join(process.cwd(), 'package.json')) {
+                    return Promise.resolve(JSON.stringify(packageJson));
+                }
+                if (filePath === path.join(companyPackagesPath, 'cache', 'package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: '@company/cache' }));
+                }
+                return Promise.resolve('{}');
+            });
+
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
 
 
             const result = await Link.execute(dryRunConfig);
@@ -751,13 +828,21 @@ describe('link command', () => {
                 }
                 return Promise.resolve('');
             });
-            mockStorage.listFiles.mockResolvedValue(['cache']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
 
             // Assert
-            expect(result).toContain('Successfully linked 1 sibling packages');
+            expect(result).toContain('Successfully linked 1 dependency reference(s) across 1 package.json file(s)');
         });
 
         it('should handle empty dependencies', async () => {
@@ -770,7 +855,23 @@ describe('link command', () => {
 
             mockStorage.exists.mockResolvedValue(true);
             mockStorage.isDirectory.mockResolvedValue(true);
-            mockStorage.readFile.mockResolvedValue(JSON.stringify(packageJson));
+
+            mockStorage.readFile.mockImplementation((filePath: string) => {
+                if (filePath === path.join(process.cwd(), 'package.json')) {
+                    return Promise.resolve(JSON.stringify(packageJson));
+                }
+                return Promise.resolve('{}');
+            });
+
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['cache']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             const result = await Link.execute(mockConfig);
@@ -789,17 +890,29 @@ describe('link command', () => {
                 }
             };
             const companyPackagesPath = path.resolve(process.cwd(), '../company-packages');
-            mockStorage.exists.mockImplementation((p: string) => !p.endsWith('pnpm-workspace.yaml'));
+            mockStorage.exists.mockResolvedValue(true);
             mockStorage.isDirectory.mockResolvedValue(true);
             mockStorage.readFile.mockImplementation((filePath: string) => {
-                if (filePath.includes('package.json')) {
-                    if (filePath.includes('zoo')) return Promise.resolve(JSON.stringify({ name: '@company/zoo' }));
-                    if (filePath.includes('apple')) return Promise.resolve(JSON.stringify({ name: '@company/apple' }));
+                if (filePath === path.join(process.cwd(), 'package.json')) {
                     return Promise.resolve(JSON.stringify(packageJson));
                 }
-                return Promise.resolve('');
+                if (filePath === path.join(companyPackagesPath, 'zoo', 'package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: '@company/zoo' }));
+                }
+                if (filePath === path.join(companyPackagesPath, 'apple', 'package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: '@company/apple' }));
+                }
+                return Promise.resolve('{}');
             });
-            mockStorage.listFiles.mockResolvedValue(['zoo', 'apple']);
+            mockStorage.listFiles.mockImplementation((dirPath: string) => {
+                if (dirPath === process.cwd()) {
+                    return Promise.resolve(['package.json']);
+                }
+                if (dirPath === companyPackagesPath) {
+                    return Promise.resolve(['zoo', 'apple']);
+                }
+                return Promise.resolve([]);
+            });
 
             // Act
             await Link.execute(mockConfig);
@@ -807,11 +920,8 @@ describe('link command', () => {
             // Assert
             const writeFileCall = mockStorage.writeFile.mock.calls[0];
             const content = writeFileCall[1];
-            const appleIndex = content.indexOf('@company/apple');
-            const zooIndex = content.indexOf('@company/zoo');
-            expect(appleIndex).not.toBe(-1);
-            expect(zooIndex).not.toBe(-1);
-            expect(appleIndex).toBeLessThan(zooIndex);
+            expect(content).toContain('"@company/apple": "file:../company-packages/apple"');
+            expect(content).toContain('"@company/zoo": "file:../company-packages/zoo"');
         });
     });
 });

@@ -12,6 +12,7 @@ import { Config } from '../types';
 import { run } from '../util/child';
 import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { createCompletion } from '../util/openai';
+import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
 
 export const execute = async (runConfig: Config) => {
@@ -97,6 +98,44 @@ export const execute = async (runConfig: Config) => {
         logger.debug('Saved timestamped commit message: %s', outputPath);
     } catch (error: any) {
         logger.warn('Failed to save timestamped commit message: %s', error.message);
+    }
+
+    // 🛡️ Universal Safety Check: Run before ANY commit operation
+    // This protects both direct commits (--sendit) and automated commits (publish, etc.)
+    const willCreateCommit = runConfig.commit?.sendit || cached;
+    if (willCreateCommit && !runConfig.commit?.skipFileCheck && !isDryRun) {
+        logger.debug('Checking for file: dependencies before commit operation...');
+
+        try {
+            const fileDependencyIssues = await checkForFileDependencies(storage, process.cwd());
+
+            if (fileDependencyIssues.length > 0) {
+                logger.error('🚫 COMMIT BLOCKED: Found file: dependencies that should not be committed!');
+                logger.error('');
+
+                logFileDependencyWarning(fileDependencyIssues, 'commit');
+                logFileDependencySuggestions(true);
+
+                logger.error('Generated commit message was:');
+                logger.error('%s', summary);
+                logger.error('');
+
+                if (runConfig.commit?.sendit) {
+                    logger.error('To bypass this check, use: kodrdriv commit --skip-file-check --sendit');
+                } else {
+                    logger.error('To bypass this check, add skipFileCheck: true to your commit configuration');
+                }
+
+                process.exit(1);
+            }
+
+            logger.debug('✅ No file: dependencies found, proceeding with commit');
+        } catch (error: any) {
+            logger.warn('Warning: Could not check for file: dependencies: %s', error.message);
+            logger.warn('Proceeding with commit...');
+        }
+    } else if (runConfig.commit?.skipFileCheck && willCreateCommit) {
+        logger.warn('⚠️  Skipping file: dependency check as requested');
     }
 
     if (runConfig.commit?.sendit) {

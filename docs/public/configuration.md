@@ -74,7 +74,6 @@ link:
     "@company": "../"
     "@myorg": "../../org-packages/"
     "@tools": "../shared-tools/"
-  workspaceFile: pnpm-workspace.yaml
 excludedPatterns:
   - node_modules
   - dist
@@ -213,7 +212,7 @@ Examples:
 kodrdriv commit --excluded-paths "*.lock" "dist/" "node_modules/"
 
 # Exclude patterns from release notes
-kodrdriv release --excluded-paths "package-lock.json" "pnpm-lock.yaml"
+kodrdriv release --excluded-paths "package-lock.json"
 ```
 
 You can also configure excluded patterns in your configuration file:
@@ -300,7 +299,6 @@ link:
   scopeRoots:
     "@company": "../"
     "@myorg": "../../org-packages/"
-  workspaceFile: pnpm-workspace.yaml
 ```
 
 ## Basic Options

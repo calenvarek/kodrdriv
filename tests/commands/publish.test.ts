@@ -649,7 +649,7 @@ cache=\${CACHE_DIR}/npm
             const mockPackageJson = {
                 version: '0.0.4',
                 scripts: {
-                    prepublishOnly: 'pnpm run clean && pnpm run lint && pnpm run build && pnpm run test'
+                    prepublishOnly: 'npm run clean && npm run lint && npm run build && npm run test'
                 }
             };
 
@@ -664,7 +664,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git log -1 --pretty=%B') {
                     return Promise.resolve({ stdout: 'feat: update dependencies' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -717,7 +717,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run prepublishOnly' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run prepublishOnly' } }));
                 }
                 if (filename === 'RELEASE_NOTES.md') {
                     return Promise.resolve(mockReleaseNotesBody);
@@ -745,9 +745,9 @@ cache=\${CACHE_DIR}/npm
             expect(GitHub.getCurrentBranchName).toHaveBeenCalled();
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled();
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', false);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json pnpm-lock.yaml', false);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm run prepublishOnly', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', false);
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
 
@@ -794,7 +794,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -809,7 +809,7 @@ cache=\${CACHE_DIR}/npm
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled(); // Should skip workspace file operations
-            expect(Child.run).not.toHaveBeenCalledWith('pnpm update --latest'); // Should skip dependency updates
+            expect(Child.run).not.toHaveBeenCalledWith('npm update'); // Should skip dependency updates
             expect(Commit.execute).not.toHaveBeenCalled(); // Should skip commit
             expect(GitHub.createPullRequest).not.toHaveBeenCalled(); // Should skip PR creation
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(456, {
@@ -857,7 +857,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git log -1 --pretty=%B') {
                     return Promise.resolve({ stdout: 'Version bump commit' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -875,7 +875,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -910,7 +910,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -923,7 +923,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git status --porcelain') {
                     return Promise.resolve({ stdout: '' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.reject(new Error('Build failed'));
                 }
                 return Promise.reject(new Error('Build failed'));
@@ -967,7 +967,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git log -1 --pretty=%B') {
                     return Promise.resolve({ stdout: 'Version bump' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -997,7 +997,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run clean && pnpm run lint && pnpm run build && pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run clean && pnpm run lint && pnpm run build && npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1015,7 +1015,7 @@ cache=\${CACHE_DIR}/npm
 
             // Mock runWithDryRunSupport to fail for prepublishOnly
             Child.runWithDryRunSupport.mockImplementation((command: string) => {
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.reject(new Error('Tests failed'));
                 }
                 return Promise.resolve({ stdout: '' });
@@ -1079,7 +1079,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve('Release Title');
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1128,7 +1128,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve('Release Title');
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1180,7 +1180,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve('Release Title');
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1225,7 +1225,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1256,7 +1256,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1268,7 +1268,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git status --porcelain') {
                     return Promise.resolve({ stdout: '' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -1320,7 +1320,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1366,7 +1366,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1422,7 +1422,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git log -1 --pretty=%B') {
                     return Promise.resolve({ stdout: 'Version bump' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -1445,7 +1445,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1458,7 +1458,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify patterns are used in pnpm update command
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest @company/* @myorg/*', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update @company/* @myorg/*', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
         });
 
@@ -1502,7 +1502,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git log -1 --pretty=%B') {
                     return Promise.resolve({ stdout: 'Version bump' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -1525,7 +1525,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1538,7 +1538,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify fallback to update all dependencies
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
         });
 
@@ -1581,7 +1581,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git log -1 --pretty=%B') {
                     return Promise.resolve({ stdout: 'Version bump' });
                 }
-                if (command === 'pnpm run prepublishOnly') {
+                if (command === 'npm run prepublishOnly') {
                     return Promise.resolve({ stdout: '' });
                 }
                 return Promise.resolve({ stdout: '' });
@@ -1604,7 +1604,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run test' } }));
+                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1617,7 +1617,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify fallback to update all dependencies when empty array
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
         });
     });
@@ -1665,9 +1665,9 @@ cache=\${CACHE_DIR}/npm
             // Verify no actual git commands were executed (non-dry-run commands)
             expect(Child.run).not.toHaveBeenCalledWith('git rev-parse --git-dir');
             // In dry run mode, runWithDryRunSupport should be called but with isDryRun=true
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm update --latest', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json pnpm-lock.yaml', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('pnpm run prepublishOnly', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', true);
 
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);

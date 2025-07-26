@@ -17,6 +17,7 @@ export const ConfigSchema = z.object({
         messageLimit: z.number().optional(),
         context: z.string().optional(),
         direction: z.string().optional(),
+        skipFileCheck: z.boolean().optional(),
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
@@ -76,7 +77,6 @@ export const ConfigSchema = z.object({
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
-        workspaceFile: z.string().optional(),
         dryRun: z.boolean().optional(),
     }).optional(),
     publishTree: z.object({

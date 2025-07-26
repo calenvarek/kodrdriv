@@ -359,7 +359,7 @@ describe('Argument Parsing and Configuration', () => {
                 commit: { cached: true },
                 release: { from: 'main' },
                 publish: { mergeMethod: 'squash' },
-                link: { workspaceFile: 'workspace.yaml' },
+                link: { scopeRoots: { '@test': '../' } },
             };
 
             // Mock cardigantime.read to return the file config
@@ -368,7 +368,6 @@ describe('Argument Parsing and Configuration', () => {
             // Mock link command options
             mockCommands.link.opts.mockReturnValue({
                 scopeRoots: '{"@test": "../test"}',
-                workspaceFile: 'custom.yaml'
             });
             mockProgram.args = ['link'];
 
@@ -376,7 +375,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(config.model).toBe('gpt-4-turbo');
             expect(config.contextDirectories).toEqual(['src', 'docs']); // From file config, validated as readable
-            expect(config.link?.workspaceFile).toBe('custom.yaml'); // CLI overrides file
+            expect(config.link?.scopeRoots).toEqual({'@test': '../test'}); // CLI overrides file
             expect(commandConfig.commandName).toBe('link');
         });
 
@@ -536,7 +535,6 @@ describe('Argument Parsing and Configuration', () => {
                 messageLimit: 20,
                 mergeMethod: 'squash' as const,
                 scopeRoots: '{"@test": "../"}',
-                workspaceFile: 'workspace.yaml',
             };
 
             const result = InputSchema.parse(validInput);
@@ -570,14 +568,6 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.scopeRoots).toBe('{"@test": "../test", "@lib": "../lib"}');
         });
 
-        it('should validate workspaceFile as string', () => {
-            const input = {
-                workspaceFile: 'custom-workspace.yaml',
-            };
-
-            const result = InputSchema.parse(input);
-            expect(result.workspaceFile).toBe('custom-workspace.yaml');
-        });
 
         it('should validate input with minimal fields', () => {
             const minimalInput = {};
@@ -709,14 +699,12 @@ describe('Argument Parsing and Configuration', () => {
             it('should handle link command options with valid JSON scopeRoots', () => {
                 const cliArgs: Input = {
                     scopeRoots: '{"@test": "../test", "@lib": "../lib"}',
-                    workspaceFile: 'custom-workspace.yaml',
                 };
 
                 const result = transformCliArgs(cliArgs);
 
                 expect(result.link).toEqual({
                     scopeRoots: { "@test": "../test", "@lib": "../lib" },
-                    workspaceFile: 'custom-workspace.yaml',
                 });
             });
 
@@ -728,17 +716,7 @@ describe('Argument Parsing and Configuration', () => {
                 expect(() => transformCliArgs(cliArgs)).toThrow('Invalid JSON for scope-roots: {"invalid": json}');
             });
 
-            it('should handle only workspaceFile without scopeRoots', () => {
-                const cliArgs: Input = {
-                    workspaceFile: 'pnpm-workspace.yaml',
-                };
 
-                const result = transformCliArgs(cliArgs);
-
-                expect(result.link).toEqual({
-                    workspaceFile: 'pnpm-workspace.yaml',
-                });
-            });
         });
 
         describe('validateCommand edge cases', () => {
@@ -896,7 +874,6 @@ describe('Argument Parsing and Configuration', () => {
             mockProgram.args = ['link'];
 
             // Mock the link command options
-            mockCommands.link.opts.mockReturnValue({ scopeRoots: '{"@test": "../"}', workspaceFile: 'workspace.yaml' });
 
             const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
 
@@ -1088,7 +1065,6 @@ describe('Argument Parsing and Configuration', () => {
             const options: Partial<Config> = {
                 link: {
                     scopeRoots: { "@test": "../test" },
-                    workspaceFile: 'custom.yaml',
                     dryRun: true,
                 },
             };
@@ -1096,7 +1072,6 @@ describe('Argument Parsing and Configuration', () => {
             const result = await validateAndProcessOptions(options);
 
             expect(result.link?.scopeRoots).toEqual({ "@test": "../test" });
-            expect(result.link?.workspaceFile).toBe('custom.yaml');
             expect(result.link?.dryRun).toBe(true);
         });
 
@@ -1220,7 +1195,6 @@ describe('Argument Parsing and Configuration', () => {
                 messageLimit: 50,
                 mergeMethod: 'rebase',
                 scopeRoots: '{"@core": "../core", "@utils": "../utils"}',
-                workspaceFile: 'custom-workspace.yaml',
             };
 
             const expectedConfig: Partial<Config> = {
@@ -1256,7 +1230,6 @@ describe('Argument Parsing and Configuration', () => {
                 },
                 link: {
                     scopeRoots: { "@core": "../core", "@utils": "../utils" },
-                    workspaceFile: 'custom-workspace.yaml',
                 },
                 excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
             };

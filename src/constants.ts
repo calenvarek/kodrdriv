@@ -47,7 +47,7 @@ export const DEFAULT_MESSAGE_LIMIT = 50;
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 
 export const DEFAULT_EXCLUDED_PATTERNS = [
-    'node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb',
+    'node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb',
     'composer.lock', 'Cargo.lock', 'Gemfile.lock',
     'dist', 'build', 'out', '.next', '.nuxt', 'coverage',
     '.vscode', '.idea', '.DS_Store', '.git', '.gitignore',
@@ -156,6 +156,7 @@ export const KODRDRIV_DEFAULTS = {
         cached: DEFAULT_CACHED,
         sendit: DEFAULT_SENDIT_MODE,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
+        skipFileCheck: false,
     },
     release: {
         from: DEFAULT_FROM_COMMIT_ALIAS,
@@ -200,7 +201,6 @@ export const KODRDRIV_DEFAULTS = {
     },
     link: {
         scopeRoots: {},
-        workspaceFile: 'pnpm-workspace.yaml',
         dryRun: false,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
