@@ -407,13 +407,12 @@ export const execute = async (runConfig: Config): Promise<void> => {
                         logger.verbose(`Tag ${tagName} not yet available on GitHub, retrying in 3 seconds... (${retries - 1} retries left)`);
                         await new Promise(resolve => setTimeout(resolve, 3000));
                         retries--;
+                    } else if (isTagNotFoundError) {
+                        // Tag not found error and we're out of retries
+                        throw new Error(`Tag ${tagName} was not found on GitHub after ${3 - retries + 1} attempts. This may indicate a problem with tag creation or GitHub synchronization.`);
                     } else {
-                        // Either not a tag-not-found error, or we're out of retries
-                        if (isTagNotFoundError) {
-                            throw new Error(`Tag ${tagName} was not found on GitHub after ${3 - retries + 1} attempts. This may indicate a problem with tag creation or GitHub synchronization.`);
-                        } else {
-                            throw error; // Re-throw the original error for other types of failures
-                        }
+                        // Not a tag-not-found error - re-throw the original error
+                        throw error;
                     }
                 }
             }
