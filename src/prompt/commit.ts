@@ -25,6 +25,10 @@ export type Config = {
 /**
  * Build a commit prompt using RiotPrompt Recipes.
  *
+ * This prompt is configured to generate multiline commit messages by default,
+ * with separate lines/bullet points for different groups of changes rather
+ * than squeezing everything into single lines.
+ *
  * @param runConfig   The runtime configuration provided by the CLI
  * @param content     Mandatory content inputs (e.g. diff)
  * @param ctx         Optional contextual inputs configured by the user
@@ -65,4 +69,4 @@ export const createPrompt = async (
         .content(...contentItems)
         .context(...contextItems)
         .cook();
-}; 
+};

@@ -31,6 +31,9 @@ export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const DEFAULT_MODEL_STRONG = 'gpt-4o';
 export const DEFAULT_OUTPUT_DIRECTORY = 'output/kodrdriv';
 
+// Buffer size for git commands that may produce large output (like git log)
+export const DEFAULT_GIT_COMMAND_MAX_BUFFER = 50 * 1024 * 1024; // 50MB
+
 export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 
 export const DEFAULT_CONFIG_DIR = '.kodrdriv';
@@ -47,7 +50,7 @@ export const DEFAULT_MESSAGE_LIMIT = 50;
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 
 export const DEFAULT_EXCLUDED_PATTERNS = [
-    'node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb',
+    'node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb',
     'composer.lock', 'Cargo.lock', 'Gemfile.lock',
     'dist', 'build', 'out', '.next', '.nuxt', 'coverage',
     '.vscode', '.idea', '.DS_Store', '.git', '.gitignore',
@@ -156,6 +159,7 @@ export const KODRDRIV_DEFAULTS = {
         cached: DEFAULT_CACHED,
         sendit: DEFAULT_SENDIT_MODE,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
+        skipFileCheck: false,
     },
     release: {
         from: DEFAULT_FROM_COMMIT_ALIAS,
@@ -200,8 +204,15 @@ export const KODRDRIV_DEFAULTS = {
     },
     link: {
         scopeRoots: {},
-        workspaceFile: 'pnpm-workspace.yaml',
         dryRun: false,
+    },
+    publishTree: {
+        directory: undefined,
+        excludedPatterns: undefined,
+        startFrom: undefined,
+        script: undefined,
+        cmd: undefined,
+        publish: false,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

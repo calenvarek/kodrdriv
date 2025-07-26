@@ -84,7 +84,7 @@ kodrdriv link --scope-roots '{"@company": "../"}' --dry-run --verbose
 
 Custom workspace file:
 ```bash
-kodrdriv link --scope-roots '{"@company": "../"}' --workspace-file "workspace.yaml"
+kodrdriv link --scope-roots '{"@company": "../"}'
 ```
 
 Real-world example: linking @company packages from company directory:
@@ -115,7 +115,7 @@ kodrdriv commit --excluded-paths "*.lock" "dist/" "node_modules/"
 
 Exclude patterns from release notes:
 ```bash
-kodrdriv release --excluded-paths "package-lock.json" "pnpm-lock.yaml"
+kodrdriv release --excluded-paths "package-lock.json"
 ```
 
 ### Verbose and Debug Mode
@@ -190,12 +190,12 @@ kodrdriv --check-config
 
 2. **Build all packages in dependency order**:
    ```bash
-   kodrdriv publish-tree --script "pnpm run build" --excluded-paths "**/test-*/**"
+   kodrdriv publish-tree --script "npm run build" --excluded-paths "**/test-*/**"
    ```
 
 3. **Test packages after build**:
    ```bash
-   kodrdriv publish-tree --script "pnpm run test"
+   kodrdriv publish-tree --script "npm run test"
    ```
 
 4. **Publish all packages with dependency awareness**:
@@ -213,18 +213,18 @@ kodrdriv --check-config
 **Multi-step workspace processing**:
 ```bash
 # 1. Clean all packages
-kodrdriv publish-tree --cmd "pnpm run clean" --directory ./workspace
+kodrdriv publish-tree --cmd "npm run clean" --directory ./workspace
 
 # 2. Install dependencies in correct order
-kodrdriv publish-tree --cmd "pnpm install --frozen-lockfile"
+kodrdriv publish-tree --cmd "npm ci"
 
 # 3. Build packages with exclusions
 kodrdriv publish-tree \
-  --script "pnpm run build" \
+  --script "npm run build" \
   --excluded-paths "**/examples/**,**/*-demo,**/node_modules/**"
 
 # 4. Run quality checks
-kodrdriv publish-tree --script "pnpm run lint && pnpm run test"
+kodrdriv publish-tree --script "npm run lint && npm run test"
 
 # 5. Publish packages
 kodrdriv publish-tree --publish --start-from core-lib
@@ -234,7 +234,7 @@ kodrdriv publish-tree --publish --start-from core-lib
 ```bash
 # Update only packages starting from a specific one
 kodrdriv publish-tree \
-  --cmd "pnpm update --latest" \
+  --cmd "npm update" \
   --start-from api-client \
   --excluded-paths "**/legacy-*/**"
 ```
@@ -340,7 +340,7 @@ kodrdriv commit --sendit --context "Fixing validation bug #123"
 
 ```bash
 # Update dependencies and commit
-pnpm update
+npm update
 kodrdriv commit --context "Routine dependency updates"
 ```
 
@@ -424,7 +424,7 @@ kodrdriv publish
 # Error: prepublishOnly script is required in package.json
 
 # Add script to package.json and retry
-# "prepublishOnly": "pnpm run lint && pnpm run build && pnpm run test"
+# "prepublishOnly": "npm run lint && npm run build && npm run test"
 ```
 
 ### Dry Run for Safety

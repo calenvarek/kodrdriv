@@ -22,6 +22,36 @@ export type Context = {
     directories?: string[];
 };
 
+export type ReleasePromptResult = {
+    prompt: Prompt;
+    maxTokens: number;
+    isLargeRelease: boolean;
+};
+
+/**
+ * Analyzes release content to determine if it's a large release
+ * and calculates appropriate token limits
+ */
+const analyzeReleaseSize = (logContent: string, diffContent: string): { isLarge: boolean; maxTokens: number } => {
+    const logLines = logContent.split('\n').length;
+    const diffLines = diffContent.split('\n').length;
+    const totalContentLength = logContent.length + diffContent.length;
+
+    // Consider it a large release if:
+    // - More than 20 commits (log lines typically ~3-5 per commit)
+    // - More than 500 diff lines
+    // - Total content length > 50KB
+    const isLarge = logLines > 60 || diffLines > 500 || totalContentLength > 50000;
+
+    if (isLarge) {
+        // For large releases, significantly increase token limit
+        return { isLarge: true, maxTokens: 25000 };
+    } else {
+        // Standard token limit for normal releases
+        return { isLarge: false, maxTokens: 10000 };
+    }
+};
+
 /**
  * Build a release prompt using RiotPrompt Recipes.
  */
@@ -29,8 +59,11 @@ export const createPrompt = async (
     { overrides: _overrides, overridePaths: _overridePaths }: Config,
     { releaseFocus, logContent, diffContent }: Content,
     { context, directories }: Context = {}
-): Promise<Prompt> => {
+): Promise<ReleasePromptResult> => {
     const basePath = __dirname;
+
+    // Analyze release size to determine token requirements
+    const { isLarge: isLargeRelease, maxTokens } = analyzeReleaseSize(logContent, diffContent);
 
     // Build content items for the prompt
     const contentItems: ContentItem[] = [];
@@ -46,6 +79,14 @@ export const createPrompt = async (
         contentItems.push({ content: releaseFocus, title: 'Release Focus' });
     }
 
+    // Add release size context to help guide the AI
+    if (isLargeRelease) {
+        contextItems.push({
+            content: `This appears to be a LARGE RELEASE with significant changes. Please provide comprehensive, detailed release notes that thoroughly document all major changes, improvements, and fixes. Don't summarize - dive deep into the details.`,
+            title: 'Release Size Context'
+        });
+    }
+
     if (context) {
         contextItems.push({ content: context, title: 'User Context' });
     }
@@ -53,10 +94,7 @@ export const createPrompt = async (
         contextItems.push({ directories, title: 'Directories' });
     }
 
-
-
-
-    return recipe(basePath)
+    const prompt = await recipe(basePath)
         .persona({ path: 'personas/releaser.md' })
         .instructions({ path: 'instructions/release.md' })
         .overridePaths(_overridePaths ?? [])
@@ -64,4 +102,10 @@ export const createPrompt = async (
         .content(...contentItems)
         .context(...contextItems)
         .cook();
-}; 
+
+    return {
+        prompt,
+        maxTokens,
+        isLargeRelease
+    };
+};

@@ -2,6 +2,8 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import Navigation from './components/Navigation'
 import DocumentPage from './components/DocumentPage'
 import StoryPage from './components/StoryPage'
+import CommandsPage from './components/CommandsPage'
+import CommandPage from './components/CommandPage'
 import './App.css'
 
 function App() {
@@ -10,6 +12,8 @@ function App() {
             <div className="app">
                 <Routes>
                     <Route path="/story" element={<StoryPage />} />
+                    <Route path="/commands" element={<CommandsPage />} />
+                    <Route path="/commands/:command" element={<CommandPage />} />
                     <Route path="/*" element={<LandingPage />} />
                 </Routes>
             </div>
@@ -91,8 +95,8 @@ function LandingPage() {
                         <a href="#features">Features</a>
                         <a href="#workflow">Workflow</a>
                         <a href="#installation">Install</a>
-                        <a href="./story" className="nav-link-story">Story</a>
-                        <a href="./installation" className="nav-link-docs">Docs</a>
+                        <a href="/kodrdriv/story" className="nav-link-story">Story</a>
+                        <a href="/kodrdriv/installation" className="nav-link-docs">Docs</a>
                         <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer" className="nav-link-github">GitHub</a>
                     </div>
                 </div>
@@ -105,17 +109,14 @@ function LandingPage() {
                     <div className="gradient-overlay"></div>
                 </div>
                 <div className="hero-content">
-                    <div className="hero-badge">
-                        <span>AI-Powered Git Automation</span>
-                    </div>
                     <h1 className="hero-title">
-                        Automate massively complex<br />
+                        Automate<br />
                         <span className="gradient-text">Git workflows</span>
                     </h1>
                     <p className="hero-description">
-                        KodrDriv is a scientific-grade tool that leverages advanced AI to automatically generate
+                        KodrDriv is a professional-grade tool that leverages advanced AI to automatically generate
                         intelligent commit messages, comprehensive release notes, and orchestrate complex Git workflows
-                        with the precision scientists demand.
+                        with enterprise-level precision.
                     </p>
                     <div className="hero-actions">
                         <button className="btn-primary" onClick={() => document.getElementById('installation')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -137,10 +138,16 @@ function LandingPage() {
                             </div>
                             <div className="terminal-content">
                                 <div className="terminal-line">
-                                    <span className="prompt">$</span> git add . && kodrdriv commit
+                                    <span className="prompt">$</span> git status
                                 </div>
                                 <div className="terminal-line output">
-                                    <span className="ai-indicator">🤖</span> Analyzing code changes...
+                                    Modified: src/auth/oauth.ts, src/auth/jwt.ts
+                                </div>
+                                <div className="terminal-line">
+                                    <span className="prompt">$</span> git add src/auth/ && kodrdriv commit --cached
+                                </div>
+                                <div className="terminal-line output">
+                                    <span className="ai-indicator">🤖</span> Analyzing staged changes...
                                 </div>
                                 <div className="terminal-line output">
                                     <span className="success">✓</span> Generated intelligent commit message
@@ -177,7 +184,7 @@ function LandingPage() {
 
                         <div className="feature-card">
                             <div className="feature-icon">🎯</div>
-                            <h3>Scientific Precision</h3>
+                            <h3>Professional Precision</h3>
                             <p>Built for teams that demand accuracy. Every generated message is contextual, meaningful, and professionally structured.</p>
                         </div>
 
@@ -206,7 +213,7 @@ function LandingPage() {
             <section id="workflow" className="workflow">
                 <div className="section-content">
                     <div className="section-header">
-                        <h2>How scientists automate Git</h2>
+                        <h2>How developers automate Git</h2>
                         <p>From chaos to clarity in three steps</p>
                     </div>
 
@@ -215,9 +222,35 @@ function LandingPage() {
                             <div className="step-number">01</div>
                             <div className="step-content">
                                 <h3>Code & Commit</h3>
-                                <p>Write code, stage changes, and let KodrDriv analyze your work to generate intelligent commit messages.</p>
-                                <div className="code-example">
-                                    <code>git add . && kodrdriv commit</code>
+                                <p>Code for hours, then check your status and choose your commit strategy. KodrDriv analyzes your changes and generates intelligent commits.</p>
+                                <div className="code-examples">
+                                    <div className="code-example-item">
+                                        <div className="code-label">Quick commit all changes:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">git status</code>
+                                            <span className="arrow">→</span>
+                                            <code className="command-box">git add -A</code>
+                                            <span className="arrow">→</span>
+                                            <code className="command-box">kodrdriv commit --cached --sendit</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/commit" className="command-link">📖 commit docs</a>
+                                        </div>
+                                    </div>
+                                    <div className="code-example-item">
+                                        <div className="code-label">Selective staging:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">git add specific/files</code>
+                                            <span className="arrow">→</span>
+                                            <code className="command-box">kodrdriv commit --cached</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/commit" className="command-link">📖 commit docs</a>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="config-note">
+                                    <small>💡 Git workflow automation | ⚙️ <a href="/kodrdriv/configuration">Configuration required</a> | 📖 <a href="/kodrdriv/commands">All commands</a></small>
                                 </div>
                             </div>
                         </div>
@@ -225,10 +258,39 @@ function LandingPage() {
                         <div className="workflow-step">
                             <div className="step-number">02</div>
                             <div className="step-content">
-                                <h3>Review & Release</h3>
-                                <p>Generate comprehensive release notes and manage complex workflows with advanced Git automation.</p>
-                                <div className="code-example">
-                                    <code>kodrdriv review && kodrdriv release</code>
+                                <h3>Release & Publish</h3>
+                                <p>Generate release notes, automate npm publishing, and manage multi-project dependencies. Designed for npm publishing workflows.</p>
+                                <div className="code-examples">
+                                    <div className="code-example-item">
+                                        <div className="code-label">Manual release notes:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">kodrdriv release 'focused on safety improvements'</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/release" className="command-link">📖 release docs</a>
+                                        </div>
+                                    </div>
+                                    <div className="code-example-item">
+                                        <div className="code-label">Automated branch publishing:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">kodrdriv publish</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/publish" className="command-link">📖 publish docs</a>
+                                        </div>
+                                    </div>
+                                    <div className="code-example-item">
+                                        <div className="code-label">Multi-project publishing:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">kodrdriv publish-tree</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/publish-tree" className="command-link">📖 publish-tree docs</a>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="config-note">
+                                    <small>📦 NPM publishing workflows | ⚙️ <a href="/kodrdriv/configuration">Configuration required</a> | 📖 <a href="/kodrdriv/commands">All commands</a></small>
                                 </div>
                             </div>
                         </div>
@@ -236,10 +298,44 @@ function LandingPage() {
                         <div className="workflow-step">
                             <div className="step-number">03</div>
                             <div className="step-content">
-                                <h3>Publish & Orchestrate</h3>
-                                <p>Automate publishing workflows, manage dependencies, and maintain project documentation effortlessly.</p>
-                                <div className="code-example">
-                                    <code>kodrdriv publish --tree</code>
+                                <h3>Review & Manage</h3>
+                                <p>Generate issues from feedback, process audio recordings, and manage project reviews. Ideal for collecting ideas and converting them into actionable tasks.</p>
+                                <div className="code-examples">
+                                    <div className="code-example-item">
+                                        <div className="code-label">Process recorded audio files:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">kodrdriv audio-review path/to/audio/files</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/audio-review" className="command-link">📖 audio-review docs</a>
+                                        </div>
+                                    </div>
+                                    <div className="code-example-item">
+                                        <div className="code-label">Text-based review with editor:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">kodrdriv review</code>
+                                            <span className="arrow">→</span>
+                                            <code className="command-box">[type feedback in editor]</code>
+                                        </div>
+                                        <div className="command-links">
+                                            <a href="/kodrdriv/commands/review" className="command-link">📖 review docs</a>
+                                        </div>
+                                    </div>
+                                    <div className="code-example-item">
+                                        <div className="code-label">Live audio recording:</div>
+                                        <div className="command-sequence">
+                                            <code className="command-box">kodrdriv select-audio</code>
+                                            <span className="arrow">→</span>
+                                            <code className="command-box">kodrdriv audio-review</code>
+                                        </div>
+                                        <div className="command-links">
+                                                                        <a href="/kodrdriv/commands/select-audio" className="command-link">📖 select-audio docs</a>
+                            <a href="/kodrdriv/commands/audio-review" className="command-link">📖 audio-review docs</a>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="config-note">
+                                    <small>🎙️ Audio & feedback processing | ⚙️ <a href="/kodrdriv/configuration">Configuration required</a> | 📖 <a href="/kodrdriv/commands">All commands</a></small>
                                 </div>
                             </div>
                         </div>
@@ -269,8 +365,8 @@ function LandingPage() {
                                 </div>
                             </div>
                             <div className="cta-buttons">
-                                <a href="./installation" className="btn-primary">Full Installation Guide</a>
-                                <a href="./commands" className="btn-secondary">View Commands</a>
+                                                        <a href="/kodrdriv/installation" className="btn-primary">Full Installation Guide</a>
+                        <a href="/kodrdriv/commands" className="btn-secondary">View Commands</a>
                             </div>
                         </div>
                         <div className="installation-demo">
@@ -323,16 +419,16 @@ function LandingPage() {
                         <div className="footer-links">
                             <div className="footer-section">
                                 <h4>Product</h4>
-                                <a href="./installation">Installation</a>
-                                <a href="./commands">Commands</a>
-                                <a href="./configuration">Configuration</a>
-                                <a href="./examples">Examples</a>
+                                <a href="/kodrdriv/installation">Installation</a>
+                                <a href="/kodrdriv/commands">Commands</a>
+                                <a href="/kodrdriv/configuration">Configuration</a>
+                                <a href="/kodrdriv/examples">Examples</a>
                             </div>
                             <div className="footer-section">
                                 <h4>Resources</h4>
                                 <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">GitHub</a>
                                 <a href="https://www.npmjs.com/package/@eldrforge/kodrdriv" target="_blank" rel="noopener noreferrer">NPM</a>
-                                <a href="./advanced-usage">Advanced Usage</a>
+                                <a href="/kodrdriv/customization">Customization</a>
                             </div>
                         </div>
                     </div>

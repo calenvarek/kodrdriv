@@ -5,6 +5,8 @@ import { getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { run } from '../util/child';
+import * as Publish from './publish';
+import { safeJsonParse, validatePackageJson } from '../util/validation';
 
 // Helper function to format subproject error output
 const formatSubprojectError = (packageName: string, error: any): string => {
@@ -129,7 +131,8 @@ const parsePackageJson = async (packageJsonPath: string): Promise<PackageInfo> =
 
     try {
         const content = await storage.readFile(packageJsonPath, 'utf-8');
-        const packageJson = JSON.parse(content);
+        const parsed = safeJsonParse(content, packageJsonPath);
+        const packageJson = validatePackageJson(parsed, packageJsonPath);
 
         if (!packageJson.name) {
             throw new Error(`Package at ${packageJsonPath} has no name field`);
@@ -339,7 +342,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 const conflicting = [script && '--script', cmd && '--cmd'].filter(Boolean).join(' and ');
                 logger.warn(`Multiple execution options provided (${conflicting} and --publish). Using --publish (ignoring others).`);
             }
-            commandToRun = 'pnpm dlx @eldrforge/kodrdriv publish';
+            // Will use direct function call instead of npx command
             actionName = 'publish';
         } else if (cmd) {
             if (script) {
@@ -352,8 +355,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
             actionName = 'script';
         }
 
-        if (commandToRun) {
-            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${actionName} "${commandToRun}" in ${buildOrder.length} packages...`);
+        if (commandToRun || shouldPublish) {
+            const executionDescription = shouldPublish ? 'publish command' : `"${commandToRun}"`;
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${actionName} ${executionDescription} in ${buildOrder.length} packages...`);
 
             let successCount = 0;
             let failedPackage: string | null = null;
@@ -368,14 +372,25 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
                 try {
                     if (isDryRun) {
-                        logger.info(`DRY RUN: Would execute: ${commandToRun}`);
+                        if (shouldPublish) {
+                            logger.info(`DRY RUN: Would execute publish command directly`);
+                        } else {
+                            logger.info(`DRY RUN: Would execute: ${commandToRun}`);
+                        }
                         logger.info(`DRY RUN: In directory: ${packageDir}`);
                     } else {
                         // Change to the package directory and run the command
                         const originalCwd = process.cwd();
                         try {
                             process.chdir(packageDir);
-                            await run(commandToRun!); // Non-null assertion since we're inside if (commandToRun)
+
+                            if (shouldPublish) {
+                                // Call publish command directly instead of shelling out to npx
+                                await Publish.execute(runConfig);
+                            } else {
+                                await run(commandToRun!); // Non-null assertion since we're inside if (commandToRun)
+                            }
+
                             successCount++;
                             logger.info(`✅ [${i + 1}/${buildOrder.length}] ${packageName} completed successfully`);
                         } finally {

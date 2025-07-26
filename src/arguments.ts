@@ -6,6 +6,7 @@ import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, KODRDRIV
 import { getLogger } from "./logging";
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
+import { safeJsonParse } from './util/validation';
 import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({
@@ -31,9 +32,10 @@ export const InputSchema = z.object({
     note: z.string().optional(), // For review command positional argument/STDIN
     direction: z.string().optional(),
     messageLimit: z.number().optional(),
+    skipFileCheck: z.boolean().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
-    workspaceFile: z.string().optional(),
+
     startFrom: z.string().optional(),
     script: z.string().optional(),
     cmd: z.string().optional(),
@@ -75,7 +77,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     if (finalCliArgs.preferencesDir !== undefined) transformedCliArgs.preferencesDirectory = finalCliArgs.preferencesDir;
 
     // Nested mappings for 'commit' options
-    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
+    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined || finalCliArgs.skipFileCheck !== undefined) {
         transformedCliArgs.commit = {};
         if (finalCliArgs.add !== undefined) transformedCliArgs.commit.add = finalCliArgs.add;
         if (finalCliArgs.cached !== undefined) transformedCliArgs.commit.cached = finalCliArgs.cached;
@@ -83,6 +85,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
         if (finalCliArgs.direction !== undefined) transformedCliArgs.commit.direction = finalCliArgs.direction;
+        if (finalCliArgs.skipFileCheck !== undefined) transformedCliArgs.commit.skipFileCheck = finalCliArgs.skipFileCheck;
     }
 
     // Nested mappings for 'audioCommit' options
@@ -108,17 +111,16 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     }
 
     // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
-    if (finalCliArgs.scopeRoots !== undefined || finalCliArgs.workspaceFile !== undefined) {
+    if (finalCliArgs.scopeRoots !== undefined) {
         transformedCliArgs.link = {};
         if (finalCliArgs.scopeRoots !== undefined) {
             try {
-                transformedCliArgs.link.scopeRoots = JSON.parse(finalCliArgs.scopeRoots);
+                transformedCliArgs.link.scopeRoots = safeJsonParse(finalCliArgs.scopeRoots, 'scopeRoots CLI argument');
 
             } catch (error) {
                 throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
             }
         }
-        if (finalCliArgs.workspaceFile !== undefined) transformedCliArgs.link.workspaceFile = finalCliArgs.workspaceFile;
     }
 
     // Nested mappings for 'audio-review' options
@@ -339,7 +341,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
-        .option('--message-limit <messageLimit>', 'limit the number of messages to generate');
+        .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
+        .option('--skip-file-check', 'skip check for file: dependencies before committing');
 
     // Add shared options to commit command
     addSharedOptions(commitCommand);
@@ -421,21 +424,20 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--script <script>', 'script command to execute in each package directory (e.g., "npm run build")')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "git add -A")')
         .option('--publish', 'execute kodrdriv publish command in each package directory')
+        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .description('Analyze package dependencies in workspace and determine publish order');
     addSharedOptions(publishTreeCommand);
 
     const linkCommand = program
         .command('link')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
-        .option('--workspace-file <workspaceFile>', 'path to workspace file', 'pnpm-workspace.yaml')
-        .description('Manage pnpm workspace links for local development');
+        .description('Create npm file: dependencies for local development');
     addSharedOptions(linkCommand);
 
     const unlinkCommand = program
         .command('unlink')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
-        .option('--workspace-file <workspaceFile>', 'path to workspace file', 'pnpm-workspace.yaml')
-        .description('Remove pnpm workspace links and rebuild dependencies');
+        .description('Restore original dependencies and rebuild node_modules');
     addSharedOptions(unlinkCommand);
 
     const audioReviewCommand = program
@@ -455,6 +457,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--context <context>', 'additional context for the audio review')
         .option('--file <file>', 'audio file path')
         .option('--directory <directory>', 'directory containing audio files to process')
+        .option('--max-recording-time <time>', 'maximum recording time in seconds', parseInt)
+        .option('--sendit', 'Create GitHub issues automatically without confirmation')
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
@@ -667,6 +671,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
             context: options.commit?.context,
             direction: options.commit?.direction,
+            skipFileCheck: options.commit?.skipFileCheck ?? KODRDRIV_DEFAULTS.commit.skipFileCheck,
         },
         audioCommit: {
             maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
@@ -720,16 +725,15 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         },
         link: {
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
-            workspaceFile: options.link?.workspaceFile ?? KODRDRIV_DEFAULTS.link.workspaceFile,
             dryRun: options.link?.dryRun ?? KODRDRIV_DEFAULTS.link.dryRun,
         },
         publishTree: {
-            directory: options.publishTree?.directory,
-            excludedPatterns: options.publishTree?.excludedPatterns,
-            startFrom: options.publishTree?.startFrom,
-            script: options.publishTree?.script,
-            cmd: options.publishTree?.cmd,
-            publish: options.publishTree?.publish,
+            directory: options.publishTree?.directory ?? KODRDRIV_DEFAULTS.publishTree.directory,
+            excludedPatterns: options.publishTree?.excludedPatterns ?? KODRDRIV_DEFAULTS.publishTree.excludedPatterns,
+            startFrom: options.publishTree?.startFrom ?? KODRDRIV_DEFAULTS.publishTree.startFrom,
+            script: options.publishTree?.script ?? KODRDRIV_DEFAULTS.publishTree.script,
+            cmd: options.publishTree?.cmd ?? KODRDRIV_DEFAULTS.publishTree.cmd,
+            publish: options.publishTree?.publish ?? KODRDRIV_DEFAULTS.publishTree.publish,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

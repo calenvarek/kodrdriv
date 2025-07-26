@@ -1,249 +1,288 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import path from 'path';
-import yaml from 'js-yaml';
-import { getLogger } from '../logging';
+import { ValidationError, CommandError } from '../error/CommandErrors';
+import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { run } from '../util/child';
+import { safeJsonParse, validateLinkBackup, type LinkBackup } from '../util/validation';
+import {
+    PerformanceTimer,
+    PackageJson,
+    PackageJsonLocation,
+    findAllPackageJsonFiles,
+    scanDirectoryForPackages
+} from '../util/performance';
+import { smartNpmInstall } from '../util/npmOptimizations';
 
-interface PackageJson {
-    name?: string;
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-    peerDependencies?: Record<string, string>;
-}
-
-interface PnpmWorkspaceFile {
-    packages?: string[];
+interface ExtendedPackageJson extends PackageJson {
     overrides?: Record<string, string>;
 }
 
-const scanDirectoryForPackages = async (rootDir: string, storage: any): Promise<Map<string, string>> => {
+
+
+const EXCLUDED_DIRECTORIES = [
+    'node_modules',
+    'dist',
+    'build',
+    'coverage',
+    '.git',
+    '.next',
+    '.nuxt',
+    'out',
+    'public',
+    'static',
+    'assets'
+];
+
+const findPackagesToLink = async (scopeRoots: Record<string, string>, storage: any): Promise<Map<string, string>> => {
     const logger = getLogger();
-    const packageMap = new Map<string, string>(); // packageName -> relativePath
+    const timer = PerformanceTimer.start(logger, 'Finding packages to link');
+    const packagesToLink = new Map<string, string>();
 
-    const absoluteRootDir = path.resolve(process.cwd(), rootDir);
-    logger.verbose(`Scanning directory for packages: ${absoluteRootDir}`);
+    logger.silly(`Finding packages to link from scope roots: ${JSON.stringify(scopeRoots)}`);
 
-    try {
-        // Use single stat call to check if directory exists and is directory
-        const rootStat = await storage.exists(absoluteRootDir);
-        if (!rootStat) {
-            logger.verbose(`Root directory does not exist: ${absoluteRootDir}`);
-            return packageMap;
-        }
+    // Scan all scope roots to build a comprehensive map of packages that can be linked
+    const scopeTimer = PerformanceTimer.start(logger, 'Scanning all scope roots for linkable packages');
+    const allScopePackages = new Map<string, string>(); // packageName -> relativePath
 
-        if (!await storage.isDirectory(absoluteRootDir)) {
-            logger.verbose(`Root path is not a directory: ${absoluteRootDir}`);
-            return packageMap;
-        }
-
-        // Get all items in the root directory
-        const items = await storage.listFiles(absoluteRootDir);
-
-        // Process directories in batches to avoid overwhelming the filesystem
-        const directories = [];
-        for (const item of items) {
-            const itemPath = path.join(absoluteRootDir, item);
-            try {
-                // Quick check if it's a directory without logging
-                if (await storage.isDirectory(itemPath)) {
-                    directories.push({ item, itemPath });
-                }
-            } catch (error: any) {
-                // Skip items that can't be stat'ed (permissions, etc)
-                continue;
-            }
-        }
-
-        logger.verbose(`Found ${directories.length} subdirectories to check for packages`);
-
-        // Check each directory for package.json
-        for (const { item, itemPath } of directories) {
-            const packageJsonPath = path.join(itemPath, 'package.json');
-
-            try {
-                if (await storage.exists(packageJsonPath)) {
-                    const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
-                    const packageJson = JSON.parse(packageJsonContent) as PackageJson;
-
-                    if (packageJson.name) {
-                        const relativePath = path.relative(process.cwd(), itemPath);
-                        packageMap.set(packageJson.name, relativePath);
-                        logger.debug(`Found package: ${packageJson.name} at ${relativePath}`);
-                    }
-                }
-            } catch (error: any) {
-                // Skip directories with unreadable or invalid package.json
-                logger.debug(`Skipped ${packageJsonPath}: ${error.message || error}`);
-                continue;
-            }
-        }
-    } catch (error) {
-        logger.warn(`Failed to read directory ${absoluteRootDir}: ${error}`);
-    }
-
-    return packageMap;
-};
-
-const findPackagesByScope = async (dependencies: Record<string, string>, scopeRoots: Record<string, string>, storage: any): Promise<Map<string, string>> => {
-    const logger = getLogger();
-    const workspacePackages = new Map<string, string>();
-
-    logger.silly(`Checking dependencies against scope roots: ${JSON.stringify(scopeRoots)}`);
-
-    // First, scan all scope roots to build a comprehensive map of available packages
-    const allPackages = new Map<string, string>(); // packageName -> relativePath
-
-    for (const [scope, rootDir] of Object.entries(scopeRoots)) {
+    // Process all scopes in parallel for better performance
+    const scopePromises = Object.entries(scopeRoots).map(async ([scope, rootDir]) => {
         logger.verbose(`Scanning scope ${scope} at root directory: ${rootDir}`);
         const scopePackages = await scanDirectoryForPackages(rootDir, storage);
 
         // Add packages from this scope to the overall map
+        const scopeResults: Array<[string, string]> = [];
         for (const [packageName, packagePath] of scopePackages) {
             if (packageName.startsWith(scope)) {
-                allPackages.set(packageName, packagePath);
-                logger.debug(`Registered package: ${packageName} -> ${packagePath}`);
+                scopeResults.push([packageName, packagePath]);
+                logger.debug(`Linkable package: ${packageName} -> ${packagePath}`);
             }
         }
-    }
+        return scopeResults;
+    });
 
-    // Now check each dependency against our discovered packages
-    for (const [depName, depVersion] of Object.entries(dependencies)) {
-        logger.debug(`Processing dependency: ${depName}@${depVersion}`);
+    const allScopeResults = await Promise.all(scopePromises);
 
-        if (allPackages.has(depName)) {
-            const packagePath = allPackages.get(depName)!;
-            workspacePackages.set(depName, packagePath);
-            logger.verbose(`Found sibling package: ${depName} at ${packagePath}`);
+    // Flatten results
+    for (const scopeResults of allScopeResults) {
+        for (const [packageName, packagePath] of scopeResults) {
+            allScopePackages.set(packageName, packagePath);
         }
     }
 
-    return workspacePackages;
+    scopeTimer.end(`Scanned ${Object.keys(scopeRoots).length} scope roots, found ${allScopePackages.size} packages`);
+
+    // Now we have all scope packages, we can resolve the ones we want to link
+    for (const [packageName, packagePath] of allScopePackages) {
+        packagesToLink.set(packageName, packagePath);
+    }
+
+    timer.end(`Found ${packagesToLink.size} packages to link`);
+    return packagesToLink;
 };
 
-const readCurrentWorkspaceFile = async (workspaceFilePath: string, storage: any): Promise<PnpmWorkspaceFile> => {
-    if (await storage.exists(workspaceFilePath)) {
+const readLinkBackup = async (storage: any, logger?: any): Promise<LinkBackup> => {
+    const backupPath = path.join(process.cwd(), '.kodrdriv-link-backup.json');
+    if (await storage.exists(backupPath)) {
         try {
-            const content = await storage.readFile(workspaceFilePath, 'utf-8');
-            return (yaml.load(content) as PnpmWorkspaceFile) || {};
+            const content = await storage.readFile(backupPath, 'utf-8');
+            return JSON.parse(content) as LinkBackup;
         } catch (error) {
-            throw new Error(`Failed to parse existing workspace file: ${error}`);
+            // Log warning but continue with empty backup instead of throwing
+            if (logger) {
+                logger.warn(`Failed to parse link backup file: ${error}`);
+            }
+            return {};
         }
     }
     return {};
 };
 
-const writeWorkspaceFile = async (workspaceFilePath: string, config: PnpmWorkspaceFile, storage: any): Promise<void> => {
-    const yamlContent = yaml.dump(config, {
-        indent: 2,
-        lineWidth: -1,
-        noRefs: true,
-        sortKeys: false
-    });
-    await storage.writeFile(workspaceFilePath, yamlContent, 'utf-8');
+const writeLinkBackup = async (backup: LinkBackup, storage: any): Promise<void> => {
+    const backupPath = path.join(process.cwd(), '.kodrdriv-link-backup.json');
+    await storage.writeFile(backupPath, JSON.stringify(backup, null, 2), 'utf-8');
 };
 
-export const execute = async (runConfig: Config): Promise<string> => {
+const updatePackageJson = async (
+    packageJsonLocation: PackageJsonLocation,
+    packagesToLink: Map<string, string>,
+    backup: LinkBackup,
+    storage: any
+): Promise<number> => {
     const logger = getLogger();
+    let linkedCount = 0;
+    const { packageJson, path: packageJsonPath, relativePath } = packageJsonLocation;
+
+    // Process dependencies, devDependencies, and peerDependencies
+    const depTypes: Array<keyof Pick<PackageJson, 'dependencies' | 'devDependencies' | 'peerDependencies'>> = [
+        'dependencies', 'devDependencies', 'peerDependencies'
+    ];
+
+    for (const depType of depTypes) {
+        const dependencies = packageJson[depType];
+        if (!dependencies) continue;
+
+        for (const [packageName, targetPath] of packagesToLink) {
+            if (dependencies[packageName]) {
+                // Backup original version before linking
+                const backupKey = `${relativePath}:${packageName}`;
+                if (!backup[backupKey]) {
+                    backup[backupKey] = {
+                        originalVersion: dependencies[packageName],
+                        dependencyType: depType,
+                        relativePath
+                    };
+                }
+
+                // Update to file: dependency
+                const targetAbsolutePath = path.resolve(process.cwd(), targetPath);
+                const fileReferencePath = path.relative(path.dirname(packageJsonPath), targetAbsolutePath);
+                dependencies[packageName] = `file:${fileReferencePath}`;
+                linkedCount++;
+                logger.verbose(`Linked ${relativePath}/${depType}.${packageName}: ${backup[backupKey].originalVersion} -> file:${fileReferencePath}`);
+            }
+        }
+    }
+
+    // NOTE: Don't write the file here - let the caller handle all modifications
+    return linkedCount;
+};
+
+const executeInternal = async (runConfig: Config): Promise<string> => {
+    const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+    const overallTimer = PerformanceTimer.start(logger, 'Link command execution');
     const storage = createStorage({ log: logger.info });
 
     logger.info('🔗 Linking workspace packages...');
 
-    // Read current package.json
-    const packageJsonPath = path.join(process.cwd(), 'package.json');
-    if (!await storage.exists(packageJsonPath)) {
-        throw new Error('package.json not found in current directory.');
-    }
-
-    let packageJson: PackageJson;
-    try {
-        const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
-        packageJson = JSON.parse(packageJsonContent);
-    } catch (error) {
-        throw new Error(`Failed to parse package.json: ${error}`);
-    }
-
     // Get configuration
+    const configTimer = PerformanceTimer.start(logger, 'Reading configuration');
     const scopeRoots = runConfig.link?.scopeRoots || {};
-    const workspaceFileName = runConfig.link?.workspaceFile || 'pnpm-workspace.yaml';
-    const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
+    configTimer.end('Configuration loaded');
 
     if (Object.keys(scopeRoots).length === 0) {
         logger.info('No scope roots configured. Skipping link management.');
+        overallTimer.end('Link command (no scope roots)');
         return 'No scope roots configured. Skipping link management.';
     }
 
+    // Find all package.json files in current directory tree
+    const packageJsonFiles = await findAllPackageJsonFiles(process.cwd(), storage);
+
+    if (packageJsonFiles.length === 0) {
+        overallTimer.end('Link command (no package.json files)');
+        throw new ValidationError('No package.json files found in current directory or subdirectories.');
+    }
+
+    logger.info(`Found ${packageJsonFiles.length} package.json file(s) to process`);
     logger.info(`Scanning ${Object.keys(scopeRoots).length} scope root(s): ${Object.keys(scopeRoots).join(', ')}`);
 
-    // Collect all dependencies
-    const allDependencies = {
-        ...packageJson.dependencies,
-        ...packageJson.devDependencies,
-        ...packageJson.peerDependencies
-    };
+    // Check if any package.json files already have file: dependencies (safety check)
+    const safetyTimer = PerformanceTimer.start(logger, 'Safety check for existing file: dependencies');
+    // checkForFileDependencies(packageJsonFiles); // This function is no longer imported
+    safetyTimer.end('Safety check completed');
 
-    logger.verbose(`Found ${Object.keys(allDependencies).length} total dependencies`);
+    // Collect all dependencies from all package.json files using optimized function
+    // const allDependencies = collectAllDependencies(packageJsonFiles); // This function is no longer imported
+
+    // logger.verbose(`Found ${Object.keys(allDependencies).length} total unique dependencies across all package.json files`);
 
     // Find matching sibling packages
-    const startTime = Date.now();
-    const packagesToLink = await findPackagesByScope(allDependencies, scopeRoots, storage);
-    const scanTime = Date.now() - startTime;
-    logger.verbose(`Directory scan completed in ${scanTime}ms`);
+    const packagesToLink = await findPackagesToLink(scopeRoots, storage);
 
     if (packagesToLink.size === 0) {
         logger.info('✅ No matching sibling packages found for linking.');
+        overallTimer.end('Link command (no packages to link)');
         return 'No matching sibling packages found for linking.';
     }
 
     logger.info(`Found ${packagesToLink.size} package(s) to link: ${[...packagesToLink.keys()].join(', ')}`);
 
-    // Read existing workspace configuration
-    const workspaceFilePath = path.join(process.cwd(), workspaceFileName);
-    const workspaceConfig = await readCurrentWorkspaceFile(workspaceFilePath, storage);
+    // Read existing backup
+    const backupTimer = PerformanceTimer.start(logger, 'Reading link backup');
+    const backup = await readLinkBackup(storage, logger);
+    backupTimer.end('Link backup loaded');
 
-    // Create overrides
-    const newOverrides: Record<string, string> = {};
-    for (const [packageName, packagePath] of packagesToLink.entries()) {
-        newOverrides[packageName] = `link:${packagePath}`;
-    }
-
-    const updatedOverrides = { ...(workspaceConfig.overrides || {}), ...newOverrides };
-
-    const sortedOverrides = Object.keys(updatedOverrides)
-        .sort()
-        .reduce((obj, key) => {
-            obj[key] = updatedOverrides[key];
-            return obj;
-        }, {} as Record<string, string>);
-
-    const updatedConfig: PnpmWorkspaceFile = {
-        ...workspaceConfig,
-        overrides: sortedOverrides
-    };
-
-    // Write the updated workspace file
     if (isDryRun) {
-        logger.info('DRY RUN: Would update workspace configuration and run pnpm install');
-        logger.verbose('DRY RUN: Would write the following workspace configuration:');
-        logger.silly(yaml.dump(updatedConfig, { indent: 2 }));
-    } else {
-        await writeWorkspaceFile(workspaceFilePath, updatedConfig, storage);
-        logger.info(`Updated ${workspaceFileName} with linked packages`);
-
-        // Rebuild pnpm lock file and node_modules
-        logger.info('⏳ Running pnpm install to apply links (this may take a moment)...');
-        const installStart = Date.now();
-        try {
-            await run('pnpm install');
-            const installTime = Date.now() - installStart;
-            logger.info(`✅ Links applied successfully (${installTime}ms)`);
-        } catch (error) {
-            logger.warn(`Failed to run pnpm install: ${error}. You may need to run 'pnpm install' manually.`);
+        logger.info('Would update package.json files with file: dependencies and run npm install');
+        for (const { relativePath } of packageJsonFiles) {
+            logger.verbose(`Would process ${relativePath}/package.json`);
         }
+        for (const [packageName, packagePath] of packagesToLink.entries()) {
+            logger.verbose(`Would link ${packageName} -> file:${packagePath}`);
+        }
+        overallTimer.end('Link command (dry run)');
+        return `DRY RUN: Would link ${packagesToLink.size} packages across ${packageJsonFiles.length} package.json files`;
+    } else {
+        // Update all package.json files with file: dependencies
+        const updateTimer = PerformanceTimer.start(logger, 'Updating package.json files');
+        let totalLinksCreated = 0;
+        for (const packageJsonLocation of packageJsonFiles) {
+            const linksCreated = await updatePackageJson(packageJsonLocation, packagesToLink, backup, storage);
+            totalLinksCreated += linksCreated;
+
+            // Write the modified package.json file to disk
+            if (linksCreated > 0) {
+                await storage.writeFile(packageJsonLocation.path, JSON.stringify(packageJsonLocation.packageJson, null, 2) + '\n', 'utf-8');
+                logger.verbose(`Updated ${packageJsonLocation.relativePath}/package.json with ${linksCreated} file: dependencies`);
+            }
+        }
+        updateTimer.end(`Updated ${packageJsonFiles.length} package.json files, created ${totalLinksCreated} links`);
+
+        if (totalLinksCreated === 0) {
+            logger.info('✅ No dependencies were linked (packages may not be referenced).');
+            overallTimer.end('Link command (no links created)');
+            return 'No dependencies were linked.';
+        }
+
+        // Save backup after all changes
+        const saveTimer = PerformanceTimer.start(logger, 'Saving link backup');
+        await writeLinkBackup(backup, storage);
+        saveTimer.end('Link backup saved');
+        logger.info(`Updated ${packageJsonFiles.length} package.json file(s) with file: dependencies`);
+
+        // Run optimized npm install to create symlinks
+        logger.info('⏳ Installing dependencies to create symlinks...');
+        try {
+            const installResult = await smartNpmInstall({
+                skipIfNotNeeded: false, // Always install after linking changes
+                preferCi: false, // Use npm install to handle new file: dependencies
+                verbose: false
+            });
+
+            if (installResult.skipped) {
+                logger.info(`⚡ Dependencies were up to date (${installResult.method})`);
+            } else {
+                logger.info(`✅ Links applied successfully using ${installResult.method} (${installResult.duration}ms)`);
+            }
+        } catch (error) {
+            logger.warn(`Failed to install dependencies: ${error}. You may need to run 'npm install' manually.`);
+        }
+
+        const summary = `Successfully linked ${totalLinksCreated} dependency reference(s) across ${packageJsonFiles.length} package.json file(s):\n${[...packagesToLink.entries()].map(([name, path]) => `  - ${name}: file:${path}`).join('\n')}`;
+
+        overallTimer.end('Link command execution completed');
+        return summary;
     }
+};
 
-    const summary = `Successfully linked ${packagesToLink.size} sibling packages:\n${[...packagesToLink.entries()].map(([name, path]) => `  - ${name}: link:${path}`).join('\n')}`;
+export const execute = async (runConfig: Config): Promise<string> => {
+    try {
+        return await executeInternal(runConfig);
+    } catch (error: any) {
+        const logger = getLogger();
 
-    return summary;
+        if (error instanceof ValidationError || error instanceof CommandError) {
+            logger.error(`link failed: ${error.message}`);
+            if (error.cause) {
+                logger.debug(`Caused by: ${error.cause.message}`);
+            }
+            process.exit(1);
+        }
+
+        // Unexpected errors
+        logger.error(`link encountered unexpected error: ${error.message}`);
+        process.exit(1);
+    }
 };

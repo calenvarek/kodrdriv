@@ -1,4 +1,4 @@
-.env 
+.env
 dist
 node_modules
 *.log
@@ -10,3 +10,12 @@ processed/
 RELEASE_NOTES.md
 RELEASE_TITLE.md
 tsconfig.tsbuildinfo
+
+# KodrDriv link backup files
+.kodrdriv-link-backup.json
+
+# Git hooks (environment-specific)
+.git/hooks/pre-commit
+
+# Fallback commit message files (should go to output/ directory)
+commit-message-*.txt

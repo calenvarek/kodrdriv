@@ -2,6 +2,7 @@
 import { ExitError } from '../error/ExitError';
 import { getLogger } from '../logging';
 import { run } from '../util/child';
+import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../constants';
 
 export interface Instance {
     get(): Promise<string>;
@@ -36,7 +37,7 @@ export const create = async (options: { from?: string, to?: string, limit?: numb
                 }
                 const gitLogCmd = `git log${range ? ' ' + range : ''}${extraArgs}`;
                 logger.debug('Git log command: %s', gitLogCmd);
-                const { stdout, stderr } = await run(gitLogCmd);
+                const { stdout, stderr } = await run(gitLogCmd, { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
                 if (stderr) {
                     logger.warn('Git log produced stderr: %s', stderr);
                 }
