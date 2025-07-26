@@ -84,6 +84,13 @@ vi.mock('../../src/content/log', () => ({
     })
 }));
 
+vi.mock('../../src/util/storage', () => ({
+    create: vi.fn().mockReturnValue({
+        writeFile: vi.fn().mockResolvedValue(undefined),
+        ensureDirectory: vi.fn().mockResolvedValue(undefined)
+    })
+}));
+
 // Create shared mock logger instance
 const mockLogger = {
     info: vi.fn(),
@@ -103,9 +110,10 @@ vi.mock('../../src/logging', () => ({
 vi.mock('../../src/util/general', () => ({
     // @ts-ignore
     stringifyJSON: vi.fn(),
-    getOutputPath: vi.fn(),
+    getOutputPath: vi.fn().mockImplementation((dir, file) => `${dir}/${file}`),
     getTimestampedRequestFilename: vi.fn(),
-    getTimestampedResponseFilename: vi.fn()
+    getTimestampedResponseFilename: vi.fn(),
+    getTimestampedCommitFilename: vi.fn().mockReturnValue('commit-message-test.md')
 }));
 
 vi.mock('shell-escape', () => ({
