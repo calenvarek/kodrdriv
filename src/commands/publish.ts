@@ -510,16 +510,12 @@ export const execute = async (runConfig: Config): Promise<void> => {
         // Always restore linked packages if enabled, regardless of success/failure
         // This ensures we don't leave the repository with file: dependencies
         const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
-        if (shouldLink) {
-            if (publishCompleted) {
-                logger.verbose('Restoring linked packages after successful publish...');
-            } else {
-                logger.verbose('Restoring linked packages after failed publish...');
-            }
+        if (shouldLink && publishCompleted) {
+            logger.verbose('Restoring linked packages after successful publish...');
             await Link.execute(runConfig);
         } else if (shouldLink && !publishCompleted) {
             logger.warn('Publish process failed - skipping link restoration to prevent file: dependencies from being committed');
-        } else {
+        } else if (!shouldLink) {
             logger.verbose('Skipping restore linked packages (disabled in config).');
         }
     }
