@@ -173,6 +173,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     // Track whether the publish process completed successfully
     let publishCompleted = false;
+    // Track whether we've unlinked packages (and thus need to restore them)
+    let packagesUnlinked = false;
 
     // Run prechecks before starting any work
     await runPrechecks(runConfig);
@@ -185,6 +187,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
         if (shouldUnlink) {
             logger.verbose('Unlinking workspace packages...');
             await Unlink.execute(runConfig);
+            packagesUnlinked = true;
         } else {
             logger.verbose('Skipping unlink workspace packages (disabled in config).');
         }
@@ -311,7 +314,29 @@ export const execute = async (runConfig: Config): Promise<void> => {
         if (isDryRun) {
             logger.info(`Would merge PR #${pr!.number} using ${mergeMethod} method`);
         } else {
-            await GitHub.mergePullRequest(pr!.number, mergeMethod);
+            try {
+                await GitHub.mergePullRequest(pr!.number, mergeMethod);
+            } catch (error: any) {
+                // Check if this is a merge conflict error
+                if (error.message && (
+                    error.message.includes('not mergeable') ||
+                    error.message.includes('Pull Request is not mergeable') ||
+                    error.message.includes('merge conflict')
+                )) {
+                    logger.error(`❌ Pull Request #${pr!.number} has merge conflicts that need to be resolved.`);
+                    logger.error('');
+                    logger.error('📋 To resolve this issue:');
+                    logger.error(`   1. Visit the Pull Request: ${pr!.html_url}`);
+                    logger.error('   2. Resolve the merge conflicts through GitHub\'s web interface or locally');
+                    logger.error('   3. Once conflicts are resolved, re-run the publish command');
+                    logger.error('');
+                    logger.error('💡 The command will automatically detect the existing PR and continue from where it left off.');
+                    throw new Error(`Merge conflicts detected in PR #${pr!.number}. Please resolve conflicts and re-run the command.`);
+                } else {
+                    // Re-throw other merge errors
+                    throw error;
+                }
+            }
         }
 
         logger.info('Checking out main branch...');
@@ -507,18 +532,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info('Preparation complete.');
         publishCompleted = true; // Mark as completed only if we reach this point
     } finally {
-        // Always restore linked packages if enabled, regardless of success/failure
-        // This ensures we don't leave the repository with file: dependencies
+        // Link packages if linking is enabled, regardless of whether we unlinked them
         const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
         if (shouldLink) {
-            if (publishCompleted) {
-                logger.verbose('Restoring linked packages after successful publish...');
-            } else {
-                logger.verbose('Restoring linked packages after failed publish to avoid leaving file: dependencies...');
-            }
+            logger.verbose('Ensuring linked packages are properly set up...');
             await Link.execute(runConfig);
         } else {
-            logger.verbose('Skipping restore linked packages (disabled in config).');
+            logger.verbose('Skipping link packages (disabled in config).');
         }
     }
 };
