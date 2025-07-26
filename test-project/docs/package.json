@@ -1,0 +1,8 @@
+{
+  "name": "documentation",
+  "version": "1.0.0",
+  "dependencies": {
+    "@myorg/components": "^3.0.1",
+    "react": "^18.0.0"
+  }
+}

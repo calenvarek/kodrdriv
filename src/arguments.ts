@@ -31,9 +31,10 @@ export const InputSchema = z.object({
     note: z.string().optional(), // For review command positional argument/STDIN
     direction: z.string().optional(),
     messageLimit: z.number().optional(),
+    skipFileCheck: z.boolean().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
-    workspaceFile: z.string().optional(),
+
     startFrom: z.string().optional(),
     script: z.string().optional(),
     cmd: z.string().optional(),
@@ -75,7 +76,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     if (finalCliArgs.preferencesDir !== undefined) transformedCliArgs.preferencesDirectory = finalCliArgs.preferencesDir;
 
     // Nested mappings for 'commit' options
-    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined) {
+    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined || finalCliArgs.skipFileCheck !== undefined) {
         transformedCliArgs.commit = {};
         if (finalCliArgs.add !== undefined) transformedCliArgs.commit.add = finalCliArgs.add;
         if (finalCliArgs.cached !== undefined) transformedCliArgs.commit.cached = finalCliArgs.cached;
@@ -83,6 +84,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
         if (finalCliArgs.direction !== undefined) transformedCliArgs.commit.direction = finalCliArgs.direction;
+        if (finalCliArgs.skipFileCheck !== undefined) transformedCliArgs.commit.skipFileCheck = finalCliArgs.skipFileCheck;
     }
 
     // Nested mappings for 'audioCommit' options
@@ -108,7 +110,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
     }
 
     // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
-    if (finalCliArgs.scopeRoots !== undefined || finalCliArgs.workspaceFile !== undefined) {
+    if (finalCliArgs.scopeRoots !== undefined) {
         transformedCliArgs.link = {};
         if (finalCliArgs.scopeRoots !== undefined) {
             try {
@@ -118,7 +120,6 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
                 throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
             }
         }
-        if (finalCliArgs.workspaceFile !== undefined) transformedCliArgs.link.workspaceFile = finalCliArgs.workspaceFile;
     }
 
     // Nested mappings for 'audio-review' options
@@ -339,7 +340,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
-        .option('--message-limit <messageLimit>', 'limit the number of messages to generate');
+        .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
+        .option('--skip-file-check', 'skip check for file: dependencies before committing');
 
     // Add shared options to commit command
     addSharedOptions(commitCommand);
@@ -427,15 +429,13 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
     const linkCommand = program
         .command('link')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
-        .option('--workspace-file <workspaceFile>', 'path to workspace file', 'pnpm-workspace.yaml')
-        .description('Manage pnpm workspace links for local development');
+        .description('Create npm file: dependencies for local development');
     addSharedOptions(linkCommand);
 
     const unlinkCommand = program
         .command('unlink')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
-        .option('--workspace-file <workspaceFile>', 'path to workspace file', 'pnpm-workspace.yaml')
-        .description('Remove pnpm workspace links and rebuild dependencies');
+        .description('Restore original dependencies and rebuild node_modules');
     addSharedOptions(unlinkCommand);
 
     const audioReviewCommand = program
@@ -667,6 +667,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
             context: options.commit?.context,
             direction: options.commit?.direction,
+            skipFileCheck: options.commit?.skipFileCheck ?? KODRDRIV_DEFAULTS.commit.skipFileCheck,
         },
         audioCommit: {
             maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
@@ -720,7 +721,6 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         },
         link: {
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
-            workspaceFile: options.link?.workspaceFile ?? KODRDRIV_DEFAULTS.link.workspaceFile,
             dryRun: options.link?.dryRun ?? KODRDRIV_DEFAULTS.link.dryRun,
         },
         publishTree: {

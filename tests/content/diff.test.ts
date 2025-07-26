@@ -265,7 +265,7 @@ describe('diff', () => {
             const result = Diff.getReviewExcludedPatterns(basePatterns);
 
             // Lock files
-            expect(result).toContain('pnpm-lock.yaml');
+            expect(result).not.toContain('pnpm-lock.yaml');
             expect(result).toContain('package-lock.json');
             expect(result).toContain('yarn.lock');
 

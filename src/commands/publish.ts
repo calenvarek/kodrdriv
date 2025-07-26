@@ -201,17 +201,17 @@ export const execute = async (runConfig: Config): Promise<void> => {
             if (updatePatterns && updatePatterns.length > 0) {
                 logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
                 const patternsArg = updatePatterns.join(' ');
-                await runWithDryRunSupport(`pnpm update --latest ${patternsArg}`, isDryRun);
+                await runWithDryRunSupport(`npm update ${patternsArg}`, isDryRun);
             } else {
                 logger.verbose(isDryRun ? 'DRY RUN: No dependency update patterns specified, would update all dependencies' : 'No dependency update patterns specified, updating all dependencies');
-                await runWithDryRunSupport('pnpm update --latest', isDryRun);
+                await runWithDryRunSupport('npm update', isDryRun);
             }
 
             logger.verbose(isDryRun ? 'DRY RUN: Would stage changes for release commit' : 'Staging changes for release commit');
-            await runWithDryRunSupport('git add package.json pnpm-lock.yaml', isDryRun);
+            await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
 
             logger.info(isDryRun ? 'DRY RUN: Would run prepublishOnly script...' : 'Running prepublishOnly script...');
-            await runWithDryRunSupport('pnpm run prepublishOnly', isDryRun);
+            await runWithDryRunSupport('npm run prepublishOnly', isDryRun);
 
             logger.verbose(isDryRun ? 'DRY RUN: Would check for staged changes...' : 'Checking for staged changes...');
             if (isDryRun) {

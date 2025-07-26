@@ -24,43 +24,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --strict-peer-dependencies
-        
+        run: npm ci
+
       - name: Build library
-        run: pnpm run build
-        
+        run: npm run build
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
-        
+
       - name: Build documentation site
         run: |
-          # Temporarily disable workspace for docs build
-          mv pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          
           # Change to docs directory and install dependencies
           cd docs
-          pnpm install --no-frozen-lockfile
-          
+          npm install
+
           # Copy README.md to public directory so it can be fetched
           cp ../README.md public/
-          
+
           # Build the Vite documentation site
-          pnpm run build
-          
-          # Restore workspace file
-          cd ..
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
-        
+          npm run build
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -76,4 +66,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4 
+        uses: actions/deploy-pages@v4

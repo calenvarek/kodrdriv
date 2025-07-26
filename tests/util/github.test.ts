@@ -18,8 +18,15 @@ vi.mock('../../src/logging', () => ({
     })),
 }));
 
+vi.mock('../../src/util/stdin', () => ({
+    promptConfirmation: vi.fn(),
+}));
+
 const mockRun = child.run as Mock;
 const MockOctokit = Octokit as unknown as Mock;
+
+// Import the mocked stdin module
+const { promptConfirmation } = vi.mocked(await import('../../src/util/stdin'));
 
 describe('GitHub Utilities', () => {
     const mockOctokit = {
@@ -37,6 +44,7 @@ describe('GitHub Utilities', () => {
         },
         repos: {
             createRelease: vi.fn(),
+            getReleaseByTag: vi.fn(),
             getContent: vi.fn(),
         },
         issues: {
@@ -45,6 +53,7 @@ describe('GitHub Utilities', () => {
         },
         actions: {
             listRepoWorkflows: vi.fn(),
+            listWorkflowRuns: vi.fn(),
         },
     };
 
@@ -617,6 +626,434 @@ describe('GitHub Utilities', () => {
             await expect(GitHub.createIssue('Test Issue', 'Test body')).rejects.toThrow('Failed to create issue');
         });
     });
-});
 
-// TODO: Add tests for getWorkflowsTriggeredByRelease function
+    describe('getReleaseByTagName', () => {
+        it('should return release data for a valid tag', async () => {
+            const mockRelease = {
+                data: {
+                    id: 123,
+                    tag_name: 'v1.0.0',
+                    name: 'Release v1.0.0',
+                    created_at: '2023-01-01T00:00:00Z',
+                    target_commitish: 'abc123',
+                },
+            };
+
+            mockOctokit.repos.getReleaseByTag.mockResolvedValue(mockRelease);
+            const result = await GitHub.getReleaseByTagName('v1.0.0');
+
+            expect(mockOctokit.repos.getReleaseByTag).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                tag: 'v1.0.0',
+            });
+            expect(result).toBe(mockRelease.data);
+        });
+
+        it('should throw an error when release is not found', async () => {
+            const error = new Error('Not Found') as Error & { status: number };
+            error.status = 404;
+            mockOctokit.repos.getReleaseByTag.mockRejectedValue(error);
+
+            await expect(GitHub.getReleaseByTagName('v1.0.0')).rejects.toThrow('Not Found');
+        });
+
+        it('should handle API errors', async () => {
+            mockOctokit.repos.getReleaseByTag.mockRejectedValue(new Error('API request failed'));
+            await expect(GitHub.getReleaseByTagName('v1.0.0')).rejects.toThrow('API request failed');
+        });
+    });
+
+    describe('getWorkflowRunsTriggeredByRelease', () => {
+        const mockWorkflows = [
+            { id: 1, name: 'Release Workflow', path: '.github/workflows/release.yml' },
+            { id: 2, name: 'Test Workflow', path: '.github/workflows/test.yml' },
+        ];
+
+        const mockReleaseData = {
+            created_at: '2023-01-01T00:00:00Z',
+            target_commitish: 'abc123',
+        };
+
+        beforeEach(() => {
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: mockWorkflows },
+            });
+            mockOctokit.repos.getReleaseByTag.mockResolvedValue({
+                data: mockReleaseData,
+            });
+        });
+
+        it('should return workflow runs triggered by release', async () => {
+            const mockWorkflowRuns = [
+                {
+                    id: 1,
+                    name: 'Release Workflow',
+                    event: 'release',
+                    status: 'completed',
+                    conclusion: 'success',
+                    head_sha: 'abc123',
+                    created_at: '2023-01-01T00:01:00Z',
+                    html_url: 'https://github.com/test/test/actions/runs/1',
+                },
+            ];
+
+            // Mock workflow runs for each workflow - only the first one has matching runs
+            mockOctokit.actions.listWorkflowRuns
+                .mockResolvedValueOnce({
+                    data: { workflow_runs: mockWorkflowRuns },
+                })
+                .mockResolvedValueOnce({
+                    data: { workflow_runs: [] }, // No runs for second workflow
+                });
+
+            const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
+
+            expect(result).toHaveLength(1);
+            expect(result[0]).toEqual(mockWorkflowRuns[0]);
+            expect(mockOctokit.actions.listWorkflowRuns).toHaveBeenCalledTimes(2);
+        });
+
+        it('should filter out non-release event runs', async () => {
+            const mockWorkflowRuns = [
+                {
+                    id: 1,
+                    name: 'Release Workflow',
+                    event: 'push',
+                    status: 'completed',
+                    conclusion: 'success',
+                    head_sha: 'abc123',
+                    created_at: '2023-01-01T00:01:00Z',
+                },
+                {
+                    id: 2,
+                    name: 'Release Workflow',
+                    event: 'release',
+                    status: 'completed',
+                    conclusion: 'success',
+                    head_sha: 'abc123',
+                    created_at: '2023-01-01T00:01:00Z',
+                },
+            ];
+
+            // First workflow returns both runs, second workflow returns empty
+            mockOctokit.actions.listWorkflowRuns
+                .mockResolvedValueOnce({
+                    data: { workflow_runs: mockWorkflowRuns },
+                })
+                .mockResolvedValueOnce({
+                    data: { workflow_runs: [] },
+                });
+
+            const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
+
+            expect(result).toHaveLength(1);
+            expect(result[0].event).toBe('release');
+        });
+
+        it('should filter runs by specific workflow names when provided', async () => {
+            const mockWorkflowRuns = [
+                {
+                    id: 1,
+                    name: 'Release Workflow',
+                    event: 'release',
+                    status: 'completed',
+                    conclusion: 'success',
+                    head_sha: 'abc123',
+                    created_at: '2023-01-01T00:01:00Z',
+                },
+            ];
+
+            // Only call for the first workflow since we're filtering by name
+            mockOctokit.actions.listWorkflowRuns.mockResolvedValue({
+                data: { workflow_runs: mockWorkflowRuns },
+            });
+
+            const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0', ['Release Workflow']);
+
+            expect(result).toHaveLength(1);
+            expect(result[0].name).toBe('Release Workflow');
+        });
+
+        it('should handle cases when release info is not available', async () => {
+            mockOctokit.repos.getReleaseByTag.mockRejectedValue(new Error('Release not found'));
+
+            const mockWorkflowRuns = [
+                {
+                    id: 1,
+                    name: 'Release Workflow',
+                    event: 'release',
+                    status: 'completed',
+                    conclusion: 'success',
+                    head_sha: 'abc123',
+                    head_branch: 'v1.0.0',
+                    created_at: '2023-01-01T00:01:00Z',
+                },
+            ];
+
+            // First workflow returns the run, second returns empty
+            mockOctokit.actions.listWorkflowRuns
+                .mockResolvedValueOnce({
+                    data: { workflow_runs: mockWorkflowRuns },
+                })
+                .mockResolvedValueOnce({
+                    data: { workflow_runs: [] },
+                });
+
+            const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
+
+            expect(result).toHaveLength(1);
+        });
+
+        it('should return empty array when no workflows are found', async () => {
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [] },
+            });
+
+            const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
+
+            expect(result).toEqual([]);
+        });
+
+        it('should handle workflow API errors gracefully', async () => {
+            mockOctokit.actions.listRepoWorkflows.mockRejectedValue(new Error('API error'));
+
+            const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
+
+            expect(result).toEqual([]);
+        });
+    });
+
+            // Note: waitForReleaseWorkflows tests are complex due to async timing behavior
+    // The function is tested indirectly through integration tests
+    describe('waitForReleaseWorkflows', () => {
+        it('should be defined and callable', () => {
+            expect(typeof GitHub.waitForReleaseWorkflows).toBe('function');
+        });
+    });
+
+    describe('getWorkflowsTriggeredByRelease', () => {
+        const mockWorkflows = [
+            {
+                id: 1,
+                name: 'Release Workflow',
+                path: '.github/workflows/release.yml'
+            },
+            {
+                id: 2,
+                name: 'Test Workflow',
+                path: '.github/workflows/test.yml'
+            },
+        ];
+
+        beforeEach(() => {
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: mockWorkflows },
+            });
+        });
+
+        it('should identify workflows triggered by release events', async () => {
+            const releaseWorkflowContent = `
+name: Release
+on:
+  release:
+    types: [published]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+`;
+
+            const testWorkflowContent = `
+name: Test
+on:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+`;
+
+            mockOctokit.repos.getContent
+                .mockResolvedValueOnce({
+                    data: {
+                        type: 'file',
+                        content: Buffer.from(releaseWorkflowContent).toString('base64'),
+                    },
+                })
+                .mockResolvedValueOnce({
+                    data: {
+                        type: 'file',
+                        content: Buffer.from(testWorkflowContent).toString('base64'),
+                    },
+                });
+
+            const result = await GitHub.getWorkflowsTriggeredByRelease();
+
+            expect(result).toEqual(['Release Workflow']);
+            expect(mockOctokit.repos.getContent).toHaveBeenCalledTimes(2);
+        });
+
+        it('should identify workflows with on: release syntax', async () => {
+            const workflowContent = `
+name: Simple Release
+on: release
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+`;
+
+            mockOctokit.repos.getContent.mockResolvedValue({
+                data: {
+                    type: 'file',
+                    content: Buffer.from(workflowContent).toString('base64'),
+                },
+            });
+
+            const result = await GitHub.getWorkflowsTriggeredByRelease();
+
+            expect(result).toEqual(['Release Workflow', 'Test Workflow']);
+        });
+
+        it('should identify workflows with tag push patterns', async () => {
+            const workflowContent = `
+name: Tag Release
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'release/*'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+`;
+
+            mockOctokit.repos.getContent.mockResolvedValue({
+                data: {
+                    type: 'file',
+                    content: Buffer.from(workflowContent).toString('base64'),
+                },
+            });
+
+            const result = await GitHub.getWorkflowsTriggeredByRelease();
+
+            expect(result).toEqual(['Release Workflow', 'Test Workflow']);
+        });
+
+        it('should handle workflow content parsing errors', async () => {
+            mockOctokit.repos.getContent.mockRejectedValue(new Error('Content not accessible'));
+
+            const result = await GitHub.getWorkflowsTriggeredByRelease();
+
+            expect(result).toEqual([]);
+        });
+
+        it('should handle API errors gracefully', async () => {
+            mockOctokit.actions.listRepoWorkflows.mockRejectedValue(new Error('API error'));
+
+            const result = await GitHub.getWorkflowsTriggeredByRelease();
+
+            expect(result).toEqual([]);
+        });
+
+        it('should handle non-file content responses', async () => {
+            mockOctokit.repos.getContent.mockResolvedValue({
+                data: {
+                    type: 'directory',
+                },
+            });
+
+            const result = await GitHub.getWorkflowsTriggeredByRelease();
+
+            expect(result).toEqual([]);
+        });
+    });
+
+    describe('waitForPullRequestChecks - Additional Edge Cases', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('should handle timeout with user confirmation when no workflows configured', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({ data: { workflows: [] } });
+            promptConfirmation.mockResolvedValue(true);
+
+            const promise = GitHub.waitForPullRequestChecks(123, { timeout: 5000 });
+
+            // Wait for several consecutive no-checks attempts
+            for (let i = 0; i < 7; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(promptConfirmation).toHaveBeenCalled();
+        });
+
+                        it('should handle user rejection when no workflows configured', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({ data: { workflows: [] } });
+            promptConfirmation.mockResolvedValue(false);
+
+            const promise = GitHub.waitForPullRequestChecks(123, { timeout: 300000 }); // Use default timeout
+
+            // Wait for exactly 6 consecutive no-checks attempts (6 attempts at 10s each = 60s)
+            for (let i = 0; i < 6; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).rejects.toThrow('No checks configured for PR #123. User chose not to proceed.');
+        });
+
+        it('should skip user confirmation in non-interactive mode when no workflows configured', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({ data: { workflows: [] } });
+
+            const promise = GitHub.waitForPullRequestChecks(123, {
+                timeout: 300000, // Use default timeout
+                skipUserConfirmation: true
+            });
+
+            // Wait for exactly 6 consecutive no-checks attempts (6 attempts at 10s each = 60s)
+            for (let i = 0; i < 6; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(promptConfirmation).not.toHaveBeenCalled();
+        });
+
+        it('should continue waiting when workflows exist but no checks yet', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
+            mockOctokit.checks.listForRef
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [{ status: 'completed', conclusion: 'success' }] } });
+
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'Test Workflow' }] }
+            });
+
+            const promise = GitHub.waitForPullRequestChecks(123);
+
+            // Wait for several consecutive no-checks attempts, then workflows check, then final success
+            for (let i = 0; i < 7; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+        });
+    });
+});
