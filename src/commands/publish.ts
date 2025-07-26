@@ -407,13 +407,12 @@ export const execute = async (runConfig: Config): Promise<void> => {
                         logger.verbose(`Tag ${tagName} not yet available on GitHub, retrying in 3 seconds... (${retries - 1} retries left)`);
                         await new Promise(resolve => setTimeout(resolve, 3000));
                         retries--;
+                    } else if (isTagNotFoundError) {
+                        // Tag not found error and we're out of retries
+                        throw new Error(`Tag ${tagName} was not found on GitHub after ${3 - retries + 1} attempts. This may indicate a problem with tag creation or GitHub synchronization.`);
                     } else {
-                        // Either not a tag-not-found error, or we're out of retries
-                        if (isTagNotFoundError) {
-                            throw new Error(`Tag ${tagName} was not found on GitHub after ${3 - retries + 1} attempts. This may indicate a problem with tag creation or GitHub synchronization.`);
-                        } else {
-                            throw error; // Re-throw the original error for other types of failures
-                        }
+                        // Not a tag-not-found error - re-throw the original error
+                        throw error;
                     }
                 }
             }
@@ -508,13 +507,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info('Preparation complete.');
         publishCompleted = true; // Mark as completed only if we reach this point
     } finally {
-        // Only restore linked packages if the publish process completed successfully
+        // Always restore linked packages if enabled, regardless of success/failure
+        // This ensures we don't leave the repository with file: dependencies
         const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
-        if (shouldLink && publishCompleted) {
-            logger.verbose('Restoring linked packages...');
+        if (shouldLink) {
+            if (publishCompleted) {
+                logger.verbose('Restoring linked packages after successful publish...');
+            } else {
+                logger.verbose('Restoring linked packages after failed publish to avoid leaving file: dependencies...');
+            }
             await Link.execute(runConfig);
-        } else if (shouldLink && !publishCompleted) {
-            logger.warn('Publish process failed - skipping link restoration to prevent file: dependencies from being committed');
         } else {
             logger.verbose('Skipping restore linked packages (disabled in config).');
         }
