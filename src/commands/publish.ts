@@ -171,6 +171,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
     const logger = getDryRunLogger(isDryRun);
     const storage = createStorage({ log: logger.info });
 
+    // Track whether the publish process completed successfully
+    let publishCompleted = false;
+
     // Run prechecks before starting any work
     await runPrechecks(runConfig);
 
@@ -503,12 +506,15 @@ export const execute = async (runConfig: Config): Promise<void> => {
         }
 
         logger.info('Preparation complete.');
+        publishCompleted = true; // Mark as completed only if we reach this point
     } finally {
-        // Restore linked packages (if enabled)
+        // Only restore linked packages if the publish process completed successfully
         const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
-        if (shouldLink) {
+        if (shouldLink && publishCompleted) {
             logger.verbose('Restoring linked packages...');
             await Link.execute(runConfig);
+        } else if (shouldLink && !publishCompleted) {
+            logger.warn('Publish process failed - skipping link restoration to prevent file: dependencies from being committed');
         } else {
             logger.verbose('Skipping restore linked packages (disabled in config).');
         }
