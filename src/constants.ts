@@ -31,6 +31,9 @@ export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const DEFAULT_MODEL_STRONG = 'gpt-4o';
 export const DEFAULT_OUTPUT_DIRECTORY = 'output/kodrdriv';
 
+// Buffer size for git commands that may produce large output (like git log)
+export const DEFAULT_GIT_COMMAND_MAX_BUFFER = 50 * 1024 * 1024; // 50MB
+
 export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 
 export const DEFAULT_CONFIG_DIR = '.kodrdriv';
