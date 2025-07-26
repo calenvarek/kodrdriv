@@ -532,24 +532,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info('Preparation complete.');
         publishCompleted = true; // Mark as completed only if we reach this point
     } finally {
-        // Restore linked packages intelligently based on what happened
+        // Link packages if linking is enabled, regardless of whether we unlinked them
         const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
-        if (shouldLink && packagesUnlinked) {
-            if (publishCompleted) {
-                logger.verbose('Restoring linked packages after successful publish...');
-                await Link.execute(runConfig);
-            } else {
-                // We unlinked packages but didn't complete successfully
-                // We need to check if this was a merge failure or an earlier failure
-                // If it was a merge failure, we don't want to introduce new local changes
-                logger.verbose('Publish failed after unlinking packages.');
-                logger.verbose('To avoid introducing local changes, packages will remain unlinked.');
-                logger.verbose('You can run "kodrdriv link" manually after resolving any issues.');
-            }
-        } else if (shouldLink && !packagesUnlinked) {
-            logger.verbose('No packages were unlinked, skipping restore.');
+        if (shouldLink) {
+            logger.verbose('Ensuring linked packages are properly set up...');
+            await Link.execute(runConfig);
         } else {
-            logger.verbose('Skipping restore linked packages (disabled in config).');
+            logger.verbose('Skipping link packages (disabled in config).');
         }
     }
 };

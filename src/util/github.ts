@@ -505,12 +505,14 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                         return false;
                     }
 
-                    // For push events, ensure it's a tag push by checking head_branch or refs
+                    // For push events, be more restrictive - only include if head_branch is null (indicating tag push)
                     if (run.event === 'push') {
-                        // Tag pushes will have head_branch as null and refs pointing to tags
-                        // We need to be more permissive here since we can't easily distinguish tag vs branch pushes
-                        // The other filters (time, commit SHA) will help narrow it down
-                        logger.debug(`Including push event workflow run ${run.id} for further filtering`);
+                        // Tag pushes typically have head_branch as null, branch pushes have the branch name
+                        if (run.head_branch !== null) {
+                            logger.debug(`Excluding push event workflow run ${run.id}: appears to be branch push (head_branch: ${run.head_branch})`);
+                            return false;
+                        }
+                        logger.debug(`Including push event workflow run ${run.id}: appears to be tag push (head_branch: null)`);
                     }
 
                     // Must have required data
@@ -546,9 +548,11 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                         return false;
                     }
 
-                    // For push events without release info, be more permissive and rely on time/commit filtering
+                    // For push events without release info, be conservative and exclude them
+                    // unless we have other indicators that this is a tag push
                     if (!releaseCreatedAt && run.event === 'push') {
-                        logger.debug(`Including push event workflow run ${run.id} due to lack of release info (relying on time/commit filtering)`);
+                        logger.debug(`Excluding push event workflow run ${run.id} due to lack of release info (cannot confirm this is a tag push)`);
+                        return false;
                     }
 
                     logger.debug(`Including workflow run ${run.id}: ${run.name} (${run.status}/${run.conclusion}) created ${run.created_at}`);
