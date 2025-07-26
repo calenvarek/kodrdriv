@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>KodrDriv</title>
+    <script>
+        // GitHub Pages SPA redirect
+        // This script takes the current pathname and redirects to the index page
+        // with the pathname as a query parameter that the main app can parse
+
+        const pathSegmentsToKeep = 1; // Change this if your site is in a subdirectory
+
+        const currentPath = window.location.pathname;
+        const basePath = currentPath.split('/').slice(0, pathSegmentsToKeep + 1).join('/');
+        const redirect = currentPath.slice(basePath.length);
+
+        if (redirect) {
+            // Redirect to index.html with the path as a query parameter
+            window.location.replace(basePath + '/?p=' + encodeURIComponent(redirect) +
+                (window.location.search ? '&' + window.location.search.slice(1) : '') +
+                window.location.hash
+            );
+        }
+    </script>
+</head>
+<body>
+    <!-- GitHub Pages redirect for single page apps -->
+</body>
+</html>
