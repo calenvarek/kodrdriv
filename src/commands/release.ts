@@ -44,14 +44,16 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         directories: runConfig.contextDirectories,
     };
 
-    const prompt = await ReleasePrompt.createPrompt(promptConfig, promptContent, promptContext);
+    const promptResult = await ReleasePrompt.createPrompt(promptConfig, promptContent, promptContext);
 
-    const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
+    const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, promptResult.prompt);
 
     // Always ensure output directory exists for request/response files
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
     const storage = createStorage({ log: logger.info });
     await storage.ensureDirectory(outputDirectory);
+
+    logger.debug('Release analysis: isLargeRelease=%s, maxTokens=%d', promptResult.isLargeRelease, promptResult.maxTokens);
 
     const summary = await createCompletion(request.messages as ChatCompletionMessageParam[], {
         model: runConfig.model,
@@ -59,6 +61,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         debug: runConfig.debug,
         debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release')),
         debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
+        maxTokens: promptResult.maxTokens,
     });
 
     // Validate and safely cast the response

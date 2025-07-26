@@ -54,10 +54,14 @@ describe('prompt/release.createPrompt', () => {
         const content = { logContent: 'log', diffContent: 'diff' };
         const ctx = { releaseFocus: 'focus', context: 'additional', directories: ['src'] };
 
-        const prompt = await ReleasePrompt.createPrompt(config, content, ctx);
+        const result = await ReleasePrompt.createPrompt(config, content, ctx);
 
-        // Ensure we got the value returned from the recipe chain
-        expect(prompt).toBe('mock-prompt');
+        // Ensure we got the expected structure
+        expect(result).toEqual({
+            prompt: 'mock-prompt',
+            maxTokens: 10000, // Small release should use default tokens
+            isLargeRelease: false
+        });
 
         // Verify the recipe function was called
         expect(recipe).toHaveBeenCalledTimes(1);
@@ -68,9 +72,33 @@ describe('prompt/release.createPrompt', () => {
         const config = {} as any;
         const content = { logContent: 'log', diffContent: 'diff' };
 
-        const prompt = await ReleasePrompt.createPrompt(config, content);
+        const result = await ReleasePrompt.createPrompt(config, content);
 
-        expect(prompt).toBe('mock-prompt');
+        expect(result).toEqual({
+            prompt: 'mock-prompt',
+            maxTokens: 10000, // Small release should use default tokens
+            isLargeRelease: false
+        });
+
+        // Verify the recipe function was called
+        expect(recipe).toHaveBeenCalledTimes(1);
+        expect(recipe).toHaveBeenCalledWith(expect.stringContaining('/prompt'));
+    });
+
+    it('detects large releases and sets appropriate token limits', async () => {
+        const config = {} as any;
+        // Create large content to trigger large release detection
+        const largeLogContent = 'log line\n'.repeat(100); // 100 lines
+        const largeDiffContent = 'diff line\n'.repeat(600); // 600 lines
+        const content = { logContent: largeLogContent, diffContent: largeDiffContent };
+
+        const result = await ReleasePrompt.createPrompt(config, content);
+
+        expect(result).toEqual({
+            prompt: 'mock-prompt',
+            maxTokens: 25000, // Large release should use increased tokens
+            isLargeRelease: true
+        });
 
         // Verify the recipe function was called
         expect(recipe).toHaveBeenCalledTimes(1);
