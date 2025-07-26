@@ -201,11 +201,36 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
         );
 
         if (failingChecks.length > 0) {
-            logger.error(`PR #${prNumber} has failing checks:`);
+            const { owner, repo } = await getRepoDetails();
+            const prUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
+
+            logger.error(`❌ PR #${prNumber} has ${failingChecks.length} failing check${failingChecks.length > 1 ? 's' : ''}:`);
+            logger.error('');
+
             for (const check of failingChecks) {
-                logger.error(`- ${check.name}: ${check.conclusion}`);
+                const statusIcon = check.conclusion === 'failure' ? '❌' :
+                    check.conclusion === 'timed_out' ? '⏰' : '🚫';
+                logger.error(`${statusIcon} ${check.name}: ${check.conclusion}`);
+
+                // Include direct link to check details if available
+                if (check.details_url && check.details_url !== check.html_url) {
+                    logger.error(`   Details: ${check.details_url}`);
+                } else if (check.html_url) {
+                    logger.error(`   Details: ${check.html_url}`);
+                }
             }
-            throw new Error(`PR #${prNumber} checks failed.`);
+
+            logger.error('');
+            logger.error('🔧 To fix this issue:');
+            logger.error('   1. Review the failing checks above for specific error details');
+            logger.error(`   2. View the full pull request: ${prUrl}`);
+            logger.error('   3. Fix the issues in your code');
+            logger.error('   4. Commit and push your fixes to the release branch');
+            logger.error('   5. Re-run the publish command to continue from where it left off');
+            logger.error('');
+            logger.error('💡 The publish command will automatically detect the existing PR and retry the checks.');
+
+            throw new Error(`PR #${prNumber} checks failed. See above for recovery steps.`);
         }
 
         const allChecksCompleted = checkRuns.every((cr) => cr.status === 'completed');
