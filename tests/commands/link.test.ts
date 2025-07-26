@@ -52,8 +52,21 @@ vi.mock('../../src/logging', () => ({
         debug: vi.fn(),
         verbose: vi.fn(),
         silly: vi.fn()
-    })
+    }),
+    getDryRunLogger: vi.fn().mockImplementation((isDryRun: boolean) => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    }))
 }));
+
+// Mock process.exit to prevent actual exit during tests
+const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
+    throw new Error('process.exit called');
+});
 
 describe('link command', () => {
     let mockStorage: any;
@@ -64,6 +77,7 @@ describe('link command', () => {
         vi.clearAllMocks();
         vi.clearAllTimers();
         vi.mocked(Child.run).mockClear();
+        mockExit.mockClear();
 
         mockStorage = {
             exists: vi.fn(),
@@ -115,7 +129,7 @@ describe('link command', () => {
             mockStorage.exists.mockResolvedValue(false);
 
             // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories.');
+            await expect(Link.execute(mockConfig)).rejects.toThrow('process.exit called');
         });
 
         it('should throw error when package.json is malformed', async () => {
@@ -136,7 +150,7 @@ describe('link command', () => {
             });
 
             // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories');
+            await expect(Link.execute(mockConfig)).rejects.toThrow('process.exit called');
         });
 
         it('should skip gracefully when no scope roots are configured', async () => {

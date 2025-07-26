@@ -28,6 +28,13 @@ vi.mock('path', async (importOriginal) => {
     };
 });
 
+// Helper to access private functions for testing by re-importing the module
+const importHelperFunctions = async () => {
+    // We'll access helper functions through the module for testing
+    const issuesModule = await import('../../src/content/issues');
+    return issuesModule;
+};
+
 describe('issues', () => {
     const mockLogger = {
         debug: vi.fn(),
@@ -478,6 +485,860 @@ describe('issues', () => {
                 const issueBody = createCall[1] as string;
 
                 expect(issueBody).not.toContain('## Suggestions');
+            });
+        });
+    });
+
+    describe('Serialization and Deserialization', () => {
+        it('should properly serialize an issue to structured text format', async () => {
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'This is a test description',
+                priority: 'high',
+                category: 'ui',
+                suggestions: ['Fix styling', 'Add animations']
+            };
+
+            // Test serialization by triggering it through interactive editing
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/123',
+                number: 123
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            // Mock file operations to capture serialized content
+            let serializedContent = '';
+            vi.mocked(fs.writeFile).mockImplementation(async (path, content) => {
+                serializedContent = content as string;
+            });
+
+            // Mock file read to return edited content
+            vi.mocked(fs.readFile).mockResolvedValue('Title: Edited Issue\n\nPriority: medium\n\nCategory: functionality\n\nDescription:\nEdited description\n\nSuggestions:\n- New suggestion');
+            vi.mocked(fs.unlink).mockResolvedValue(undefined);
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+
+            // Set TTY mode and mock user interaction
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+            const mockUserInput = ['e', 'c']; // Edit, then create
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    // Simulate user pressing keys in sequence
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            // Verify serialization format
+            expect(serializedContent).toContain('# Issue Editor');
+            expect(serializedContent).toContain('Title: Test Issue');
+            expect(serializedContent).toContain('Priority: high');
+            expect(serializedContent).toContain('Category: ui');
+            expect(serializedContent).toContain('Description:\nThis is a test description');
+            expect(serializedContent).toContain('Suggestions:\n- Fix styling\n- Add animations');
+        });
+
+        it('should properly serialize an issue without suggestions', async () => {
+            const issue: Issue = {
+                title: 'Simple Issue',
+                description: 'Simple description',
+                priority: 'low',
+                category: 'content'
+            };
+
+            let serializedContent = '';
+            vi.mocked(fs.writeFile).mockImplementation(async (path, content) => {
+                serializedContent = content as string;
+            });
+
+            vi.mocked(fs.readFile).mockResolvedValue('Title: Simple Issue\n\nPriority: low\n\nCategory: content\n\nDescription:\nSimple description\n\nSuggestions:\n# Add suggestions here');
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+            const mockUserInput = ['e', 's']; // Edit, then skip
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            expect(serializedContent).toContain('Suggestions:\n# Add suggestions here, one per line with "-" or "•"');
+        });
+
+        it('should properly deserialize structured text back to issue', async () => {
+            const editedContent = `# Issue Editor
+
+Title: Parsed Issue
+
+Priority: high
+
+Category: accessibility
+
+Description:
+Multi-line description
+with formatting
+
+Suggestions:
+- First suggestion
+• Second suggestion with bullet
+- Third suggestion`;
+
+            vi.mocked(fs.readFile).mockResolvedValue(editedContent);
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/125',
+                number: 125
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+            const mockUserInput = ['e', 'c']; // Edit, then create
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const originalIssue: Issue = {
+                title: 'Original',
+                description: 'Original description',
+                priority: 'medium',
+                category: 'ui'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [originalIssue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            // Verify the deserialized issue was used to create GitHub issue
+            expect(github.createIssue).toHaveBeenCalledWith(
+                'Parsed Issue',
+                expect.stringContaining('Multi-line description\nwith formatting'),
+                ['priority-high', 'category-accessibility', 'review']
+            );
+        });
+
+        it('should handle invalid priority and category values during deserialization', async () => {
+            const editedContent = `Title: Test Issue
+
+Priority: invalid_priority
+
+Category: invalid_category
+
+Description:
+Test description
+
+Suggestions:
+- Test suggestion`;
+
+            vi.mocked(fs.readFile).mockResolvedValue(editedContent);
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/126',
+                number: 126
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+            const mockUserInput = ['e', 'c'];
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const originalIssue: Issue = {
+                title: 'Original',
+                description: 'Original description',
+                priority: 'medium',
+                category: 'ui'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [originalIssue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            // Should default to medium priority and other category
+            expect(github.createIssue).toHaveBeenCalledWith(
+                'Test Issue',
+                expect.anything(),
+                ['priority-medium', 'category-other', 'review']
+            );
+        });
+
+        it('should handle empty title and description during deserialization', async () => {
+            const editedContent = `Title:
+
+Priority: high
+
+Category: ui
+
+Description:
+
+Suggestions:`;
+
+            vi.mocked(fs.readFile).mockResolvedValue(editedContent);
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/127',
+                number: 127
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+            const mockUserInput = ['e', 'c'];
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const originalIssue: Issue = {
+                title: 'Original',
+                description: 'Original description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [originalIssue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            // Should use default values
+            expect(github.createIssue).toHaveBeenCalledWith(
+                'Untitled Issue',
+                expect.stringContaining('No description provided'),
+                ['priority-high', 'category-ui', 'review']
+            );
+        });
+    });
+
+    describe('Interactive User Input', () => {
+        it('should handle user choice selection with valid key', async () => {
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['c']; // Create
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/128',
+                number: 128
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            const result = await handleIssueCreation(reviewResult, false);
+
+            expect(result).toContain('🚀 GitHub Issues Created: 1');
+            expect(mockLogger.info).toHaveBeenCalledWith('Selected: Create GitHub issue\n');
+        });
+
+        it('should handle user choice selection with skip', async () => {
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['s']; // Skip
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            const result = await handleIssueCreation(reviewResult, false);
+
+            expect(result).toContain('🚀 Next Steps: Review the identified issues');
+            expect(github.createIssue).not.toHaveBeenCalled();
+            expect(mockLogger.info).toHaveBeenCalledWith('Selected: Skip this issue\n');
+        });
+
+        it('should handle invalid user input and wait for valid choice', async () => {
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['x', 'y', 'c']; // Invalid, invalid, then create
+            let inputIndex = 0;
+            let callbackFunction: ((data: Buffer) => void) | null = null;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    callbackFunction = callback;
+                    // Trigger the input sequence immediately
+                    const triggerInput = () => {
+                        if (inputIndex < mockUserInput.length && callbackFunction) {
+                            callbackFunction(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                            if (inputIndex < mockUserInput.length) {
+                                setTimeout(triggerInput, 10);
+                            }
+                        }
+                    };
+                    setTimeout(triggerInput, 10);
+                }
+                return process.stdin;
+            });
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/129',
+                number: 129
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            const result = await handleIssueCreation(reviewResult, false);
+
+            expect(result).toContain('🚀 GitHub Issues Created: 1');
+            expect(mockLogger.info).toHaveBeenCalledWith('Selected: Create GitHub issue\n');
+        }, 10000); // Increase timeout to 10 seconds
+
+        it('should handle stdin ref/unref methods when available', async () => {
+            const mockRef = vi.fn();
+            const mockUnref = vi.fn();
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+            Object.defineProperty(process.stdin, 'ref', { value: mockRef, writable: true });
+            Object.defineProperty(process.stdin, 'unref', { value: mockUnref, writable: true });
+
+            const mockUserInput = ['c'];
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/130',
+                number: 130
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            expect(mockRef).toHaveBeenCalled();
+            expect(mockUnref).toHaveBeenCalled();
+        });
+    });
+
+    describe('Editor Integration', () => {
+        it('should handle editor launch failure', async () => {
+            const error = new Error('Editor not found');
+            vi.mocked(spawnSync).mockReturnValue({ error } as any);
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['e']; // Edit - should trigger editor
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            // Should throw an error when editor fails to launch
+            await expect(handleIssueCreation(reviewResult, false)).rejects.toThrow('Failed to launch editor \'vi\': Editor not found');
+        });
+
+        it('should use EDITOR environment variable', async () => {
+            process.env.EDITOR = 'nano';
+
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+            vi.mocked(fs.readFile).mockResolvedValue('Title: Edited\n\nPriority: high\n\nCategory: ui\n\nDescription:\nEdited content');
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['e', 's']; // Edit, then skip
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            expect(spawnSync).toHaveBeenCalledWith('nano', expect.any(Array), expect.any(Object));
+            expect(mockLogger.info).toHaveBeenCalledWith('📝 Opening nano to edit issue...');
+        });
+
+        it('should use VISUAL environment variable when EDITOR is not set', async () => {
+            delete process.env.EDITOR;
+            process.env.VISUAL = 'emacs';
+
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+            vi.mocked(fs.readFile).mockResolvedValue('Title: Edited\n\nPriority: high\n\nCategory: ui\n\nDescription:\nEdited content');
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['e', 's'];
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            expect(spawnSync).toHaveBeenCalledWith('emacs', expect.any(Array), expect.any(Object));
+            expect(mockLogger.info).toHaveBeenCalledWith('📝 Opening emacs to edit issue...');
+        });
+
+        it('should handle file cleanup errors gracefully', async () => {
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+            vi.mocked(fs.readFile).mockResolvedValue('Title: Edited\n\nPriority: high\n\nCategory: ui\n\nDescription:\nEdited content');
+            vi.mocked(fs.unlink).mockRejectedValue(new Error('Permission denied'));
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['e', 's'];
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            // Should not throw despite file cleanup error
+            await expect(handleIssueCreation(reviewResult, false)).resolves.toBeDefined();
+            expect(mockLogger.info).toHaveBeenCalledWith('✅ Issue updated successfully');
+        });
+
+        it('should generate unique temporary file names', async () => {
+            vi.mocked(spawnSync).mockReturnValue({ error: null } as any);
+            vi.mocked(fs.readFile).mockResolvedValue('Title: Edited\n\nPriority: high\n\nCategory: ui\n\nDescription:\nEdited content');
+
+            const originalDateNow = Date.now;
+            Date.now = vi.fn().mockReturnValue(1234567890);
+
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['e', 's'];
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality'
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            await handleIssueCreation(reviewResult, false);
+
+            // Verify the unique timestamp was used in the file path
+            expect(Date.now).toHaveBeenCalled();
+            expect(fs.writeFile).toHaveBeenCalledWith(
+                expect.stringContaining('kodrdriv_issue_1234567890.txt'),
+                expect.any(String),
+                'utf8'
+            );
+
+            Date.now = originalDateNow;
+        });
+    });
+
+    describe('Format Functions', () => {
+        it('should format issue body with all sections', () => {
+            const issue: Issue = {
+                title: 'Comprehensive Issue',
+                description: 'Detailed description\nwith multiple lines',
+                priority: 'high',
+                category: 'accessibility',
+                suggestions: ['First suggestion', 'Second suggestion']
+            };
+
+            // Test through sendit mode to verify formatIssueBody
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/131',
+                number: 131
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            return handleIssueCreation(reviewResult, true).then(() => {
+                const createCall = vi.mocked(github.createIssue).mock.calls[0];
+                const issueBody = createCall[1] as string;
+
+                expect(issueBody).toContain('## Description\n\nDetailed description\nwith multiple lines\n\n');
+                expect(issueBody).toContain('## Details\n\n');
+                expect(issueBody).toContain('- **Priority:** high\n');
+                expect(issueBody).toContain('- **Category:** accessibility\n');
+                expect(issueBody).toContain('- **Source:** Review\n\n');
+                expect(issueBody).toContain('## Suggestions\n\n');
+                expect(issueBody).toContain('- First suggestion\n');
+                expect(issueBody).toContain('- Second suggestion\n');
+                expect(issueBody).toContain('---\n\n');
+                expect(issueBody).toContain('*This issue was automatically created from a review session.*');
+            });
+        });
+
+        it('should format issue body without suggestions section', () => {
+            const issue: Issue = {
+                title: 'Simple Issue',
+                description: 'Simple description',
+                priority: 'low',
+                category: 'performance'
+            };
+
+            const mockCreatedIssue = {
+                html_url: 'https://github.com/user/repo/issues/132',
+                number: 132
+            };
+            vi.mocked(github.createIssue).mockResolvedValue(mockCreatedIssue);
+
+            const reviewResult: ReviewResult = {
+                summary: 'Test',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            return handleIssueCreation(reviewResult, true).then(() => {
+                const createCall = vi.mocked(github.createIssue).mock.calls[0];
+                const issueBody = createCall[1] as string;
+
+                expect(issueBody).not.toContain('## Suggestions');
+                expect(issueBody).toContain('## Description\n\nSimple description\n\n');
+                expect(issueBody).toContain('- **Priority:** low\n');
+                expect(issueBody).toContain('- **Category:** performance\n');
+            });
+        });
+
+        it('should format results with created GitHub issues correctly', () => {
+            const issues: Issue[] = [
+                {
+                    title: 'First Issue',
+                    description: 'First description',
+                    priority: 'high',
+                    category: 'ui',
+                    suggestions: ['UI fix']
+                },
+                {
+                    title: 'Second Issue',
+                    description: 'Second description',
+                    priority: 'low',
+                    category: 'content'
+                }
+            ];
+
+            const mockCreatedIssues = [
+                { html_url: 'https://github.com/user/repo/issues/133', number: 133 },
+                { html_url: 'https://github.com/user/repo/issues/134', number: 134 }
+            ];
+
+            vi.mocked(github.createIssue)
+                .mockResolvedValueOnce(mockCreatedIssues[0])
+                .mockResolvedValueOnce(mockCreatedIssues[1]);
+
+            const reviewResult: ReviewResult = {
+                summary: 'Multiple issues found',
+                totalIssues: 2,
+                issues
+            };
+
+            return handleIssueCreation(reviewResult, true).then((result) => {
+                expect(result).toContain('📝 Review Results');
+                expect(result).toContain('📋 Summary: Multiple issues found');
+                expect(result).toContain('📊 Total Issues Found: 2');
+                expect(result).toContain('🚀 GitHub Issues Created: 2');
+                expect(result).toContain('🎯 Created GitHub Issues:');
+                expect(result).toContain('• #133: First Issue - https://github.com/user/repo/issues/133');
+                expect(result).toContain('• #134: Second Issue - https://github.com/user/repo/issues/134');
+                expect(result).toContain('🔗 GitHub Issue: #133 - https://github.com/user/repo/issues/133');
+                expect(result).toContain('🔗 GitHub Issue: #134 - https://github.com/user/repo/issues/134');
+                expect(result).toContain('🚀 Next Steps: Review the created GitHub issues and prioritize them in your development workflow.');
+            });
+        });
+
+        it('should format results without created issues correctly', () => {
+            const issue: Issue = {
+                title: 'Test Issue',
+                description: 'Test description',
+                priority: 'medium',
+                category: 'functionality',
+                suggestions: ['Test suggestion']
+            };
+
+            const reviewResult: ReviewResult = {
+                summary: 'Single issue found',
+                totalIssues: 1,
+                issues: [issue]
+            };
+
+            // Don't create any GitHub issues (sendit=false, user skips)
+            Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
+
+            const mockUserInput = ['s']; // Skip
+            let inputIndex = 0;
+
+            process.stdin.on = vi.fn().mockImplementation((event, callback) => {
+                if (event === 'data') {
+                    setTimeout(() => {
+                        if (inputIndex < mockUserInput.length) {
+                            callback(Buffer.from(mockUserInput[inputIndex]));
+                            inputIndex++;
+                        }
+                    }, 10);
+                }
+                return process.stdin;
+            });
+
+            return handleIssueCreation(reviewResult, false).then((result) => {
+                expect(result).toContain('📝 Review Results');
+                expect(result).toContain('📋 Summary: Single issue found');
+                expect(result).toContain('📊 Total Issues Found: 1');
+                expect(result).not.toContain('🚀 GitHub Issues Created:');
+                expect(result).not.toContain('🎯 Created GitHub Issues:');
+                expect(result).toContain('🟡 Test Issue');
+                expect(result).toContain('⚙️ Category: functionality | Priority: medium');
+                expect(result).toContain('💡 Suggestions:');
+                expect(result).toContain('• Test suggestion');
+                expect(result).toContain('🚀 Next Steps: Review the identified issues and prioritize them for your development workflow.');
             });
         });
     });

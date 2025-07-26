@@ -1,5 +1,6 @@
 import path from 'path';
 import { getLogger } from '../logging';
+import { safeJsonParse, validatePackageJson } from './validation';
 
 interface PackageJson {
     name?: string;
@@ -59,7 +60,8 @@ const findAllPackageJsonFiles = async (rootDir: string, storage: any): Promise<P
                 const packageJsonPath = path.join(currentDir, 'package.json');
                 try {
                     const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
-                    const packageJson = JSON.parse(packageJsonContent) as PackageJson;
+                    const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+                    const packageJson = validatePackageJson(parsed, packageJsonPath);
                     const relativePath = path.relative(rootDir, currentDir);
 
                     packageJsonFiles.push({

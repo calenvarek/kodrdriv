@@ -204,33 +204,96 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
             const { owner, repo } = await getRepoDetails();
             const prUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
 
+            // Get current branch name for better guidance
+            let currentBranch: string | undefined;
+            try {
+                currentBranch = await getCurrentBranchName();
+            } catch {
+                // Fallback to generic branch reference if we can't get the current branch
+                currentBranch = undefined;
+            }
+
+            // Collect detailed information about each failed check
+            const detailedFailedChecks = await Promise.all(
+                failingChecks.map(async (check) => {
+                    try {
+                        // Get additional details from the check run
+                        const checkDetails = await octokit.checks.get({
+                            owner,
+                            repo,
+                            check_run_id: check.id,
+                        });
+
+                        return {
+                            name: check.name,
+                            conclusion: check.conclusion || 'unknown',
+                            detailsUrl: check.details_url || undefined,
+                            summary: checkDetails.data.output?.summary || undefined,
+                            output: {
+                                title: checkDetails.data.output?.title || undefined,
+                                summary: checkDetails.data.output?.summary || undefined,
+                                text: checkDetails.data.output?.text || undefined,
+                            },
+                        };
+                    } catch {
+                        // Fallback to basic information if we can't get details
+                        return {
+                            name: check.name,
+                            conclusion: check.conclusion || 'unknown',
+                            detailsUrl: check.details_url || undefined,
+                        };
+                    }
+                })
+            );
+
             logger.error(`❌ PR #${prNumber} has ${failingChecks.length} failing check${failingChecks.length > 1 ? 's' : ''}:`);
             logger.error('');
 
-            for (const check of failingChecks) {
+            for (const check of detailedFailedChecks) {
                 const statusIcon = check.conclusion === 'failure' ? '❌' :
                     check.conclusion === 'timed_out' ? '⏰' : '🚫';
                 logger.error(`${statusIcon} ${check.name}: ${check.conclusion}`);
 
-                // Include direct link to check details if available
-                if (check.details_url && check.details_url !== check.html_url) {
-                    logger.error(`   Details: ${check.details_url}`);
-                } else if (check.html_url) {
-                    logger.error(`   Details: ${check.html_url}`);
+                // Show more detailed error information if available
+                if (check.output?.title && check.output.title !== check.name) {
+                    logger.error(`   Issue: ${check.output.title}`);
                 }
+
+                if (check.output?.summary) {
+                    // Truncate very long summaries
+                    const summary = check.output.summary.length > 200
+                        ? check.output.summary.substring(0, 200) + '...'
+                        : check.output.summary;
+                    logger.error(`   Summary: ${summary}`);
+                }
+
+                // Include direct link to check details
+                if (check.detailsUrl) {
+                    logger.error(`   Details: ${check.detailsUrl}`);
+                }
+                logger.error('');
             }
 
-            logger.error('');
-            logger.error('🔧 To fix this issue:');
-            logger.error('   1. Review the failing checks above for specific error details');
-            logger.error(`   2. View the full pull request: ${prUrl}`);
-            logger.error('   3. Fix the issues in your code');
-            logger.error('   4. Commit and push your fixes to the release branch');
-            logger.error('   5. Re-run the publish command to continue from where it left off');
-            logger.error('');
-            logger.error('💡 The publish command will automatically detect the existing PR and retry the checks.');
+            // Import the new error class
+            const { PullRequestCheckError } = await import('../error/CommandErrors');
 
-            throw new Error(`PR #${prNumber} checks failed. See above for recovery steps.`);
+            // Create and throw the enhanced error with detailed recovery instructions
+            const prError = new PullRequestCheckError(
+                `PR #${prNumber} checks failed. ${failingChecks.length} check${failingChecks.length > 1 ? 's' : ''} failed.`,
+                prNumber,
+                detailedFailedChecks,
+                prUrl,
+                currentBranch
+            );
+
+            // Display recovery instructions
+            const instructions = prError.getRecoveryInstructions();
+            for (const instruction of instructions) {
+                logger.error(instruction);
+            }
+            logger.error('');
+
+            throw prError;
         }
 
         const allChecksCompleted = checkRuns.every((cr) => cr.status === 'completed');

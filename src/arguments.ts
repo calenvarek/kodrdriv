@@ -6,6 +6,7 @@ import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, KODRDRIV
 import { getLogger } from "./logging";
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
+import { safeJsonParse } from './util/validation';
 import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({
@@ -114,7 +115,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         transformedCliArgs.link = {};
         if (finalCliArgs.scopeRoots !== undefined) {
             try {
-                transformedCliArgs.link.scopeRoots = JSON.parse(finalCliArgs.scopeRoots);
+                transformedCliArgs.link.scopeRoots = safeJsonParse(finalCliArgs.scopeRoots, 'scopeRoots CLI argument');
 
             } catch (error) {
                 throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
@@ -423,6 +424,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--script <script>', 'script command to execute in each package directory (e.g., "npm run build")')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "git add -A")')
         .option('--publish', 'execute kodrdriv publish command in each package directory')
+        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .description('Analyze package dependencies in workspace and determine publish order');
     addSharedOptions(publishTreeCommand);
 
@@ -455,6 +457,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--context <context>', 'additional context for the audio review')
         .option('--file <file>', 'audio file path')
         .option('--directory <directory>', 'directory containing audio files to process')
+        .option('--max-recording-time <time>', 'maximum recording time in seconds', parseInt)
+        .option('--sendit', 'Create GitHub issues automatically without confirmation')
         .description('Record audio, transcribe with Whisper, and analyze for project issues using AI');
     addSharedOptions(audioReviewCommand);
 
@@ -724,12 +728,12 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             dryRun: options.link?.dryRun ?? KODRDRIV_DEFAULTS.link.dryRun,
         },
         publishTree: {
-            directory: options.publishTree?.directory,
-            excludedPatterns: options.publishTree?.excludedPatterns,
-            startFrom: options.publishTree?.startFrom,
-            script: options.publishTree?.script,
-            cmd: options.publishTree?.cmd,
-            publish: options.publishTree?.publish,
+            directory: options.publishTree?.directory ?? KODRDRIV_DEFAULTS.publishTree.directory,
+            excludedPatterns: options.publishTree?.excludedPatterns ?? KODRDRIV_DEFAULTS.publishTree.excludedPatterns,
+            startFrom: options.publishTree?.startFrom ?? KODRDRIV_DEFAULTS.publishTree.startFrom,
+            script: options.publishTree?.script ?? KODRDRIV_DEFAULTS.publishTree.script,
+            cmd: options.publishTree?.cmd ?? KODRDRIV_DEFAULTS.publishTree.cmd,
+            publish: options.publishTree?.publish ?? KODRDRIV_DEFAULTS.publishTree.publish,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

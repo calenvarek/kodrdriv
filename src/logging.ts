@@ -45,8 +45,9 @@ const createTransports = (level: string) => {
             new winston.transports.Console({
                 format: winston.format.combine(
                     winston.format.colorize(),
-                    winston.format.printf(({ level, message }) => {
-                        return `${level}: ${message}`;
+                    winston.format.printf(({ level, message, dryRun }): string => {
+                        const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
+                        return `${level}: ${dryRunPrefix}${String(message)}`;
                     })
                 )
             })
@@ -58,13 +59,15 @@ const createTransports = (level: string) => {
                 level: 'info', // Show info, warn, and error on console
                 format: winston.format.combine(
                     winston.format.colorize(),
-                    winston.format.printf(({ timestamp, level, message, ...meta }): string => {
+                    winston.format.printf(({ timestamp, level, message, dryRun, ...meta }): string => {
                         // For info level messages, use simpler format without timestamp
                         if (level.includes('info')) {
-                            return String(message);
+                            const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
+                            return `${dryRunPrefix}${String(message)}`;
                         }
                         const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-                        return `${timestamp} ${level}: ${String(message)}${metaStr}`;
+                        const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
+                        return `${timestamp} ${level}: ${dryRunPrefix}${String(message)}${metaStr}`;
                     })
                 )
             })
@@ -98,18 +101,32 @@ const createTransports = (level: string) => {
 };
 
 const createFormat = (level: string) => {
+    const baseFormats = [
+        winston.format.errors({ stack: true }),
+        winston.format.splat(),
+    ];
+
     if (level === 'info') {
         return winston.format.combine(
-            winston.format.errors({ stack: true }),
-            winston.format.splat(),
+            ...baseFormats,
+            winston.format.printf(({ message, dryRun, ..._meta }): string => {
+                // Auto-format dry-run messages
+                if (dryRun) {
+                    return `🔍 DRY RUN: ${message}`;
+                }
+                return String(message);
+            })
         );
     }
 
     return winston.format.combine(
         winston.format.timestamp({ format: DATE_FORMAT_YEAR_MONTH_DAY_HOURS_MINUTES_SECONDS_MILLISECONDS }),
-        winston.format.errors({ stack: true }),
-        winston.format.splat(),
-        winston.format.json()
+        ...baseFormats,
+        winston.format.printf(({ timestamp, level, message, dryRun, ...meta }): string => {
+            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+            const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
+            return `${timestamp} ${level}: ${dryRunPrefix}${String(message)}${metaStr}`;
+        })
     );
 };
 
@@ -131,4 +148,23 @@ export const setLogLevel = (level: string) => {
     });
 };
 
-export const getLogger = () => logger; 
+export const getLogger = () => logger;
+
+/**
+ * Get a logger that automatically formats messages for dry-run mode
+ */
+export const getDryRunLogger = (isDryRun: boolean) => {
+    if (!isDryRun) {
+        return logger;
+    }
+
+    // Return a wrapper that adds dry-run context to all log calls
+    return {
+        info: (message: string, ...args: any[]) => logger.info(message, { dryRun: true }, ...args),
+        warn: (message: string, ...args: any[]) => logger.warn(message, { dryRun: true }, ...args),
+        error: (message: string, ...args: any[]) => logger.error(message, { dryRun: true }, ...args),
+        debug: (message: string, ...args: any[]) => logger.debug(message, { dryRun: true }, ...args),
+        verbose: (message: string, ...args: any[]) => logger.verbose(message, { dryRun: true }, ...args),
+        silly: (message: string, ...args: any[]) => logger.silly(message, { dryRun: true }, ...args),
+    };
+};

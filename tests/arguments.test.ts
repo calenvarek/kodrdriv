@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, getCliConfig, validateAndProcessSecureOptions, validateAndProcessOptions, validateConfigDir, configure } from '../src/arguments';
@@ -184,6 +185,184 @@ describe('Argument Parsing and Configuration', () => {
             const expectedConfig: Partial<Config> = { release: { from: 'develop' } };
             expect(transformCliArgs(cliArgs)).toEqual(expectedConfig);
         });
+
+        it('should handle audio-commit args correctly', () => {
+            const cliArgs: Input = {
+                file: '/path/to/audio.wav',
+                keepTemp: true,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                audioCommit: {
+                    file: '/path/to/audio.wav',
+                    keepTemp: true,
+                },
+                audioReview: {
+                    file: '/path/to/audio.wav',
+                    keepTemp: true,
+                },
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle audio-review args correctly', () => {
+            const cliArgs: Input = {
+                file: '/path/to/audio.wav',
+                directory: '/path/to/recordings',
+                keepTemp: false,
+                includeCommitHistory: true,
+                includeRecentDiffs: false,
+                includeReleaseNotes: true,
+                includeGithubIssues: false,
+                commitHistoryLimit: 10,
+                diffHistoryLimit: 5,
+                releaseNotesLimit: 3,
+                githubIssuesLimit: 15,
+                context: 'audio review context',
+                sendit: true,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                audioCommit: {
+                    file: '/path/to/audio.wav',
+                    keepTemp: false,
+                },
+                audioReview: {
+                    file: '/path/to/audio.wav',
+                    directory: '/path/to/recordings',
+                    keepTemp: false,
+                    includeCommitHistory: true,
+                    includeRecentDiffs: false,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: false,
+                    commitHistoryLimit: 10,
+                    diffHistoryLimit: 5,
+                    releaseNotesLimit: 3,
+                    githubIssuesLimit: 15,
+                    context: 'audio review context',
+                    sendit: true,
+                },
+                commit: {
+                    context: 'audio review context',
+                    sendit: true,
+                },
+                publishTree: {
+                    directory: '/path/to/recordings',
+                },
+                review: {
+                    includeCommitHistory: true,
+                    includeRecentDiffs: false,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: false,
+                    commitHistoryLimit: 10,
+                    diffHistoryLimit: 5,
+                    releaseNotesLimit: 3,
+                    githubIssuesLimit: 15,
+                    context: 'audio review context',
+                    sendit: true,
+                },
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle review args with note correctly', () => {
+            const cliArgs: Input = {
+                note: 'Review note content',
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                context: 'review context',
+                sendit: false,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                audioReview: {
+                    includeCommitHistory: false,
+                    includeRecentDiffs: true,
+                    context: 'review context',
+                    sendit: false,
+                },
+                commit: {
+                    context: 'review context',
+                    sendit: false,
+                },
+                review: {
+                    note: 'Review note content',
+                    includeCommitHistory: false,
+                    includeRecentDiffs: true,
+                    context: 'review context',
+                    sendit: false,
+                },
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle publish-tree args correctly', () => {
+            const cliArgs: Input = {
+                directory: '/workspace',
+                excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+                startFrom: 'package-a',
+                script: 'npm run build',
+                cmd: 'git add -A',
+                publish: true,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                audioReview: {
+                    directory: '/workspace',
+                },
+                publishTree: {
+                    directory: '/workspace',
+                    excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+                    startFrom: 'package-a',
+                    script: 'npm run build',
+                    cmd: 'git add -A',
+                    publish: true,
+                },
+                excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle excludedPaths as alias for excludedPatterns', () => {
+            const cliArgs: Input = {
+                excludedPaths: ['*.log', 'temp/*'],
+            };
+
+            const expectedConfig: Partial<Config> = {
+                publishTree: {
+                    excludedPatterns: ['*.log', 'temp/*'],
+                },
+                excludedPatterns: ['*.log', 'temp/*'],
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should prioritize excludedPatterns over excludedPaths', () => {
+            const cliArgs: Input = {
+                excludedPatterns: ['*.log'],
+                excludedPaths: ['temp/*'],
+            };
+
+            const expectedConfig: Partial<Config> = {
+                publishTree: {
+                    excludedPatterns: ['*.log'],
+                },
+                excludedPatterns: ['*.log'],
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
     });
 
     // Add more describe blocks for other functions like configure, getCliConfig, etc.
@@ -225,9 +404,16 @@ describe('Argument Parsing and Configuration', () => {
                     opts: vi.fn().mockReturnValue({}),
                     args: [], // Add args property for positional arguments
                 },
+                'audio-commit': createMockCommand('audio-commit'),
+                'audio-review': createMockCommand('audio-review'),
                 release: createMockCommand('release'),
                 publish: createMockCommand('publish'),
+                'publish-tree': createMockCommand('publish-tree'),
                 link: createMockCommand('link'),
+                unlink: createMockCommand('unlink'),
+                review: createMockCommand('review'),
+                clean: createMockCommand('clean'),
+                'select-audio': createMockCommand('select-audio'),
             };
 
             // Mock program with proper chaining
@@ -410,8 +596,68 @@ describe('Argument Parsing and Configuration', () => {
                 process.argv = originalArgv;
             }
         });
-    });
 
+        it('should handle check-config command with early return', async () => {
+            // Mock process.argv to include --check-config
+            const originalArgv = process.argv;
+            process.argv = ['node', 'main.js', '--check-config'];
+
+            try {
+                // Mock cardigantime.checkConfig
+                const mockCheckConfig = vi.fn().mockResolvedValue(undefined);
+                (mockCardigantimeInstance as any).checkConfig = mockCheckConfig;
+
+                const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
+
+                // Verify checkConfig was called
+                expect(mockCheckConfig).toHaveBeenCalled();
+
+                // Verify command config
+                expect(commandConfig.commandName).toBe('check-config');
+
+                // Config should be minimal default values
+                expect(config).toBeDefined();
+                expect(secureConfig).toBeDefined();
+            } finally {
+                process.argv = originalArgv;
+            }
+        });
+
+        it('should handle cardigantime configuration errors', async () => {
+            // Test cardigantime.configure throwing an error
+            vi.mocked(mockCardigantimeInstance.configure).mockRejectedValue(new Error('Cardigantime config error'));
+
+            await expect(configure(mockCardigantimeInstance)).rejects.toThrow('Cardigantime config error');
+        });
+
+        it('should handle complex link configuration merging', async () => {
+            const fileConfig: Partial<Config> = {
+                link: {
+                    scopeRoots: { '@file': '../file', '@shared': '../shared' },
+                    dryRun: false,
+                },
+            };
+
+            // Mock cardigantime.read to return the file config
+            vi.mocked(mockCardigantimeInstance.read).mockResolvedValue(fileConfig);
+
+            // CLI args should merge with file config
+            mockCommands.link.opts.mockReturnValue({
+                scopeRoots: '{"@cli": "../cli", "@shared": "../cli-shared"}',
+            });
+            mockProgram.args = ['link'];
+
+            const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
+
+            // CLI should override shared key but keep file-only keys
+            expect(config.link?.scopeRoots).toEqual({
+                '@cli': '../cli',
+                '@shared': '../cli-shared', // CLI override
+            });
+            expect(config.link?.dryRun).toBe(false); // From file
+            expect(commandConfig.commandName).toBe('link');
+        });
+    });
 
     // TODO: Add tests for getCliConfig
     // TODO: Add tests for validateAndProcessOptions
@@ -603,6 +849,74 @@ describe('Argument Parsing and Configuration', () => {
             const result = InputSchema.parse(inputWithUndefined);
             expect(result).toEqual({});
         });
+
+        it('should validate all audio-related fields', () => {
+            const audioInput = {
+                file: '/path/to/audio.wav',
+                directory: '/path/to/recordings',
+                keepTemp: true,
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                includeReleaseNotes: false,
+                includeGithubIssues: true,
+                commitHistoryLimit: 25,
+                diffHistoryLimit: 10,
+                releaseNotesLimit: 5,
+                githubIssuesLimit: 20,
+            };
+
+            const result = InputSchema.parse(audioInput);
+            expect(result).toEqual(audioInput);
+        });
+
+        it('should validate publish-tree specific fields', () => {
+            const publishTreeInput = {
+                startFrom: 'package-core',
+                script: 'npm run build',
+                cmd: 'npm test',
+                publish: true,
+            };
+
+            const result = InputSchema.parse(publishTreeInput);
+            expect(result).toEqual(publishTreeInput);
+        });
+
+        it('should validate review note field', () => {
+            const reviewInput = {
+                note: 'This is a review note for analysis',
+            };
+
+            const result = InputSchema.parse(reviewInput);
+            expect(result).toEqual(reviewInput);
+        });
+
+        it('should validate direction field for commit command', () => {
+            const commitInput = {
+                direction: 'Fix performance issues in user authentication',
+            };
+
+            const result = InputSchema.parse(commitInput);
+            expect(result).toEqual(commitInput);
+        });
+
+        it('should validate skipFileCheck field', () => {
+            const commitInput = {
+                skipFileCheck: true,
+            };
+
+            const result = InputSchema.parse(commitInput);
+            expect(result).toEqual(commitInput);
+        });
+
+        it('should validate outputDir and preferencesDir fields', () => {
+            const configInput = {
+                outputDir: '/custom/output',
+                preferencesDir: '/custom/preferences',
+            };
+
+            const result = InputSchema.parse(configInput);
+            expect(result).toEqual(configInput);
+        });
     });
 
 
@@ -783,6 +1097,22 @@ describe('Argument Parsing and Configuration', () => {
                     opts: vi.fn().mockReturnValue({}),
                     args: [], // Add args property for positional arguments
                 },
+                'audio-commit': {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                'audio-review': {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
                 release: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
@@ -799,7 +1129,47 @@ describe('Argument Parsing and Configuration', () => {
                     opts: vi.fn().mockReturnValue({}),
                     args: [],
                 },
+                'publish-tree': {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
                 link: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                unlink: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                review: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                clean: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                'select-audio': {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
                     argument: vi.fn().mockReturnThis(),
@@ -848,6 +1218,85 @@ describe('Argument Parsing and Configuration', () => {
             expect(commandConfig.commandName).toBe('commit');
         });
 
+        it('should handle audio-commit command', async () => {
+            mockProgram.args = ['audio-commit'];
+
+            // Mock the audio-commit command options
+            mockCommands['audio-commit'].opts.mockReturnValue({
+                file: '/path/to/audio.wav',
+                keepTemp: true,
+                cached: false,
+                add: true,
+                sendit: false,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('audio-commit');
+        });
+
+        it('should handle audio-review command', async () => {
+            mockProgram.args = ['audio-review'];
+
+            // Mock the audio-review command options
+            mockCommands['audio-review'].opts.mockReturnValue({
+                file: '/path/to/review.wav',
+                directory: '/recordings',
+                includeCommitHistory: true,
+                includeRecentDiffs: false,
+                sendit: true,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('audio-review');
+        });
+
+        it('should handle publish-tree command', async () => {
+            mockProgram.args = ['publish-tree'];
+
+            // Mock the publish-tree command options
+            mockCommands['publish-tree'].opts.mockReturnValue({
+                directory: '/workspace',
+                startFrom: 'core-package',
+                script: 'npm run build',
+                publish: true,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('publish-tree');
+        });
+
+        it('should handle unlink command', async () => {
+            mockProgram.args = ['unlink'];
+
+            // Mock the unlink command options
+            mockCommands.unlink.opts.mockReturnValue({
+                scopeRoots: '{"@test": "../test"}',
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('unlink');
+        });
+
+        it('should handle clean command', async () => {
+            mockProgram.args = ['clean'];
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('clean');
+        });
+
+        it('should handle select-audio command', async () => {
+            mockProgram.args = ['select-audio'];
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('select-audio');
+        });
+
         it('should handle release command', async () => {
             mockProgram.args = ['release'];
 
@@ -878,6 +1327,56 @@ describe('Argument Parsing and Configuration', () => {
             const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
 
             expect(commandConfig.commandName).toBe('link');
+        });
+
+        it('should handle review command with note', async () => {
+            mockProgram.args = ['review'];
+
+            // Mock the review command args to include a positional note argument
+            mockCommands.review.args = ['This is a review note'];
+            mockCommands.review.opts.mockReturnValue({
+                includeCommitHistory: true,
+                sendit: false,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('review');
+            expect(cliArgs.note).toBe('This is a review note');
+        });
+
+        it('should handle review command with STDIN note input', async () => {
+            // Mock readStdin to return test input
+            mockReadStdin.mockResolvedValue('Review note from STDIN input');
+
+            mockProgram.args = ['review'];
+            mockCommands.review.args = [];
+            mockCommands.review.opts.mockReturnValue({
+                includeCommitHistory: true,
+                sendit: false,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('review');
+            expect(cliArgs.note).toBe('Review note from STDIN input');
+        });
+
+        it('should prioritize STDIN over positional argument for review note', async () => {
+            // Mock readStdin to return test input
+            mockReadStdin.mockResolvedValue('STDIN note takes precedence');
+
+            mockProgram.args = ['review'];
+            mockCommands.review.args = ['positional-note'];
+            mockCommands.review.opts.mockReturnValue({
+                includeCommitHistory: true,
+                sendit: false,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('review');
+            expect(cliArgs.note).toBe('STDIN note takes precedence');
         });
 
         it('should throw error for invalid command', async () => {
@@ -940,6 +1439,38 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(commandConfig.commandName).toBe('commit');
             expect(cliArgs.direction).toBe('STDIN direction takes precedence');
+        });
+
+        it('should handle complex audio-review command with all options', async () => {
+            mockProgram.args = ['audio-review'];
+
+            // Mock comprehensive audio-review options
+            mockCommands['audio-review'].opts.mockReturnValue({
+                file: '/recordings/session1.wav',
+                directory: '/all-recordings',
+                keepTemp: true,
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                includeReleaseNotes: true,
+                includeGithubIssues: false,
+                commitHistoryLimit: 20,
+                diffHistoryLimit: 15,
+                releaseNotesLimit: 8,
+                githubIssuesLimit: 25,
+                context: 'Weekly team review session',
+                sendit: true,
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('audio-review');
+            expect(cliArgs.file).toBe('/recordings/session1.wav');
+            expect(cliArgs.directory).toBe('/all-recordings');
+            expect(cliArgs.includeCommitHistory).toBe(false);
+            expect(cliArgs.includeRecentDiffs).toBe(true);
+            expect(cliArgs.commitHistoryLimit).toBe(20);
+            expect(cliArgs.context).toBe('Weekly team review session');
+            expect(cliArgs.sendit).toBe(true);
         });
     });
 
@@ -1089,6 +1620,105 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.publish?.mergeMethod).toBe('rebase');
             expect(result.publish?.dependencyUpdatePatterns).toEqual(['package*.json']);
             expect(result.publish?.requiredEnvVars).toEqual(['CUSTOM_VAR']);
+        });
+
+        it('should handle audioCommit options correctly', async () => {
+            const options: Partial<Config> = {
+                audioCommit: {
+                    file: '/path/to/recording.wav',
+                    keepTemp: true,
+                    maxRecordingTime: 300,
+                    audioDevice: 'default',
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.audioCommit?.file).toBe('/path/to/recording.wav');
+            expect(result.audioCommit?.keepTemp).toBe(true);
+            expect(result.audioCommit?.maxRecordingTime).toBe(300);
+            expect(result.audioCommit?.audioDevice).toBe('default');
+        });
+
+        it('should handle audioReview options correctly', async () => {
+            const options: Partial<Config> = {
+                audioReview: {
+                    file: '/path/to/review.wav',
+                    directory: '/recordings',
+                    keepTemp: false,
+                    includeCommitHistory: false,
+                    includeRecentDiffs: true,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: false,
+                    commitHistoryLimit: 25,
+                    diffHistoryLimit: 15,
+                    releaseNotesLimit: 8,
+                    githubIssuesLimit: 30,
+                    context: 'Audio review context',
+                    sendit: true,
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.audioReview?.file).toBe('/path/to/review.wav');
+            expect(result.audioReview?.directory).toBe('/recordings');
+            expect(result.audioReview?.includeCommitHistory).toBe(false);
+            expect(result.audioReview?.includeRecentDiffs).toBe(true);
+            expect(result.audioReview?.commitHistoryLimit).toBe(25);
+            expect(result.audioReview?.context).toBe('Audio review context');
+            expect(result.audioReview?.sendit).toBe(true);
+        });
+
+        it('should handle publishTree options correctly', async () => {
+            const options: Partial<Config> = {
+                publishTree: {
+                    directory: '/monorepo',
+                    excludedPatterns: ['**/test/**', '**/docs/**'],
+                    startFrom: 'core-package',
+                    script: 'npm run test && npm run build',
+                    cmd: 'npm audit --audit-level moderate',
+                    publish: true,
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.publishTree?.directory).toBe('/monorepo');
+            expect(result.publishTree?.excludedPatterns).toEqual(['**/test/**', '**/docs/**']);
+            expect(result.publishTree?.startFrom).toBe('core-package');
+            expect(result.publishTree?.script).toBe('npm run test && npm run build');
+            expect(result.publishTree?.cmd).toBe('npm audit --audit-level moderate');
+            expect(result.publishTree?.publish).toBe(true);
+        });
+
+        it('should handle complete review configuration', async () => {
+            const options: Partial<Config> = {
+                review: {
+                    note: 'Comprehensive review note',
+                    includeCommitHistory: false,
+                    includeRecentDiffs: true,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: false,
+                    commitHistoryLimit: 50,
+                    diffHistoryLimit: 20,
+                    releaseNotesLimit: 10,
+                    githubIssuesLimit: 15,
+                    context: 'Monthly review session',
+                    sendit: false,
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.review?.note).toBe('Comprehensive review note');
+            expect(result.review?.includeCommitHistory).toBe(false);
+            expect(result.review?.includeRecentDiffs).toBe(true);
+            expect(result.review?.includeReleaseNotes).toBe(true);
+            expect(result.review?.includeGithubIssues).toBe(false);
+            expect(result.review?.commitHistoryLimit).toBe(50);
+            expect(result.review?.context).toBe('Monthly review session');
+            expect(result.review?.sendit).toBe(false);
         });
     });
 
@@ -1244,6 +1874,60 @@ describe('Argument Parsing and Configuration', () => {
                 expect(validateCommand(command)).toBe(command);
             });
         });
+
+        it('should handle complex audio workflow transformation', () => {
+            const audioWorkflowArgs: Input = {
+                file: '/recordings/session-20241201.wav',
+                directory: '/all-recordings/december',
+                keepTemp: true,
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                includeReleaseNotes: false,
+                includeGithubIssues: true,
+                commitHistoryLimit: 30,
+                diffHistoryLimit: 10,
+                releaseNotesLimit: 5,
+                githubIssuesLimit: 20,
+                context: 'End-of-sprint retrospective',
+                sendit: false,
+            };
+
+            const result = transformCliArgs(audioWorkflowArgs);
+
+            expect(result.audioCommit).toEqual({
+                file: '/recordings/session-20241201.wav',
+                keepTemp: true,
+            });
+
+            expect(result.audioReview).toEqual({
+                file: '/recordings/session-20241201.wav',
+                directory: '/all-recordings/december',
+                keepTemp: true,
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                includeReleaseNotes: false,
+                includeGithubIssues: true,
+                commitHistoryLimit: 30,
+                diffHistoryLimit: 10,
+                releaseNotesLimit: 5,
+                githubIssuesLimit: 20,
+                context: 'End-of-sprint retrospective',
+                sendit: false,
+            });
+
+            expect(result.review).toEqual({
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                includeReleaseNotes: false,
+                includeGithubIssues: true,
+                commitHistoryLimit: 30,
+                diffHistoryLimit: 10,
+                releaseNotesLimit: 5,
+                githubIssuesLimit: 20,
+                context: 'End-of-sprint retrospective',
+                sendit: false,
+            });
+        });
     });
 
     describe('check-config functionality', () => {
@@ -1311,6 +1995,218 @@ describe('Argument Parsing and Configuration', () => {
                     process.env.OPENAI_API_KEY = originalApiKey;
                 }
             }
+        });
+    });
+
+    describe('STDIN input handling edge cases', () => {
+        const mockReadStdin = vi.mocked(readStdin);
+
+        beforeEach(() => {
+            mockReadStdin.mockReset();
+        });
+
+        it('should handle empty STDIN input gracefully', async () => {
+            mockReadStdin.mockResolvedValue(null); // readStdin returns null for empty input
+
+            const mockProgram = {
+                command: vi.fn().mockReturnValue({
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: ['positional-value'],
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['commit'],
+            } as unknown as Command;
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+            // Empty STDIN (null) should not override positional argument
+            expect(cliArgs.direction).toBe('positional-value');
+        });
+
+        it('should handle whitespace-only STDIN input', async () => {
+            mockReadStdin.mockResolvedValue('   \n\t  ');
+
+            const mockProgram = {
+                command: vi.fn().mockReturnValue({
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['review'],
+            } as unknown as Command;
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('review');
+            expect(cliArgs.note).toBe('   \n\t  '); // Preserve whitespace as-is
+        });
+
+        it('should handle very long STDIN input', async () => {
+            const longInput = 'A'.repeat(10000) + ' - this is a very long input for testing';
+            mockReadStdin.mockResolvedValue(longInput);
+
+            const mockProgram = {
+                command: vi.fn().mockReturnValue({
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['commit'],
+            } as unknown as Command;
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+            expect(cliArgs.direction).toBe(longInput);
+            expect(cliArgs.direction?.length).toBe(10040);
+        });
+
+        it('should handle STDIN input with special characters', async () => {
+            const specialInput = 'Fix: "quotes", \'apostrophes\', & ampersands, <tags>, $variables, `backticks`';
+            mockReadStdin.mockResolvedValue(specialInput);
+
+            const mockProgram = {
+                command: vi.fn().mockReturnValue({
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['review'],
+            } as unknown as Command;
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('review');
+            expect(cliArgs.note).toBe(specialInput);
+        });
+
+        it('should handle STDIN read errors gracefully', async () => {
+            mockReadStdin.mockRejectedValue(new Error('STDIN read error'));
+
+            const mockProgram = {
+                command: vi.fn().mockReturnValue({
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: ['fallback-value'],
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['commit'],
+            } as unknown as Command;
+
+            // Should throw the STDIN error
+            await expect(getCliConfig(mockProgram)).rejects.toThrow('STDIN read error');
+        });
+    });
+
+    describe('Complex JSON parsing edge cases', () => {
+        describe('scopeRoots JSON parsing', () => {
+            it('should handle nested JSON objects in scopeRoots', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{"@company": {"path": "../company", "dev": true}, "@utils": "../utils"}',
+                };
+
+                // This parses successfully but would likely cause issues later
+                const result = transformCliArgs(cliArgs);
+                expect(result.link?.scopeRoots).toEqual({
+                    '@company': { "path": "../company", "dev": true },
+                    '@utils': "../utils"
+                });
+            });
+
+            it('should handle JSON with escaped quotes', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{"@test": "../test/\\"quoted\\"", "@lib": "../lib"}',
+                };
+
+                const result = transformCliArgs(cliArgs);
+                expect(result.link?.scopeRoots).toEqual({
+                    '@test': '../test/"quoted"',
+                    '@lib': '../lib',
+                });
+            });
+
+            it('should handle empty JSON object', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{}',
+                };
+
+                const result = transformCliArgs(cliArgs);
+                expect(result.link?.scopeRoots).toEqual({});
+            });
+
+            it('should handle JSON with special characters in paths', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{"@special": "../path/with spaces/and-dashes_underscores"}',
+                };
+
+                const result = transformCliArgs(cliArgs);
+                expect(result.link?.scopeRoots).toEqual({
+                    '@special': '../path/with spaces/and-dashes_underscores',
+                });
+            });
+
+            it('should throw descriptive error for malformed JSON', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '{"@test": "../test", @invalid: "no-quotes"}',
+                };
+
+                expect(() => transformCliArgs(cliArgs)).toThrow('Invalid JSON for scope-roots: {"@test": "../test", @invalid: "no-quotes"}');
+            });
+
+            it('should handle non-object JSON (though not recommended)', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '"string-instead-of-object"',
+                };
+
+                // This parses successfully but stores a string instead of an object
+                const result = transformCliArgs(cliArgs);
+                expect(result.link?.scopeRoots).toBe('string-instead-of-object');
+            });
+
+            it('should handle JSON array (though not recommended)', () => {
+                const cliArgs: Input = {
+                    scopeRoots: '["@test", "@lib"]',
+                };
+
+                // This parses successfully but stores an array instead of an object
+                const result = transformCliArgs(cliArgs);
+                expect(result.link?.scopeRoots).toEqual(['@test', '@lib']);
+            });
         });
     });
 });

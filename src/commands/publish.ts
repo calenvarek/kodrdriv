@@ -5,15 +5,17 @@ import * as Diff from '../content/diff';
 import * as Release from './release';
 import * as Link from './link';
 import * as Unlink from './unlink';
-import { getLogger } from '../logging';
+import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
 import { run, runWithDryRunSupport } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { safeJsonParse, validatePackageJson } from '../util/validation';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
+    const logger = getLogger();
     const npmrcPath = path.join(process.cwd(), '.npmrc');
     const envVars: string[] = [];
 
@@ -32,17 +34,20 @@ const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
                     }
                 }
             }
-             
-        } catch (error) {
-            // If we can't read .npmrc, that's okay - just continue
+
+        } catch (error: any) {
+            logger.warn(`Failed to read .npmrc file at ${npmrcPath}: ${error.message}`);
+            logger.verbose('This may affect environment variable detection for publishing');
         }
+    } else {
+        logger.debug('.npmrc file not found, skipping environment variable scan');
     }
 
     return envVars;
 };
 
 const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boolean): void => {
-    const logger = getLogger();
+    const logger = getDryRunLogger(isDryRun);
     const missingEnvVars: string[] = [];
 
     for (const envVar of requiredEnvVars) {
@@ -53,7 +58,7 @@ const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boole
 
     if (missingEnvVars.length > 0) {
         if (isDryRun) {
-            logger.warn(`DRY RUN: Missing required environment variables: ${missingEnvVars.join(', ')}`);
+            logger.warn(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
         } else {
             logger.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
             throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}. Please set these environment variables before running publish.`);
@@ -62,20 +67,20 @@ const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boole
 };
 
 const runPrechecks = async (runConfig: Config): Promise<void> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+    const storage = createStorage({ log: logger.info });
 
-    logger.info(isDryRun ? 'DRY RUN: Running prechecks...' : 'Running prechecks...');
+    logger.info('Running prechecks...');
 
     // Check if we're in a git repository
     try {
         if (isDryRun) {
-            logger.info('DRY RUN: Would check git repository with: git rev-parse --git-dir');
+            logger.info('Would check git repository with: git rev-parse --git-dir');
         } else {
             await run('git rev-parse --git-dir');
         }
-         
+
     } catch (error) {
         if (!isDryRun) {
             throw new Error('Not in a git repository. Please run this command from within a git repository.');
@@ -83,17 +88,17 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     }
 
     // Check for uncommitted changes
-    logger.info(isDryRun ? 'DRY RUN: Would check for uncommitted changes...' : 'Checking for uncommitted changes...');
+    logger.info('Checking for uncommitted changes...');
     try {
         if (isDryRun) {
-            logger.info('DRY RUN: Would check git status with: git status --porcelain');
+            logger.info('Would check git status with: git status --porcelain');
         } else {
             const { stdout } = await run('git status --porcelain');
             if (stdout.trim()) {
                 throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish.');
             }
         }
-         
+
     } catch (error) {
         if (!isDryRun) {
             throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
@@ -101,9 +106,9 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     }
 
     // Check if we're on a release branch
-    logger.info(isDryRun ? 'DRY RUN: Would check current branch...' : 'Checking current branch...');
+    logger.info('Checking current branch...');
     if (isDryRun) {
-        logger.info('DRY RUN: Would verify current branch is a release branch (starts with "release/")');
+        logger.info('Would verify current branch is a release branch (starts with "release/")');
     } else {
         const currentBranch = await GitHub.getCurrentBranchName();
         if (!currentBranch.startsWith('release/')) {
@@ -112,26 +117,27 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     }
 
     // Check if prepublishOnly script exists in package.json
-    logger.info(isDryRun ? 'DRY RUN: Would check for prepublishOnly script...' : 'Checking for prepublishOnly script...');
+    logger.info('Checking for prepublishOnly script...');
     const packageJsonPath = path.join(process.cwd(), 'package.json');
 
     if (!await storage.exists(packageJsonPath)) {
         if (!isDryRun) {
             throw new Error('package.json not found in current directory.');
         } else {
-            logger.warn('DRY RUN: package.json not found in current directory.');
+            logger.warn('package.json not found in current directory.');
         }
     } else {
         let packageJson;
         try {
             const packageJsonContents = await storage.readFile(packageJsonPath, 'utf-8');
-            packageJson = JSON.parse(packageJsonContents);
-             
+            const parsed = safeJsonParse(packageJsonContents, packageJsonPath);
+            packageJson = validatePackageJson(parsed, packageJsonPath);
+
         } catch (error) {
             if (!isDryRun) {
                 throw new Error('Failed to parse package.json. Please ensure it contains valid JSON.');
             } else {
-                logger.warn('DRY RUN: Failed to parse package.json. Please ensure it contains valid JSON.');
+                logger.warn('Failed to parse package.json. Please ensure it contains valid JSON.');
             }
         }
 
@@ -139,85 +145,85 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
             if (!isDryRun) {
                 throw new Error('prepublishOnly script is required in package.json but was not found. Please add a prepublishOnly script that runs your pre-flight checks (e.g., clean, lint, build, test).');
             } else {
-                logger.warn('DRY RUN: prepublishOnly script is required in package.json but was not found.');
+                logger.warn('prepublishOnly script is required in package.json but was not found.');
             }
         }
     }
 
     // Check required environment variables
-    logger.verbose(isDryRun ? 'DRY RUN: Would check required environment variables...' : 'Checking required environment variables...');
+    logger.verbose('Checking required environment variables...');
     const coreRequiredEnvVars = runConfig.publish?.requiredEnvVars || [];
     const npmrcEnvVars = isDryRun ? [] : await scanNpmrcForEnvVars(storage); // Skip .npmrc scan in dry run
     const allRequiredEnvVars = [...new Set([...coreRequiredEnvVars, ...npmrcEnvVars])];
 
     if (allRequiredEnvVars.length > 0) {
-        logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Required environment variables: ${allRequiredEnvVars.join(', ')}`);
+        logger.verbose(`Required environment variables: ${allRequiredEnvVars.join(', ')}`);
         validateEnvironmentVariables(allRequiredEnvVars, isDryRun);
     } else {
-        logger.verbose(isDryRun ? 'DRY RUN: No required environment variables specified.' : 'No required environment variables specified.');
+        logger.verbose('No required environment variables specified.');
     }
 
-    logger.info(isDryRun ? 'DRY RUN: All prechecks would pass.' : 'All prechecks passed.');
+    logger.info('All prechecks passed.');
 };
 
 export const execute = async (runConfig: Config): Promise<void> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+    const storage = createStorage({ log: logger.info });
 
     // Run prechecks before starting any work
     await runPrechecks(runConfig);
 
-    logger.info(isDryRun ? 'DRY RUN: Would start release process...' : 'Starting release process...');
+    logger.info('Starting release process...');
 
     try {
         // Unlink all workspace packages before starting (if enabled)
         const shouldUnlink = runConfig.publish?.unlinkWorkspacePackages !== false; // default to true
         if (shouldUnlink) {
-            logger.verbose(isDryRun ? 'DRY RUN: Would unlink workspace packages...' : 'Unlinking workspace packages...');
+            logger.verbose('Unlinking workspace packages...');
             await Unlink.execute(runConfig);
         } else {
-            logger.verbose(isDryRun ? 'DRY RUN: Would skip unlink workspace packages (disabled in config).' : 'Skipping unlink workspace packages (disabled in config).');
+            logger.verbose('Skipping unlink workspace packages (disabled in config).');
         }
 
         let pr: PullRequest | null = null;
 
         if (isDryRun) {
-            logger.info('DRY RUN: Would check for existing pull request');
-            logger.info('DRY RUN: Assuming no existing PR found for demo purposes');
+            logger.info('Would check for existing pull request');
+            logger.info('Assuming no existing PR found for demo purposes');
         } else {
             const branchName = await GitHub.getCurrentBranchName();
             pr = await GitHub.findOpenPullRequestByHeadRef(branchName);
         }
 
         if (pr) {
-            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Found existing pull request for branch: ${pr.html_url}`);
+            logger.info(`Found existing pull request for branch: ${pr.html_url}`);
         } else {
-            logger.info(isDryRun ? 'DRY RUN: No open pull request found, would start new release publishing process...' : 'No open pull request found, starting new release publishing process...');
+            logger.info('No open pull request found, starting new release publishing process...');
             // 1. Prepare for release
-            logger.verbose(isDryRun ? 'DRY RUN: Would prepare for release: switching from workspace to remote dependencies.' : 'Preparing for release: switching from workspace to remote dependencies.');
+            logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
 
-            logger.verbose(isDryRun ? 'DRY RUN: Would update dependencies to latest versions from registry' : 'Updating dependencies to latest versions from registry');
+            logger.verbose('Updating dependencies to latest versions from registry');
             const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
             if (updatePatterns && updatePatterns.length > 0) {
-                logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
+                logger.verbose(`Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
                 const patternsArg = updatePatterns.join(' ');
                 await runWithDryRunSupport(`npm update ${patternsArg}`, isDryRun);
             } else {
-                logger.verbose(isDryRun ? 'DRY RUN: No dependency update patterns specified, would update all dependencies' : 'No dependency update patterns specified, updating all dependencies');
+                logger.verbose('No dependency update patterns specified, updating all dependencies');
                 await runWithDryRunSupport('npm update', isDryRun);
             }
 
-            logger.verbose(isDryRun ? 'DRY RUN: Would stage changes for release commit' : 'Staging changes for release commit');
+            logger.verbose('Staging changes for release commit');
             await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
 
-            logger.info(isDryRun ? 'DRY RUN: Would run prepublishOnly script...' : 'Running prepublishOnly script...');
+            logger.info('Running prepublishOnly script...');
             await runWithDryRunSupport('npm run prepublishOnly', isDryRun);
 
-            logger.verbose(isDryRun ? 'DRY RUN: Would check for staged changes...' : 'Checking for staged changes...');
+            logger.verbose('Checking for staged changes...');
             if (isDryRun) {
-                logger.verbose('DRY RUN: Assuming staged changes exist for demo purposes');
-                logger.verbose('DRY RUN: Would create commit...');
+                logger.verbose('Assuming staged changes exist for demo purposes');
+                logger.verbose('Would create commit...');
                 await Commit.execute(runConfig);
             } else {
                 if (await Diff.hasStagedChanges()) {
@@ -228,13 +234,14 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 }
             }
 
-            logger.info(isDryRun ? 'DRY RUN: Would bump version...' : 'Bumping version...');
+            logger.info('Bumping version...');
             // Manually increment version without creating a tag
             if (isDryRun) {
-                logger.info('DRY RUN: Would manually increment patch version in package.json and commit');
+                logger.info('Would manually increment patch version in package.json and commit');
             } else {
                 const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-                const packageJson = JSON.parse(packageJsonContents);
+                const parsed = safeJsonParse(packageJsonContents, 'package.json');
+                const packageJson = validatePackageJson(parsed, 'package.json');
                 const currentVersion = packageJson.version;
                 const newVersion = incrementPatchVersion(currentVersion);
                 packageJson.version = newVersion;
@@ -247,11 +254,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 logger.info(`Version change committed: ${newVersion}`);
             }
 
-            logger.info(isDryRun ? 'DRY RUN: Would generate release notes...' : 'Generating release notes...');
+            logger.info('Generating release notes...');
             const releaseSummary = await Release.execute(runConfig);
 
             if (isDryRun) {
-                logger.info('DRY RUN: Would write release notes to RELEASE_NOTES.md and RELEASE_TITLE.md in output directory');
+                logger.info('Would write release notes to RELEASE_NOTES.md and RELEASE_TITLE.md in output directory');
             } else {
                 const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
                 await storage.ensureDirectory(outputDirectory);
@@ -264,12 +271,14 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 logger.info(`Release notes and title generated and saved to ${releaseNotesPath} and ${releaseTitlePath}.`);
             }
 
-            logger.info(isDryRun ? 'DRY RUN: Would push to origin...' : 'Pushing to origin...');
-            await runWithDryRunSupport('git push', isDryRun);
+            logger.info('Pushing to origin...');
+            // Get current branch name and push explicitly to avoid pushing to wrong remote/branch
+            const currentBranch = await GitHub.getCurrentBranchName();
+            await runWithDryRunSupport(`git push origin ${currentBranch}`, isDryRun);
 
-            logger.info(isDryRun ? 'DRY RUN: Would create pull request...' : 'Creating pull request...');
+            logger.info('Creating pull request...');
             if (isDryRun) {
-                logger.info('DRY RUN: Would get commit title and create PR with GitHub API');
+                logger.info('Would get commit title and create PR with GitHub API');
                 pr = { number: 123, html_url: 'https://github.com/mock/repo/pull/123', labels: [] } as PullRequest;
             } else {
                 const { stdout: commitTitle } = await run('git log -1 --pretty=%B');
@@ -281,7 +290,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
             }
         }
 
-        logger.info(`${isDryRun ? 'DRY RUN: Would wait for' : 'Waiting for'} PR #${pr!.number} checks to complete...`);
+        logger.info(`Waiting for PR #${pr!.number} checks to complete...`);
         if (!isDryRun) {
             // Configure timeout and user confirmation behavior
             const timeout = runConfig.publish?.checksTimeout || 300000; // 5 minutes default
@@ -297,23 +306,25 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         const mergeMethod = runConfig.publish?.mergeMethod || 'squash';
         if (isDryRun) {
-            logger.info(`DRY RUN: Would merge PR #${pr!.number} using ${mergeMethod} method`);
+            logger.info(`Would merge PR #${pr!.number} using ${mergeMethod} method`);
         } else {
             await GitHub.mergePullRequest(pr!.number, mergeMethod);
         }
 
-        logger.info(isDryRun ? 'DRY RUN: Would checkout main branch...' : 'Checking out main branch...');
+        logger.info('Checking out main branch...');
         await runWithDryRunSupport('git checkout main', isDryRun);
         await runWithDryRunSupport('git pull origin main', isDryRun);
 
         // Now create and push the tag on the main branch
-        logger.info(isDryRun ? 'DRY RUN: Would create release tag...' : 'Creating release tag...');
+        logger.info('Creating release tag...');
+        let tagName: string;
         if (isDryRun) {
-            logger.info('DRY RUN: Would read package.json version and create git tag');
+            logger.info('Would read package.json version and create git tag');
+            tagName = 'v1.0.0'; // Mock version for dry run
         } else {
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
             const { version } = JSON.parse(packageJsonContents);
-            const tagName = `v${version}`;
+            tagName = `v${version}`;
 
             // Check if tag already exists locally
             try {
@@ -331,6 +342,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
             }
 
             // Check if tag exists on remote before pushing
+            let tagWasPushed = false;
             try {
                 const { stdout } = await run(`git ls-remote origin refs/tags/${tagName}`);
                 if (stdout.trim()) {
@@ -338,12 +350,14 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 } else {
                     await run(`git push origin ${tagName}`);
                     logger.info(`Pushed tag to remote: ${tagName}`);
+                    tagWasPushed = true;
                 }
             } catch (error) {
                 // If ls-remote fails, try to push anyway (might be a new remote)
                 try {
                     await run(`git push origin ${tagName}`);
                     logger.info(`Pushed tag to remote: ${tagName}`);
+                    tagWasPushed = true;
                 } catch (pushError: any) {
                     if (pushError.message && pushError.message.includes('already exists')) {
                         logger.info(`Tag ${tagName} already exists on remote, continuing...`);
@@ -352,33 +366,62 @@ export const execute = async (runConfig: Config): Promise<void> => {
                     }
                 }
             }
+
+            // If we just pushed a new tag, wait for GitHub to process it
+            if (tagWasPushed) {
+                logger.verbose('Waiting for GitHub to process the pushed tag...');
+                await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+            }
         }
 
-        logger.info(isDryRun ? 'DRY RUN: Would create GitHub release...' : 'Creating GitHub release...');
-        let tagName: string;
+        logger.info('Creating GitHub release...');
         if (isDryRun) {
-            logger.info('DRY RUN: Would read package.json version and create GitHub release');
-            tagName = 'v1.0.0'; // Mock version for dry run
+            logger.info('Would read package.json version and create GitHub release with retry logic');
         } else {
-            const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-            const { version } = JSON.parse(packageJsonContents);
-            tagName = `v${version}`;
-
             const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
             const releaseNotesPath = getOutputPath(outputDirectory, 'RELEASE_NOTES.md');
             const releaseTitlePath = getOutputPath(outputDirectory, 'RELEASE_TITLE.md');
 
             const releaseNotesContent = await storage.readFile(releaseNotesPath, 'utf-8');
             const releaseTitle = await storage.readFile(releaseTitlePath, 'utf-8');
-            await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
+
+            // Create release with retry logic to handle GitHub tag processing delays
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
+                    logger.info(`GitHub release created successfully for tag: ${tagName}`);
+                    break; // Success - exit retry loop
+                } catch (error: any) {
+                    // Check if this is a tag-not-found error that we can retry
+                    const isTagNotFoundError = error.message && (
+                        error.message.includes('not found') ||
+                        error.message.includes('does not exist') ||
+                        error.message.includes('Reference does not exist')
+                    );
+
+                    if (isTagNotFoundError && retries > 1) {
+                        logger.verbose(`Tag ${tagName} not yet available on GitHub, retrying in 3 seconds... (${retries - 1} retries left)`);
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                        retries--;
+                    } else {
+                        // Either not a tag-not-found error, or we're out of retries
+                        if (isTagNotFoundError) {
+                            throw new Error(`Tag ${tagName} was not found on GitHub after ${3 - retries + 1} attempts. This may indicate a problem with tag creation or GitHub synchronization.`);
+                        } else {
+                            throw error; // Re-throw the original error for other types of failures
+                        }
+                    }
+                }
+            }
         }
 
         // Wait for release workflows to complete (if enabled)
         const waitForWorkflows = runConfig.publish?.waitForReleaseWorkflows !== false; // default to true
         if (waitForWorkflows) {
-            logger.info(isDryRun ? 'DRY RUN: Would wait for release workflows...' : 'Waiting for release workflows...');
+            logger.info('Waiting for release workflows...');
             if (isDryRun) {
-                logger.info('DRY RUN: Would monitor GitHub Actions workflows triggered by release');
+                logger.info('Would monitor GitHub Actions workflows triggered by release');
             } else {
                 const workflowTimeout = runConfig.publish?.releaseWorkflowsTimeout || 600000; // 10 minutes default
                 const senditMode = runConfig.publish?.sendit || false;
@@ -409,31 +452,65 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 });
             }
         } else {
-            logger.verbose(isDryRun ? 'DRY RUN: Would skip waiting for release workflows (disabled in config).' : 'Skipping waiting for release workflows (disabled in config).');
+            logger.verbose('Skipping waiting for release workflows (disabled in config).');
         }
 
-        logger.info(isDryRun ? 'DRY RUN: Would create new release branch...' : 'Creating new release branch...');
+        logger.info('Creating new release branch...');
         if (isDryRun) {
-            logger.info('DRY RUN: Would create next release branch (e.g., release/1.0.1) and push to origin');
+            logger.info('Would create next release branch (e.g., release/1.0.1) and push to origin');
         } else {
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
             const { version } = JSON.parse(packageJsonContents);
             const nextVersion = incrementPatchVersion(version);
             const newBranchName = `release/${nextVersion}`;
-            await run(`git checkout -b ${newBranchName}`);
-            await run(`git push -u origin ${newBranchName}`);
-            logger.info(`Branch ${newBranchName} created and pushed to origin.`);
+
+            // Check if branch already exists locally
+            let branchExists = false;
+            try {
+                await run(`git show-ref --verify --quiet refs/heads/${newBranchName}`);
+                branchExists = true;
+            } catch {
+                // Branch doesn't exist locally
+                branchExists = false;
+            }
+
+            if (branchExists) {
+                // Branch exists, switch to it
+                await run(`git checkout ${newBranchName}`);
+                logger.info(`Switched to existing branch ${newBranchName}`);
+            } else {
+                // Branch doesn't exist, create it
+                await run(`git checkout -b ${newBranchName}`);
+                logger.info(`Created new branch ${newBranchName}`);
+            }
+
+            // Check if branch exists on remote before pushing
+            let remoteExists = false;
+            try {
+                const { stdout } = await run(`git ls-remote origin refs/heads/${newBranchName}`);
+                remoteExists = stdout.trim() !== '';
+            } catch {
+                // Assume remote doesn't exist if ls-remote fails
+                remoteExists = false;
+            }
+
+            if (remoteExists) {
+                logger.info(`Branch ${newBranchName} already exists on remote, skipping push`);
+            } else {
+                await run(`git push -u origin ${newBranchName}`);
+                logger.info(`Branch ${newBranchName} pushed to origin.`);
+            }
         }
 
-        logger.info(isDryRun ? 'DRY RUN: Preparation would be complete.' : 'Preparation complete.');
+        logger.info('Preparation complete.');
     } finally {
         // Restore linked packages (if enabled)
         const shouldLink = runConfig.publish?.linkWorkspacePackages !== false; // default to true
         if (shouldLink) {
-            logger.verbose(isDryRun ? 'DRY RUN: Would restore linked packages...' : 'Restoring linked packages...');
+            logger.verbose('Restoring linked packages...');
             await Link.execute(runConfig);
         } else {
-            logger.verbose(isDryRun ? 'DRY RUN: Would skip restore linked packages (disabled in config).' : 'Skipping restore linked packages (disabled in config).');
+            logger.verbose('Skipping restore linked packages (disabled in config).');
         }
     }
 };

@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import path from 'path';
-import { getLogger } from '../logging';
+import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
+import { safeJsonParse, validateLinkBackup, type LinkBackup } from '../util/validation';
 import { run } from '../util/child';
 import {
     PerformanceTimer,
@@ -20,13 +21,7 @@ interface ExtendedPackageJson extends PackageJson {
     resolutions?: Record<string, any>;
 }
 
-interface LinkBackup {
-    [backupKey: string]: {
-        originalVersion: string;
-        dependencyType: 'dependencies' | 'devDependencies' | 'peerDependencies';
-        relativePath: string;
-    };
-}
+
 
 interface ProblematicDependency {
     name: string;
@@ -101,9 +96,10 @@ const readLinkBackup = async (storage: any): Promise<LinkBackup> => {
     if (await storage.exists(backupPath)) {
         try {
             const content = await storage.readFile(backupPath, 'utf-8');
-            return JSON.parse(content) as LinkBackup;
+            const parsed = safeJsonParse(content, 'link backup file');
+            return validateLinkBackup(parsed);
         } catch (error) {
-            throw new Error(`Failed to parse link backup file: ${error}`);
+            throw new Error(`Failed to parse link backup file: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
     return {};
@@ -141,7 +137,7 @@ const restorePackageJson = async (
             continue;
         }
 
-        const currentDeps = packageJson[backupEntry.dependencyType];
+        const currentDeps = (packageJson as any)[backupEntry.dependencyType];
         if (currentDeps && currentDeps[packageName]?.startsWith('file:')) {
             // Restore the original version
             currentDeps[packageName] = backupEntry.originalVersion;
@@ -317,7 +313,8 @@ const verifyCleanup = async (packageJsonFiles: PackageJsonLocation[]): Promise<b
 };
 
 export const execute = async (runConfig: Config): Promise<string> => {
-    const logger = getLogger();
+    const isDryRun = runConfig.dryRun || runConfig.unlink?.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
     const overallTimer = PerformanceTimer.start(logger, 'Unlink command execution');
     const storage = createStorage({ log: logger.info });
 
@@ -325,8 +322,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Get configuration
     const configTimer = PerformanceTimer.start(logger, 'Reading configuration');
-    const scopeRoots = runConfig.link?.scopeRoots || {};
-    const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
+    const scopeRoots = runConfig.unlink?.scopeRoots || runConfig.link?.scopeRoots || {};
+    const workspaceFileName = runConfig.unlink?.workspaceFile || 'pnpm-workspace.yaml';
     configTimer.end('Configuration loaded');
 
     if (Object.keys(scopeRoots).length === 0) {
@@ -366,7 +363,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     backupTimer.end('Link backup loaded');
 
     if (isDryRun) {
-        logger.info('DRY RUN: Would clean up problematic dependencies and restore original package.json dependencies');
+        logger.info('Would clean up problematic dependencies and restore original package.json dependencies');
 
         // Show what would be cleaned up
         let dryRunCount = 0;
@@ -375,7 +372,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 const backupKey = `${relativePath}:${packageName}`;
                 const backupEntry = backup[backupKey];
                 if (backupEntry) {
-                    logger.verbose(`DRY RUN: Would restore ${relativePath}/${packageName}: file:... -> ${backupEntry.originalVersion}`);
+                    logger.verbose(`Would restore ${relativePath}/${packageName}: file:... -> ${backupEntry.originalVersion}`);
                     dryRunCount++;
                 }
             }
@@ -383,7 +380,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         // Show what problematic dependencies would be cleaned
         if (problematicDeps.length > 0) {
-            logger.verbose(`DRY RUN: Would clean up ${problematicDeps.length} problematic dependencies`);
+            logger.verbose(`Would clean up ${problematicDeps.length} problematic dependencies`);
         }
 
         overallTimer.end('Unlink command (dry run)');

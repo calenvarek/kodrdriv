@@ -9,7 +9,15 @@ vi.mock('../../src/logging', () => ({
         debug: vi.fn(),
         verbose: vi.fn(),
         silly: vi.fn()
-    })
+    }),
+    getDryRunLogger: vi.fn().mockImplementation((isDryRun: boolean) => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    }))
 }));
 
 // Mock the storage module
@@ -19,6 +27,11 @@ vi.mock('../../src/util/storage', () => ({
         removeDirectory: vi.fn(),
     })
 }));
+
+// Mock process.exit to prevent actual exit during tests
+const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
+    throw new Error('process.exit called');
+});
 
 // Mock the constants module
 vi.mock('../../src/constants', () => ({
@@ -56,11 +69,13 @@ describe('clean command', () => {
         };
 
         Logging.getLogger.mockReturnValue(mockLogger);
+        Logging.getDryRunLogger.mockReturnValue(mockLogger);
         Storage.create.mockReturnValue(mockStorage);
     });
 
     afterEach(() => {
         vi.clearAllMocks();
+        mockExit.mockClear();
     });
 
     describe('dry run mode', () => {
@@ -70,15 +85,16 @@ describe('clean command', () => {
                 dryRun: true,
                 outputDirectory: 'custom/output'
             };
-            mockStorage.exists.mockResolvedValue(true);
 
             // Act
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would remove output directory: custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Output directory exists and would be removed');
-            expect(mockStorage.exists).toHaveBeenCalledWith('custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would remove output directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would check if output directory exists: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would remove directory if it exists');
+            // Storage operations should not be called in dry run
+            expect(mockStorage.exists).not.toHaveBeenCalled();
             expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
         });
 
@@ -88,15 +104,16 @@ describe('clean command', () => {
                 dryRun: true,
                 outputDirectory: 'custom/output'
             };
-            mockStorage.exists.mockResolvedValue(false);
 
             // Act
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would remove output directory: custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Output directory does not exist, nothing to clean');
-            expect(mockStorage.exists).toHaveBeenCalledWith('custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would remove output directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would check if output directory exists: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would remove directory if it exists');
+            // Storage operations should not be called in dry run
+            expect(mockStorage.exists).not.toHaveBeenCalled();
             expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
         });
 
@@ -105,14 +122,15 @@ describe('clean command', () => {
             const runConfig = {
                 dryRun: true
             };
-            mockStorage.exists.mockResolvedValue(true);
 
             // Act
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would remove output directory: output/kodrdriv');
-            expect(mockStorage.exists).toHaveBeenCalledWith('output/kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would remove output directory: output/kodrdriv');
+            // Storage operations should not be called in dry run
+            expect(mockStorage.exists).not.toHaveBeenCalled();
+            expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
         });
     });
 
@@ -200,7 +218,7 @@ describe('clean command', () => {
             mockStorage.removeDirectory.mockRejectedValue(error);
 
             // Act & Assert
-            await expect(Clean.execute(runConfig)).rejects.toThrow('Permission denied');
+            await expect(Clean.execute(runConfig)).rejects.toThrow('process.exit called');
             expect(mockLogger.error).toHaveBeenCalledWith('Failed to clean output directory: Permission denied');
             expect(mockStorage.removeDirectory).toHaveBeenCalledWith('custom/output');
         });

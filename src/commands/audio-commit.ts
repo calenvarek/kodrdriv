@@ -1,34 +1,30 @@
 #!/usr/bin/env node
-import { getLogger } from '../logging';
-import { Config } from '../types';
-import { execute as executeCommit } from './commit';
-import { processAudio } from '@theunwalked/unplayable';
-import { transcribeAudio } from '../util/openai';
-import { getTimestampedAudioFilename } from '../util/general';
 import path from 'path';
+import { processAudio } from '@theunwalked/unplayable';
+import { CancellationError } from '../error/CancellationError';
+import { UserCancellationError } from '../error/CommandErrors';
+import { getDryRunLogger, getLogger } from '../logging';
+import { Config } from '../types';
+import { getTimestampedAudioFilename } from '../util/general';
+import { transcribeAudio } from '../util/openai';
+import { execute as executeCommit } from './commit';
 
-export const execute = async (runConfig: Config): Promise<string> => {
-    const logger = getLogger();
+const executeInternal = async (runConfig: Config): Promise<string> => {
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
 
     if (isDryRun) {
         if (runConfig.audioCommit?.file) {
-            logger.info('DRY RUN: Would process audio file: %s', runConfig.audioCommit.file);
-            logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+            logger.info('Would process audio file: %s', runConfig.audioCommit.file);
+            logger.info('Would transcribe audio and use as context for commit message generation');
         } else {
-            logger.info('DRY RUN: Would start audio recording for commit context');
-            logger.info('DRY RUN: Would transcribe audio and use as context for commit message generation');
+            logger.info('Would start audio recording for commit context');
+            logger.info('Would transcribe audio and use as context for commit message generation');
         }
-        logger.info('DRY RUN: Would then delegate to regular commit command');
+        logger.info('Would then delegate to regular commit command');
 
-        // In dry run, just call the regular commit command with empty audio context
-        return executeCommit({
-            ...runConfig,
-            commit: {
-                ...runConfig.commit,
-                direction: runConfig.commit?.direction || ''
-            }
-        });
+        // Return preview without calling real commands
+        return 'DRY RUN: Would process audio, transcribe it, and generate commit message with audio context';
     }
 
     let audioContext: string;
@@ -52,7 +48,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Check if recording was cancelled
         if (audioResult.cancelled) {
             logger.info('❌ Audio commit cancelled by user');
-            process.exit(0);
+            throw new UserCancellationError('Audio commit cancelled by user');
         }
 
         // Step 2: Get the audio file path from the result
@@ -92,6 +88,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
 
     } catch (error: any) {
+        // Re-throw cancellation errors properly
+        if (error instanceof UserCancellationError) {
+            throw error;
+        }
+
+        // Convert old CancellationError to new UserCancellationError
+        if (error.name === 'CancellationError' || error instanceof CancellationError) {
+            throw new UserCancellationError(error.message);
+        }
+
         logger.error('Audio processing failed: %s', error.message);
         logger.info('Proceeding with commit generation without audio context...');
         audioContext = '';
@@ -108,4 +114,25 @@ export const execute = async (runConfig: Config): Promise<string> => {
     });
 
     return result;
+};
+
+export const execute = async (runConfig: Config): Promise<string> => {
+    try {
+        return await executeInternal(runConfig);
+    } catch (error: any) {
+        const logger = getLogger();
+
+        // Handle user cancellation gracefully - exit with code 0
+        if (error instanceof UserCancellationError) {
+            logger.info(error.message);
+            process.exit(0);
+        }
+
+        // Handle other errors - exit with code 1
+        logger.error(`audio-commit failed: ${error.message}`);
+        if (error.cause) {
+            logger.debug(`Caused by: ${error.cause.message}`);
+        }
+        process.exit(1);
+    }
 };

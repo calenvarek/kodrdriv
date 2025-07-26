@@ -460,7 +460,7 @@ describe('publish-tree', () => {
                 // Missing name field
             }));
 
-            await expect(execute(config)).rejects.toThrow('Package at /workspace/package-a/package.json has no name field');
+            await expect(execute(config)).rejects.toThrow('Failed to analyze workspace: Invalid package.json (/workspace/package-a/package.json): name must be a string');
         });
 
         it('should handle invalid JSON in package.json', async () => {

@@ -39,7 +39,15 @@ vi.mock('../../src/logging', () => ({
         debug: vi.fn(),
         verbose: vi.fn(),
         silly: vi.fn()
-    })
+    }),
+    getDryRunLogger: vi.fn().mockImplementation((isDryRun: boolean) => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    }))
 }));
 
 vi.mock('../../src/util/storage', () => ({

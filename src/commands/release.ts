@@ -6,17 +6,22 @@ import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_FROM_COMMIT_ALIAS, DEFAULT_TO_COMMIT
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as ReleasePrompt from '../prompt/release';
-import { Config, ReleaseSummary } from '../types';
+import { Config } from '../types';
 import { createCompletion } from '../util/openai';
-import { getLogger } from '../logging';
+import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
+import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
 
 export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
-    const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
 
-    const log = await Log.create({ from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS, to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS });
+    const log = await Log.create({
+        from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS,
+        to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS,
+        limit: runConfig.release?.messageLimit
+    });
     let logContent = '';
 
     const diff = await Diff.create({ from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS, to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS, excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS });
@@ -56,13 +61,15 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
     });
 
+    // Validate and safely cast the response
+    const releaseSummary = validateReleaseSummary(summary);
+
     // Save timestamped copy of release notes to output directory
     try {
         const timestampedFilename = getTimestampedReleaseNotesFilename();
         const outputPath = getOutputPath(outputDirectory, timestampedFilename);
 
         // Format the release notes as markdown
-        const releaseSummary = summary as ReleaseSummary;
         const releaseNotesContent = `# ${releaseSummary.title}\n\n${releaseSummary.body}`;
 
         await storage.writeFile(outputPath, releaseNotesContent, 'utf-8');
@@ -72,10 +79,10 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     }
 
     if (isDryRun) {
-        logger.info('DRY RUN: Generated release summary:');
-        logger.info('Title: %s', (summary as ReleaseSummary).title);
-        logger.info('Body: %s', (summary as ReleaseSummary).body);
+        logger.info('Generated release summary:');
+        logger.info('Title: %s', releaseSummary.title);
+        logger.info('Body: %s', releaseSummary.body);
     }
 
-    return summary as ReleaseSummary;
+    return releaseSummary;
 }

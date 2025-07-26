@@ -1,13 +1,19 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
+// Create shared mock logger instance
+const mockLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+    silly: vi.fn()
+};
+
 // Mock external dependencies
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn().mockReturnValue({
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn()
-    })
+    getLogger: vi.fn().mockReturnValue(mockLogger),
+    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
 }));
 
 vi.mock('@theunwalked/unplayable', () => ({
@@ -69,8 +75,8 @@ describe('select-audio', () => {
             const result = await SelectAudio.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would start audio device selection process');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would save selected device to %s', '/home/user/.unplayable/audio-device.json');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would start audio device selection process');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', expect.any(String));
             expect(result).toBe('Audio device selection completed (dry run)');
             expect(Unplayable.selectAndConfigureAudioDevice).not.toHaveBeenCalled();
         });
@@ -87,8 +93,8 @@ describe('select-audio', () => {
             const result = await SelectAudio.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would start audio device selection process');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would save selected device to %s', '/home/user/.unplayable/audio-device.json');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would start audio device selection process');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', expect.any(String));
             expect(result).toBe('Audio device selection completed (dry run)');
         });
 
@@ -208,24 +214,19 @@ describe('select-audio', () => {
     });
 
     describe('error handling', () => {
-        it('should handle selectAndConfigureAudioDevice errors and exit with code 1', async () => {
+        it('should handle selectAndConfigureAudioDevice errors and throw error', async () => {
             // Arrange
             const mockConfig = {
                 dryRun: false,
                 debug: false
             };
             const mockError = new Error('Audio device selection failed');
-            const mockLogger = Logging.getLogger();
 
             Unplayable.selectAndConfigureAudioDevice.mockRejectedValue(mockError);
 
             // Act & Assert
-            await expect(async () => {
-                await SelectAudio.execute(mockConfig);
-            }).rejects.toThrow('process.exit called');
-
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Audio device selection failed');
             expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Audio device selection failed');
-            expect(mockExit).toHaveBeenCalledWith(1);
         });
 
         it('should handle errors with custom error messages', async () => {
@@ -235,17 +236,12 @@ describe('select-audio', () => {
                 debug: true
             };
             const mockError = new Error('No audio devices found');
-            const mockLogger = Logging.getLogger();
 
             Unplayable.selectAndConfigureAudioDevice.mockRejectedValue(mockError);
 
             // Act & Assert
-            await expect(async () => {
-                await SelectAudio.execute(mockConfig);
-            }).rejects.toThrow('process.exit called');
-
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: No audio devices found');
             expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'No audio devices found');
-            expect(mockExit).toHaveBeenCalledWith(1);
         });
 
         it('should handle errors without message property', async () => {
@@ -260,12 +256,8 @@ describe('select-audio', () => {
             Unplayable.selectAndConfigureAudioDevice.mockRejectedValue(mockError);
 
             // Act & Assert
-            await expect(async () => {
-                await SelectAudio.execute(mockConfig);
-            }).rejects.toThrow('process.exit called');
-
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', undefined);
-            expect(mockExit).toHaveBeenCalledWith(1);
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Custom error object');
+            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Custom error object');
         });
     });
 
@@ -328,7 +320,7 @@ describe('select-audio', () => {
             SelectAudio.execute(mockConfig);
 
             expect(path.join).toHaveBeenCalledWith('/test/home', '.unplayable', 'audio-device.json');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would save selected device to %s', '/test/home/.unplayable/audio-device.json');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', '/test/home/.unplayable/audio-device.json');
         });
     });
 });

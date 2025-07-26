@@ -30,6 +30,14 @@ vi.mock('../../src/logging', () => ({
         debug: vi.fn(),
         verbose: vi.fn(),
         silly: vi.fn()
+    })),
+    getDryRunLogger: vi.fn((isDryRun: boolean) => ({
+        info: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
     }))
 }));
 
@@ -77,10 +85,18 @@ describe('publish command', () => {
     let mockLogger: any;
     let mockStorage: any;
     let originalEnv: NodeJS.ProcessEnv;
+    let originalSetTimeout: typeof setTimeout;
 
     beforeEach(async () => {
-        // Store original environment
+        // Store original environment and setTimeout
         originalEnv = { ...process.env };
+        originalSetTimeout = global.setTimeout;
+
+        // Mock setTimeout to resolve immediately in tests to avoid delays
+        global.setTimeout = ((callback: () => void) => {
+            callback();
+            return 0 as any;
+        }) as any;
 
         // Import modules after mocking
         Commit = await import('../../src/commands/commit');
@@ -122,8 +138,9 @@ describe('publish command', () => {
 
     afterEach(() => {
         vi.clearAllMocks();
-        // Restore original environment
+        // Restore original environment and setTimeout
         process.env = originalEnv;
+        global.setTimeout = originalSetTimeout;
     });
 
     describe('scanNpmrcForEnvVars', () => {
@@ -182,6 +199,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
@@ -250,6 +268,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
@@ -306,6 +325,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
@@ -367,6 +387,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
@@ -413,6 +434,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
@@ -589,6 +611,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0',
                         scripts: {
                             test: 'npm test'
@@ -627,6 +650,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
                         version: '1.0.0'
                         // No scripts section
                     }));
@@ -647,6 +671,7 @@ cache=\${CACHE_DIR}/npm
         // Helper function to set up common precheck mocks
         const setupPrecheckMocks = () => {
             const mockPackageJson = {
+                name: 'test-package',
                 version: '0.0.4',
                 scripts: {
                     prepublishOnly: 'npm run clean && npm run lint && npm run build && npm run test'
@@ -717,7 +742,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run prepublishOnly' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run prepublishOnly' } }));
                 }
                 if (filename === 'RELEASE_NOTES.md') {
                     return Promise.resolve(mockReleaseNotesBody);
@@ -754,7 +779,7 @@ cache=\${CACHE_DIR}/npm
             expect(Release.execute).toHaveBeenCalledWith(mockConfig);
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotesBody, 'utf-8');
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/0.0.4', false);
             expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
                 timeout: 300000,
@@ -764,7 +789,7 @@ cache=\${CACHE_DIR}/npm
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
-            expect(Child.run).toHaveBeenCalledWith('git checkout -b release/0.0.5');
+            expect(Child.run).toHaveBeenCalledWith('git checkout release/0.0.5');
             expect(Child.run).toHaveBeenCalledWith('git push -u origin release/0.0.5');
             expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
@@ -794,7 +819,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -875,7 +900,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -910,7 +935,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -997,7 +1022,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'pnpm run clean && pnpm run lint && pnpm run build && npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'pnpm run clean && pnpm run lint && pnpm run build && npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1079,7 +1104,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve('Release Title');
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1128,7 +1153,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve('Release Title');
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1180,7 +1205,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve('Release Title');
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1225,7 +1250,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1256,7 +1281,7 @@ cache=\${CACHE_DIR}/npm
 
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1320,7 +1345,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1366,7 +1391,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1445,7 +1470,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1525,7 +1550,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1604,7 +1629,7 @@ cache=\${CACHE_DIR}/npm
                     return Promise.resolve(mockReleaseTitle);
                 }
                 if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({ version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
+                    return Promise.resolve(JSON.stringify({ name: 'test-package', version: '0.0.4', scripts: { prepublishOnly: 'npm run test' } }));
                 }
                 return Promise.resolve('');
             });
@@ -1619,6 +1644,180 @@ cache=\${CACHE_DIR}/npm
             expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
             expect(Link.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
+        });
+    });
+
+    describe('GitHub release retry logic', () => {
+        const mockConfig = {
+            model: 'gpt-4o-mini',
+            configDirectory: '/test/config'
+        };
+
+        // Helper function to set up common mocks for retry tests
+        const setupRetryTestMocks = () => {
+            const mockBranchName = 'release/1.0.0';
+            const mockPR = {
+                number: 123,
+                html_url: 'https://github.com/owner/repo/pull/123'
+            };
+
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+            mockStorage.exists.mockImplementation((path: string) => {
+                if (path.includes('package.json')) {
+                    return Promise.resolve(true);
+                }
+                return Promise.resolve(false);
+            });
+
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'test-package', version: '1.0.0',
+                        scripts: { prepublishOnly: 'npm test' }
+                    }));
+                }
+                if (filename === 'RELEASE_NOTES.md') {
+                    return Promise.resolve('# Release Notes');
+                }
+                if (filename === 'RELEASE_TITLE.md') {
+                    return Promise.resolve('Release Title');
+                }
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') {
+                    return Promise.resolve({ stdout: '.git' });
+                }
+                if (command === 'git status --porcelain') {
+                    return Promise.resolve({ stdout: '' });
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            General.incrementPatchVersion.mockReturnValue('1.0.1');
+        };
+
+        it('should retry GitHub release creation when tag not found error occurs', async () => {
+            // Arrange
+            setupRetryTestMocks();
+
+            let attemptCount = 0;
+            GitHub.createRelease.mockImplementation(async () => {
+                attemptCount++;
+                if (attemptCount === 1) {
+                    throw new Error('Reference does not exist');
+                } else {
+                    return Promise.resolve(); // Success on second attempt
+                }
+            });
+
+            // Act
+            await Publish.execute(mockConfig);
+
+            // Assert
+            expect(GitHub.createRelease).toHaveBeenCalledTimes(2);
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+        });
+
+        it('should retry GitHub release creation when "not found" error occurs', async () => {
+            // Arrange
+            setupRetryTestMocks();
+
+            let attemptCount = 0;
+            GitHub.createRelease.mockImplementation(async () => {
+                attemptCount++;
+                if (attemptCount === 1) {
+                    throw new Error('Tag not found on remote');
+                } else {
+                    return Promise.resolve(); // Success on second attempt
+                }
+            });
+
+            // Act
+            await Publish.execute(mockConfig);
+
+            // Assert
+            expect(GitHub.createRelease).toHaveBeenCalledTimes(2);
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+        });
+
+        it('should fail after exhausting all retries for tag not found errors', async () => {
+            // Arrange
+            setupRetryTestMocks();
+
+            GitHub.createRelease.mockRejectedValue(new Error('Reference does not exist'));
+
+            // Act & Assert
+            await expect(Publish.execute(mockConfig)).rejects.toThrow(
+                'Tag v1.0.0 was not found on GitHub after 3 attempts. This may indicate a problem with tag creation or GitHub synchronization.'
+            );
+            expect(GitHub.createRelease).toHaveBeenCalledTimes(3);
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+        });
+
+        it('should not retry for non-tag-related errors', async () => {
+            // Arrange
+            setupRetryTestMocks();
+
+            GitHub.createRelease.mockRejectedValue(new Error('API rate limit exceeded'));
+
+            // Act & Assert
+            await expect(Publish.execute(mockConfig)).rejects.toThrow('API rate limit exceeded');
+            expect(GitHub.createRelease).toHaveBeenCalledTimes(1); // No retries for non-tag errors
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+        });
+
+        it('should succeed on first attempt when no errors occur', async () => {
+            // Arrange
+            setupRetryTestMocks();
+
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            // Act
+            await Publish.execute(mockConfig);
+
+            // Assert
+            expect(GitHub.createRelease).toHaveBeenCalledTimes(1);
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+        });
+
+        it('should handle tag push detection correctly when tag already exists remotely', async () => {
+            // Arrange
+            setupRetryTestMocks();
+
+            // Mock git ls-remote to show tag already exists
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') {
+                    return Promise.resolve({ stdout: '.git' });
+                }
+                if (command === 'git status --porcelain') {
+                    return Promise.resolve({ stdout: '' });
+                }
+                if (command.includes('git ls-remote origin refs/tags/')) {
+                    return Promise.resolve({ stdout: 'refs/tags/v1.0.0' }); // Tag exists
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            // Act
+            await Publish.execute(mockConfig);
+
+            // Assert - Should succeed without delays since tag wasn't newly pushed
+            expect(GitHub.createRelease).toHaveBeenCalledTimes(1);
+            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
         });
     });
 
@@ -1647,7 +1846,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -1669,7 +1868,7 @@ cache=\${CACHE_DIR}/npm
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', true);
 
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/1.0.0', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', true);
             expect(GitHub.createPullRequest).not.toHaveBeenCalled();
@@ -1704,7 +1903,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -1743,7 +1942,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -1787,7 +1986,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -1849,7 +2048,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -1912,7 +2111,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -1969,7 +2168,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -2023,7 +2222,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -2077,7 +2276,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -2107,7 +2306,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -2158,7 +2357,7 @@ cache=\${CACHE_DIR}/npm
                     packageJsonReadCount++;
                     if (packageJsonReadCount === 1) {
                         return Promise.resolve(JSON.stringify({
-                            version: '1.0.0',
+                            name: 'test-package', version: '1.0.0',
                             scripts: { prepublishOnly: 'npm test' }
                         }));
                     } else {
@@ -2217,7 +2416,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -2237,7 +2436,7 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git status --porcelain') {
                     return Promise.resolve({ stdout: '' });
                 }
-                if (command.startsWith('git checkout -b release/')) {
+                if (command.startsWith('git checkout release/')) {
                     return Promise.reject(new Error('Failed to create new branch'));
                 }
                 return Promise.resolve({ stdout: '' });
@@ -2283,7 +2482,7 @@ cache=\${CACHE_DIR}/npm
             mockStorage.readFile.mockImplementation((filename: string) => {
                 if (filename && filename.includes('package.json')) {
                     return Promise.resolve(JSON.stringify({
-                        version: '1.0.0',
+                        name: 'test-package', version: '1.0.0',
                         scripts: { prepublishOnly: 'npm test' }
                     }));
                 }
@@ -2351,7 +2550,7 @@ cache=\${CACHE_DIR}/npm
                 mockStorage.readFile.mockImplementation((filename: string) => {
                     if (filename && filename.includes('package.json')) {
                         return Promise.resolve(JSON.stringify({
-                            version: '1.0.0',
+                            name: 'test-package', version: '1.0.0',
                             scripts: { prepublishOnly: 'npm test' }
                         }));
                     }

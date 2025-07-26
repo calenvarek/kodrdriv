@@ -6,45 +6,84 @@ import shellescape from 'shell-escape';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Diff from '../content/diff';
 import * as Log from '../content/log';
-import { getLogger } from '../logging';
+import { CommandError, ValidationError, ExternalDependencyError } from '../error/CommandErrors';
+import { getDryRunLogger } from '../logging';
 import * as CommitPrompt from '../prompt/commit';
 import { Config } from '../types';
 import { run } from '../util/child';
+import { validateString } from '../util/validation';
 import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { createCompletion } from '../util/openai';
 import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
 
-export const execute = async (runConfig: Config) => {
-    const logger = getLogger();
+// Simplified cached determination with single check
+const determineCachedState = async (config: Config): Promise<boolean> => {
+    // If add is used, we always look at staged changes after add
+    if (config.commit?.add) {
+        return true;
+    }
+
+    // If explicitly set, use that value
+    if (config.commit?.cached !== undefined) {
+        return config.commit.cached;
+    }
+
+    // Otherwise, check if there are staged changes
+    return await Diff.hasStagedChanges();
+};
+
+// Single validation of sendit + cached state
+const validateSenditState = (config: Config, cached: boolean, isDryRun: boolean, logger: any): void => {
+    if (config.commit?.sendit && !cached && !isDryRun) {
+        const message = 'SendIt mode enabled, but no changes to commit.';
+        logger.error(message);
+        throw new ValidationError(message);
+    }
+};
+
+// Better file save handling with fallbacks
+const saveCommitMessage = async (outputDirectory: string, summary: string, storage: any, logger: any): Promise<void> => {
+    try {
+        const timestampedFilename = getTimestampedCommitFilename();
+        const outputPath = getOutputPath(outputDirectory, timestampedFilename);
+        await storage.writeFile(outputPath, summary, 'utf-8');
+        logger.debug('Saved timestamped commit message: %s', outputPath);
+    } catch (error: any) {
+        logger.warn('Failed to save timestamped commit message: %s', error.message);
+
+        // Fallback: try to save to current directory
+        try {
+            const fallbackPath = `commit-message-${Date.now()}.txt`;
+            await storage.writeFile(fallbackPath, summary, 'utf-8');
+            logger.info('Saved commit message to fallback location: %s', fallbackPath);
+        } catch (fallbackError: any) {
+            logger.error('Failed to save commit message anywhere: %s', fallbackError.message);
+            // Continue execution - commit message is still returned
+        }
+    }
+};
+
+const executeInternal = async (runConfig: Config) => {
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
 
     if (runConfig.commit?.add) {
         if (isDryRun) {
-            logger.info('DRY RUN: Would add all changes to the index with: git add -A');
+            logger.info('Would add all changes to the index with: git add -A');
         } else {
             logger.verbose('Adding all changes to the index...');
             await run('git add -A');
         }
     }
 
+    // Determine cached state with single, clear logic
+    const cached = await determineCachedState(runConfig);
+
+    // Validate sendit state early
+    validateSenditState(runConfig, cached, isDryRun, logger);
+
     let diffContent = '';
-
-    let cached = runConfig.commit?.cached;
-    // If `add` is used, we should always look at staged changes.
-    if (runConfig.commit?.add) {
-        cached = true;
-    } else if (cached === undefined) {
-        // If cached is undefined? We're going to look for a staged commit; otherwise, we'll use the supplied setting.
-        cached = await Diff.hasStagedChanges();
-    }
-
-    // Fix: Exit early if sendit is true but no changes are staged
-    if (runConfig.commit?.sendit && !cached && !isDryRun) {
-        logger.warn('SendIt mode enabled, but no changes to commit.');
-        process.exit(1);
-    }
-
     const options = { cached, excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS };
     const diff = await Diff.create(options);
     diffContent = await diff.get();
@@ -70,8 +109,9 @@ export const execute = async (runConfig: Config) => {
     };
     const prompt = await CommitPrompt.createPrompt(promptConfig, promptContent, promptContext);
 
+    // Use consistent model for debug (fix hardcoded model)
     if (runConfig.debug) {
-        const formattedPrompt = Formatter.create({ logger }).formatPrompt("gpt-4o-mini", prompt);
+        const formattedPrompt = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
         logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
     }
 
@@ -89,16 +129,8 @@ export const execute = async (runConfig: Config) => {
         debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
     });
 
-    // Save timestamped copy of commit message to output directory
-    try {
-        const timestampedFilename = getTimestampedCommitFilename();
-        const outputPath = getOutputPath(outputDirectory, timestampedFilename);
-
-        await storage.writeFile(outputPath, summary, 'utf-8');
-        logger.debug('Saved timestamped commit message: %s', outputPath);
-    } catch (error: any) {
-        logger.warn('Failed to save timestamped commit message: %s', error.message);
-    }
+    // Save timestamped copy of commit message with better error handling
+    await saveCommitMessage(outputDirectory, summary, storage, logger);
 
     // 🛡️ Universal Safety Check: Run before ANY commit operation
     // This protects both direct commits (--sendit) and automated commits (publish, etc.)
@@ -126,7 +158,7 @@ export const execute = async (runConfig: Config) => {
                     logger.error('To bypass this check, add skipFileCheck: true to your commit configuration');
                 }
 
-                process.exit(1);
+                throw new ValidationError('Found file: dependencies that should not be committed. Use --skip-file-check to bypass.');
             }
 
             logger.debug('✅ No file: dependencies found, proceeding with commit');
@@ -139,28 +171,51 @@ export const execute = async (runConfig: Config) => {
     }
 
     if (runConfig.commit?.sendit) {
-        if (!cached && !isDryRun) {
-            logger.error('SendIt mode enabled, but no changes to commit. Message: \n\n%s\n\n', summary);
-            process.exit(1);
-        }
-
         if (isDryRun) {
-            logger.info('DRY RUN: Would commit with message: \n\n%s\n\n', summary);
-            logger.info('DRY RUN: Would execute: git commit -m <generated-message>');
+            logger.info('Would commit with message: \n\n%s\n\n', summary);
+            logger.info('Would execute: git commit -m <generated-message>');
         } else {
             logger.info('SendIt mode enabled. Committing with message: \n\n%s\n\n', summary);
             try {
-                const escapedSummary = shellescape([summary]);
+                const validatedSummary = validateString(summary, 'commit summary');
+                const escapedSummary = shellescape([validatedSummary]);
                 await run(`git commit -m ${escapedSummary}`);
                 logger.info('Commit successful!');
-            } catch (error) {
+            } catch (error: any) {
                 logger.error('Failed to commit:', error);
-                process.exit(1);
+                throw new ExternalDependencyError('Failed to create commit', 'git', error);
             }
         }
     } else if (isDryRun) {
-        logger.info('DRY RUN: Generated commit message: \n\n%s\n\n', summary);
+        logger.info('Generated commit message: \n\n%s\n\n', summary);
     }
 
     return summary;
 }
+
+export const execute = async (runConfig: Config): Promise<string> => {
+    try {
+        return await executeInternal(runConfig);
+    } catch (error: any) {
+        // Import getLogger for error handling
+        const { getLogger } = await import('../logging');
+        const standardLogger = getLogger();
+
+        // For CLI usage, exit on error. For programmatic usage, throw.
+        const exitOnError = true; // Always exit for CLI usage
+
+        if (error instanceof ValidationError || error instanceof ExternalDependencyError || error instanceof CommandError) {
+            standardLogger.error(`commit failed: ${error.message}`);
+            if (error.cause) {
+                standardLogger.debug(`Caused by: ${error.cause.message}`);
+            }
+            if (exitOnError) process.exit(1);
+            throw error;
+        }
+
+        // Unexpected errors
+        standardLogger.error(`commit encountered unexpected error: ${error.message}`);
+        if (exitOnError) process.exit(1);
+        throw error;
+    }
+};
