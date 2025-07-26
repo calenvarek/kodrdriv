@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import Navigation from './components/Navigation'
 import DocumentPage from './components/DocumentPage'
 import StoryPage from './components/StoryPage'
@@ -10,6 +11,7 @@ function App() {
     return (
         <Router basename="/kodrdriv">
             <div className="app">
+                <GitHubPagesRedirectHandler />
                 <Routes>
                     <Route path="/story" element={<StoryPage />} />
                     <Route path="/commands" element={<CommandsPage />} />
@@ -19,6 +21,29 @@ function App() {
             </div>
         </Router>
     )
+}
+
+function GitHubPagesRedirectHandler() {
+    const navigate = useNavigate()
+    const location = useLocation()
+
+    useEffect(() => {
+        // Check if this is a redirect from the 404 page
+        const urlParams = new URLSearchParams(location.search)
+        const redirectPath = urlParams.get('p')
+
+        if (redirectPath) {
+            // Remove the redirect parameter and navigate to the intended path
+            const newUrl = new URL(window.location.href)
+            newUrl.searchParams.delete('p')
+            window.history.replaceState({}, '', newUrl.pathname + newUrl.search + newUrl.hash)
+
+            // Navigate to the intended path
+            navigate(redirectPath, { replace: true })
+        }
+    }, [navigate, location])
+
+    return null
 }
 
 function LandingPage() {
