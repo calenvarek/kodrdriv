@@ -35,8 +35,12 @@ describe('openai', () => {
     let Storage: any;
     let createCompletion: any;
     let transcribeAudio: any;
+    let originalApiKey: string | undefined;
 
     beforeEach(async () => {
+        // Save the original API key
+        originalApiKey = process.env.OPENAI_API_KEY;
+
         // Import modules after mocking
         openai = await import('openai');
         Storage = await import('../../src/util/storage');
@@ -49,7 +53,12 @@ describe('openai', () => {
     });
 
     afterEach(() => {
-        delete process.env.OPENAI_API_KEY;
+        // Restore the original API key
+        if (originalApiKey) {
+            process.env.OPENAI_API_KEY = originalApiKey;
+        } else {
+            delete process.env.OPENAI_API_KEY;
+        }
         vi.clearAllMocks();
     });
 
@@ -140,8 +149,15 @@ describe('openai', () => {
         });
 
         it('should throw error if OPENAI_API_KEY is not set', async () => {
+            const savedKey = process.env.OPENAI_API_KEY;
             delete process.env.OPENAI_API_KEY;
+
             await expect(transcribeAudio('test.mp3')).rejects.toThrow('OPENAI_API_KEY environment variable is not set');
+
+            // Restore the API key for subsequent tests
+            if (savedKey) {
+                process.env.OPENAI_API_KEY = savedKey;
+            }
         });
 
         it('should throw error on API failure', async () => {
