@@ -518,6 +518,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 logger.verbose('Restoring linked packages after failed publish...');
             }
             await Link.execute(runConfig);
+        } else if (shouldLink && !publishCompleted) {
+            logger.warn('Publish process failed - skipping link restoration to prevent file: dependencies from being committed');
         } else {
             logger.verbose('Skipping restore linked packages (disabled in config).');
         }
