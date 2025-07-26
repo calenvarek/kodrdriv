@@ -87,7 +87,8 @@ const mockLogger = {
     error: vi.fn()
 };
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn().mockReturnValue(mockLogger)
+    getLogger: vi.fn().mockReturnValue(mockLogger),
+    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
 }));
 
 vi.mock('../../src/util/general', () => ({
@@ -197,7 +198,7 @@ describe('release command', () => {
 
         const result = await Release.execute(runConfig);
 
-        expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Generated release summary:');
+        expect(mockLogger.info).toHaveBeenCalledWith('Generated release summary:');
         expect(mockLogger.info).toHaveBeenCalledWith('Title: %s', 'mock title');
         expect(mockLogger.info).toHaveBeenCalledWith('Body: %s', 'mock body');
         expect(result).toEqual({

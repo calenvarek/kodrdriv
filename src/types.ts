@@ -44,6 +44,8 @@ export const ConfigSchema = z.object({
         context: z.string().optional(),
         sendit: z.boolean().optional(),
         note: z.string().optional(),
+        editorTimeout: z.number().optional(),
+        maxContextErrors: z.number().optional(),
     }).optional(),
     audioReview: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -77,6 +79,11 @@ export const ConfigSchema = z.object({
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
+        dryRun: z.boolean().optional(),
+    }).optional(),
+    unlink: z.object({
+        scopeRoots: z.record(z.string(), z.string()).optional(),
+        workspaceFile: z.string().optional(),
         dryRun: z.boolean().optional(),
     }).optional(),
     publishTree: z.object({
@@ -122,6 +129,7 @@ export type ReleaseConfig = {
     to?: string;
     context?: string;
     focus?: string;
+    messageLimit?: number;
 }
 
 export type ReviewConfig = {
@@ -136,6 +144,8 @@ export type ReviewConfig = {
     context?: string;
     sendit?: boolean;
     note?: string;
+    editorTimeout?: number;
+    maxContextErrors?: number;
 }
 
 export type AudioReviewConfig = {
@@ -161,6 +171,12 @@ export type AudioCommitConfig = {
     audioDevice?: string;
     file?: string;
     keepTemp?: boolean;
+}
+
+export type UnlinkConfig = {
+    scopeRoots?: Record<string, string>;
+    workspaceFile?: string;
+    dryRun?: boolean;
 }
 
 export type PublishConfig = {

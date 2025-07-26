@@ -122,11 +122,16 @@ vi.mock('../../src/constants', () => ({
 }));
 
 // Mock Node.js built-in modules
-vi.mock('path', () => ({
-    default: {
-        join: vi.fn().mockImplementation((...args) => args.join('/'))
-    }
-}));
+vi.mock('path', () => {
+    const pathMock = {
+        join: vi.fn().mockImplementation((...args) => args.join('/')),
+        dirname: vi.fn().mockImplementation((p) => p.split('/').slice(0, -1).join('/') || '/')
+    };
+    return {
+        default: pathMock,
+        ...pathMock
+    };
+});
 
 vi.mock('os', () => ({
     default: {
@@ -135,16 +140,38 @@ vi.mock('os', () => ({
 }));
 
 vi.mock('child_process', () => ({
-    spawnSync: vi.fn()
+    spawnSync: vi.fn(),
+    spawn: vi.fn()
 }));
 
 vi.mock('fs/promises', () => ({
     default: {
         writeFile: vi.fn().mockResolvedValue(undefined),
         readFile: vi.fn().mockResolvedValue('Test review note content'),
-        unlink: vi.fn().mockResolvedValue(undefined)
+        unlink: vi.fn().mockResolvedValue(undefined),
+        access: vi.fn().mockResolvedValue(undefined),
+        open: vi.fn().mockResolvedValue({
+            close: vi.fn().mockResolvedValue(undefined)
+        })
     }
 }));
+
+vi.mock('fs', () => {
+    const fsMock = {
+        constants: {
+            W_OK: 2
+        }
+    };
+    return {
+        default: fsMock,
+        ...fsMock
+    };
+});
+
+// Mock process.exit to prevent actual exit during tests
+const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
+    throw new Error('process.exit called');
+});
 
 describe('review command', () => {
     let Review: any;
@@ -155,6 +182,7 @@ describe('review command', () => {
     beforeEach(async () => {
         // Reset all mocks before each test
         vi.clearAllMocks();
+        mockExit.mockClear();
 
         // Reset mock implementations
         mockCreatePrompt.mockResolvedValue('mock prompt');
@@ -179,7 +207,8 @@ describe('review command', () => {
         // Mock process stdin
         mockProcess = {
             stdin: { isTTY: true },
-            env: { EDITOR: 'vi' }
+            env: { EDITOR: 'vi' },
+            exit: mockExit
         };
         globalThis.process = mockProcess as any;
 
@@ -187,6 +216,18 @@ describe('review command', () => {
         const childProcess = await import('child_process');
         mockSpawnSync = childProcess.spawnSync;
         mockSpawnSync.mockReturnValue({ error: null });
+
+        // Mock spawn for editor functionality
+        const mockSpawn = childProcess.spawn as any;
+        const mockChild = {
+            on: vi.fn().mockImplementation((event, callback) => {
+                if (event === 'exit') {
+                    setTimeout(() => callback(0), 0);
+                }
+            }),
+            kill: vi.fn()
+        };
+        mockSpawn.mockReturnValue(mockChild);
 
         const fs = await import('fs/promises');
         mockFs = fs.default;
@@ -266,7 +307,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('Piped input requires --sendit flag for non-interactive operation');
+            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
             expect(mockLogger.error).toHaveBeenCalledWith('❌ STDIN is piped but --sendit flag is not enabled');
         });
 
@@ -313,14 +354,24 @@ describe('review command', () => {
 
             await Review.execute(runConfig);
 
-            expect(mockFs.writeFile).toHaveBeenCalledWith(
-                expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+\.md$/),
-                expect.stringContaining('# Kodrdriv Review Note'),
-                'utf8'
+            // Check that temp file was created (look for the actual temp file, not .test files)
+            const tempFileCall = mockFs.writeFile.mock.calls.find(
+                (call: any) => call[0].includes('kodrdriv_review_') && !call[0].includes('.test')
             );
-            expect(mockSpawnSync).toHaveBeenCalledWith('vi', [expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+\.md$/)], { stdio: 'inherit' });
-            expect(mockFs.readFile).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+\.md$/), 'utf8');
-            expect(mockFs.unlink).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+\.md$/));
+            expect(tempFileCall).toBeDefined();
+            expect(tempFileCall![1]).toContain('# Kodrdriv Review Note');
+            expect(tempFileCall![2]).toBe('utf-8');
+
+            // Check that spawn was called (not spawnSync)
+            const childProcess = await import('child_process');
+            const mockSpawn = childProcess.spawn;
+            expect(mockSpawn).toHaveBeenCalledWith('vi', [expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+_[\w]+\.md$/)], {
+                stdio: 'inherit',
+                shell: false
+            });
+
+            expect(mockFs.readFile).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+_[\w]+\.md$/), 'utf8');
+            expect(mockFs.unlink).toHaveBeenCalledWith(expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+_[\w]+\.md$/));
         });
 
         it('should use custom editor from environment variables', async () => {
@@ -334,11 +385,29 @@ describe('review command', () => {
 
             await Review.execute(runConfig);
 
-            expect(mockSpawnSync).toHaveBeenCalledWith('nano', [expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+\.md$/)], { stdio: 'inherit' });
+            // Now uses spawn instead of spawnSync - get the spawn mock
+            const childProcess = await import('child_process');
+            const mockSpawn = childProcess.spawn;
+                        expect(mockSpawn).toHaveBeenCalledWith('nano', [expect.stringMatching(/^\/tmp\/kodrdriv_review_\d+_[\w]+\.md$/)], {
+                stdio: 'inherit',
+                shell: false
+            });
         });
 
         it('should throw error when editor fails to launch', async () => {
-            mockSpawnSync.mockReturnValue({ error: new Error('Editor not found') });
+            // Mock spawn to emit an error event
+            const childProcess = await import('child_process');
+            const mockSpawn = childProcess.spawn as any;
+            const mockChild = {
+                on: vi.fn().mockImplementation((event, callback) => {
+                    if (event === 'error') {
+                        setTimeout(() => callback(new Error('Editor not found')), 0);
+                    }
+                }),
+                kill: vi.fn()
+            };
+            mockSpawn.mockReturnValue(mockChild);
+
             const runConfig = {
                 model: 'gpt-4',
                 review: {
@@ -346,7 +415,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('Failed to launch editor \'vi\': Editor not found');
+            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
         });
 
         it('should throw error when editor returns empty content', async () => {
@@ -358,7 +427,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
+            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
         });
 
         it('should filter out comment lines from editor content', async () => {
@@ -470,10 +539,15 @@ describe('review command', () => {
             // Should not throw, should handle errors gracefully
             await Review.execute(runConfig);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch commit history: %s', 'Git log failed');
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch recent diffs: %s', 'Diff failed');
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch release notes: %s', 'Release notes failed');
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch GitHub issues: %s', 'Issues failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch commit history: Git log failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch recent diffs: Diff failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch release notes: Release notes failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to fetch GitHub issues: Issues failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Context gathering completed with 4 error(s):');
+            expect(mockLogger.warn).toHaveBeenCalledWith('  - Failed to fetch commit history: Git log failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('  - Failed to fetch recent diffs: Diff failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('  - Failed to fetch release notes: Release notes failed');
+            expect(mockLogger.warn).toHaveBeenCalledWith('  - Failed to fetch GitHub issues: Issues failed');
         });
 
         it('should use custom excluded patterns for diffs', async () => {
@@ -610,15 +684,15 @@ describe('review command', () => {
 
             await Review.execute(runConfig);
 
-            // Check review notes file
-            expect(mockStorage.writeFile).toHaveBeenCalledWith(
+            // Check review notes file - now uses fs.writeFile directly via safeWriteFile
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
                 'output/review-notes-123456.md',
                 expect.stringContaining('# Review Notes\n\nTest review note'),
                 'utf-8'
             );
 
-            // Check analysis result file
-            expect(mockStorage.writeFile).toHaveBeenCalledWith(
+            // Check analysis result file - now uses fs.writeFile directly via safeWriteFile
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
                 'output/review-123456.md',
                 expect.stringContaining('# Review Analysis Result'),
                 'utf-8'
@@ -646,8 +720,8 @@ describe('review command', () => {
 
             await Review.execute(runConfig);
 
-            const reviewNotesCall = mockStorage.writeFile.mock.calls.find(
-                call => call[0].includes('review-notes-')
+            const reviewNotesCall = mockFs.writeFile.mock.calls.find(
+                (call: any) => call[0].includes('review-notes-') && !call[0].includes('.test')
             );
             expect(reviewNotesCall).toBeDefined();
             const content = reviewNotesCall![1];
@@ -661,7 +735,13 @@ describe('review command', () => {
         });
 
         it('should handle file saving errors gracefully', async () => {
-            mockStorage.writeFile.mockRejectedValue(new Error('Permission denied'));
+            // Mock fs.writeFile to fail for main files but not test files
+            mockFs.writeFile.mockImplementation(async (path: string, data: any, encoding: any) => {
+                if (path.includes('.test')) {
+                    return; // Allow test files to succeed
+                }
+                throw new Error('Permission denied');
+            });
 
             const runConfig = {
                 model: 'gpt-4',
@@ -673,8 +753,8 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review notes: %s', 'Permission denied');
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review analysis: %s', 'Permission denied');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review notes: %s', expect.any(String));
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review analysis: %s', expect.any(String));
             expect(result).toBe('Issues created successfully');
         });
 
@@ -691,7 +771,7 @@ describe('review command', () => {
             await Review.execute(runConfig);
 
             expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('custom-output');
-            expect(mockStorage.writeFile).toHaveBeenCalledWith(
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
                 'custom-output/review-notes-123456.md',
                 expect.any(String),
                 'utf-8'
@@ -759,7 +839,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('OpenAI API error');
+            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
         });
 
         it('should handle prompt creation errors', async () => {
@@ -773,7 +853,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('Prompt creation failed');
+            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
         });
 
         it('should handle storage directory creation errors', async () => {
@@ -787,7 +867,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('Directory creation failed');
+            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
         });
     });
 

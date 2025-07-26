@@ -90,14 +90,14 @@ Extend or replace default AI instructions to match your project's specific conve
 
 **Quick Links:**
 - [Commands](docs/public/commands.md) - Detailed documentation of all commands (commit, release, publish, link)
-- [Configuration](docs/public/configuration.md) - All configuration options, hierarchical config, and environment variables  
-- [Advanced Usage](docs/public/advanced-usage.md) - Custom instructions, context, prompt structure, and advanced features
+- [Configuration](docs/public/configuration.md) - All configuration options, hierarchical config, and environment variables
+- [Customization](docs/public/customization.md) - Custom instructions, context directories, personas, and override structures
 - [Examples](docs/public/examples.md) - Practical usage examples and common workflows
 
 ## Basic Command Options
 
 - `--dry-run`: Perform a dry run without saving files
-- `--verbose`: Enable verbose logging  
+- `--verbose`: Enable verbose logging
 - `--debug`: Enable debug logging
 - `--check-config`: Display current configuration hierarchy
 - `--version`: Display version information
@@ -110,6 +110,32 @@ KodrDriv requires OpenAI API credentials for AI-powered features:
 
 - `OPENAI_API_KEY`: OpenAI API key (required)
 - `GITHUB_TOKEN`: Required for publish command and GitHub operations
+- `EDITOR`: Your preferred text editor for interactive workflows (optional, defaults to `vi`)
+
+### Setting the EDITOR Variable
+
+For review workflows and issue editing, KodrDriv uses your system's default text editor. You can configure this by setting the `EDITOR` environment variable:
+
+**For vi/vim users:**
+```bash
+export EDITOR=vi
+# Or for vim
+export EDITOR=vim
+```
+
+**For emacs users:**
+```bash
+export EDITOR=emacs
+```
+
+**Make it permanent by adding to your shell profile:**
+```bash
+# For bash users (~/.bashrc or ~/.bash_profile)
+echo 'export EDITOR=vi' >> ~/.bashrc
+
+# For zsh users (~/.zshrc)
+echo 'export EDITOR=vi' >> ~/.zshrc
+```
 
 ## Contributing
 

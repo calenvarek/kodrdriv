@@ -187,6 +187,45 @@ For publish command functionality:
 
 - `GITHUB_TOKEN`: Required for GitHub API operations (creating pull requests, releases, etc.)
 
+### Editor Configuration
+
+For interactive workflows like review and issue editing:
+
+- `EDITOR`: Your preferred text editor (optional, defaults to `vi`)
+- `VISUAL`: Alternative editor variable (used as fallback if `EDITOR` is not set)
+
+KodrDriv will use your configured editor to open temporary files during interactive workflows. Common examples:
+
+**For vi/vim users:**
+```bash
+export EDITOR=vi
+# Or for vim with specific options
+export EDITOR="vim -c 'set textwidth=80'"
+```
+
+**For emacs users:**
+```bash
+export EDITOR=emacs
+# Or for emacs in terminal mode
+export EDITOR="emacs -nw"
+```
+
+**For other editors:**
+```bash
+export EDITOR=nano
+export EDITOR=code        # VS Code (requires --wait flag: "code --wait")
+export EDITOR=subl        # Sublime Text (requires --wait flag: "subl --wait")
+```
+
+> [!TIP]
+> ### GUI Editor Configuration
+>
+> When using GUI editors like VS Code or Sublime Text, make sure to include the `--wait` flag so the editor waits for you to close the file before continuing:
+> ```bash
+> export EDITOR="code --wait"
+> export EDITOR="subl --wait"
+> ```
+
 ### Additional Environment Variables
 
 The publish command supports configurable additional environment variables specific to your project:

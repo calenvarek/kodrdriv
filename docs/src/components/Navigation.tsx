@@ -6,7 +6,7 @@ const navigationItems = [
     { path: '/installation', label: 'Installation', file: 'installation.md' },
     { path: '/commands', label: 'Commands', file: 'commands.md' },
     { path: '/configuration', label: 'Configuration', file: 'configuration.md' },
-    { path: '/advanced-usage', label: 'Advanced Usage', file: 'advanced-usage.md' },
+    { path: '/customization', label: 'Customization', file: 'customization.md' },
     { path: '/examples', label: 'Examples', file: 'examples.md' },
 ]
 

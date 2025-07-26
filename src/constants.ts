@@ -203,5 +203,13 @@ export const KODRDRIV_DEFAULTS = {
         scopeRoots: {},
         dryRun: false,
     },
+    publishTree: {
+        directory: undefined,
+        excludedPatterns: undefined,
+        startFrom: undefined,
+        script: undefined,
+        cmd: undefined,
+        publish: false,
+    },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

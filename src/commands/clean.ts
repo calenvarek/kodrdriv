@@ -1,26 +1,25 @@
 #!/usr/bin/env node
-import { getLogger } from '../logging';
+import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { FileOperationError } from '../error/CommandErrors';
+import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 
-export const execute = async (runConfig: Config): Promise<void> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
+const executeInternal = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+    const storage = createStorage({ log: logger.info });
 
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
 
-    logger.info(isDryRun ? `DRY RUN: Would remove output directory: ${outputDirectory}` : `Removing output directory: ${outputDirectory}`);
-
     if (isDryRun) {
-        if (await storage.exists(outputDirectory)) {
-            logger.info('DRY RUN: Output directory exists and would be removed');
-        } else {
-            logger.info('DRY RUN: Output directory does not exist, nothing to clean');
-        }
+        logger.info(`Would remove output directory: ${outputDirectory}`);
+        logger.info(`Would check if output directory exists: ${outputDirectory}`);
+        logger.info('Would remove directory if it exists');
         return;
     }
+
+    logger.info(`Removing output directory: ${outputDirectory}`);
 
     try {
         if (await storage.exists(outputDirectory)) {
@@ -31,6 +30,26 @@ export const execute = async (runConfig: Config): Promise<void> => {
         }
     } catch (error: any) {
         logger.error(`Failed to clean output directory: ${error.message}`);
-        throw error;
+        throw new FileOperationError('Failed to remove output directory', outputDirectory, error);
     }
-}; 
+};
+
+export const execute = async (runConfig: Config): Promise<void> => {
+    try {
+        await executeInternal(runConfig);
+    } catch (error: any) {
+        const logger = getLogger();
+
+        if (error instanceof FileOperationError) {
+            logger.error(`clean failed: ${error.message}`);
+            if (error.cause) {
+                logger.debug(`Caused by: ${error.cause.message}`);
+            }
+            process.exit(1);
+        }
+
+        // Unexpected errors
+        logger.error(`clean encountered unexpected error: ${error.message}`);
+        process.exit(1);
+    }
+};

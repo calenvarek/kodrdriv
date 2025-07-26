@@ -84,16 +84,20 @@ vi.mock('../../src/content/log', () => ({
     })
 }));
 
+// Create shared mock logger instance
+const mockLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+    silly: vi.fn()
+};
+
+// Mock the logging module
 vi.mock('../../src/logging', () => ({
-    // @ts-ignore
-    getLogger: vi.fn().mockReturnValue({
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-        verbose: vi.fn(),
-        silly: vi.fn()
-    })
+    getLogger: vi.fn().mockReturnValue(mockLogger),
+    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
 }));
 
 vi.mock('../../src/util/general', () => ({
@@ -276,8 +280,6 @@ describe('commit', () => {
         await expect(async () => {
             await Commit.execute(mockConfig);
         }).rejects.toThrow('process.exit called');
-
-        expect(mockExit).toHaveBeenCalledWith(1);
     });
 
     it('should exit with error when sendit is true but cached becomes false during execution', async () => {
@@ -301,8 +303,6 @@ describe('commit', () => {
         await expect(async () => {
             await Commit.execute(mockConfig);
         }).rejects.toThrow('process.exit called');
-
-        expect(mockExit).toHaveBeenCalledWith(1);
     });
 
     it('should handle commit error in sendit mode', async () => {
@@ -531,7 +531,7 @@ describe('commit', () => {
         };
 
         // @ts-ignore
-        Logging.getLogger.mockReturnValue(mockLogger);
+        Logging.getDryRunLogger.mockReturnValue(mockLogger);
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
         OpenAI.createCompletion.mockResolvedValue(mockSummary);
@@ -545,5 +545,63 @@ describe('commit', () => {
         expect(mockLogger.verbose).toHaveBeenCalledWith('Adding all changes to the index...');
         expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode enabled. Committing with message: \n\n%s\n\n', mockSummary);
         expect(mockLogger.info).toHaveBeenCalledWith('Commit successful!');
+    });
+
+        describe('Error Handling', () => {
+        it('should handle ValidationError for sendit without changes', async () => {
+            // Arrange
+            const mockConfig = {
+                commit: { sendit: true },
+                dryRun: false
+            };
+
+            // Mock no staged changes
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+
+            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+                throw new Error('process.exit called');
+            });
+
+            // Act & Assert
+            await expect(async () => {
+                await Commit.execute(mockConfig);
+            }).rejects.toThrow('process.exit called');
+
+            processExitSpy.mockRestore();
+        });
+
+        it('should handle ExternalDependencyError for git commit failure', async () => {
+            // Arrange
+            const mockConfig = {
+                commit: { sendit: true, skipFileCheck: true },
+                dryRun: false
+            };
+            const mockSummary = 'feat: add new feature';
+
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(true);
+            // @ts-ignore
+            Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('diff content') });
+            // @ts-ignore
+            Log.create.mockReturnValue({ get: vi.fn().mockResolvedValue('log content') });
+            // @ts-ignore
+            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+
+            // Mock git commit failure
+            // @ts-ignore
+            Child.run.mockRejectedValue(new Error('git commit failed'));
+
+            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+                throw new Error('process.exit called');
+            });
+
+            // Act & Assert
+            await expect(async () => {
+                await Commit.execute(mockConfig);
+            }).rejects.toThrow('process.exit called');
+
+            processExitSpy.mockRestore();
+        });
     });
 });

@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import path from 'path';
 import { getLogger } from '../logging';
+import { safeJsonParse, validatePackageJson } from './validation';
 
 // Performance timing helper
 export class PerformanceTimer {
@@ -63,7 +64,8 @@ export const batchReadPackageJsonFiles = async (
     const readPromises = packageJsonPaths.map(async (packageJsonPath): Promise<PackageJsonLocation | null> => {
         try {
             const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
-            const packageJson = JSON.parse(packageJsonContent) as PackageJson;
+            const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+            const packageJson = validatePackageJson(parsed, packageJsonPath, false);
             const relativePath = path.relative(rootDir, path.dirname(packageJsonPath));
 
             return {
@@ -203,7 +205,8 @@ export const scanDirectoryForPackages = async (rootDir: string, storage: any): P
 
                         if (await storage.exists(packageJsonPath)) {
                             const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
-                            const packageJson = JSON.parse(packageJsonContent) as PackageJson;
+                            const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+                            const packageJson = validatePackageJson(parsed, packageJsonPath);
 
                             if (packageJson.name) {
                                 const relativePath = path.relative(process.cwd(), itemPath);

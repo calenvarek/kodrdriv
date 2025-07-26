@@ -6,6 +6,7 @@ import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { run } from '../util/child';
 import * as Publish from './publish';
+import { safeJsonParse, validatePackageJson } from '../util/validation';
 
 // Helper function to format subproject error output
 const formatSubprojectError = (packageName: string, error: any): string => {
@@ -130,7 +131,8 @@ const parsePackageJson = async (packageJsonPath: string): Promise<PackageInfo> =
 
     try {
         const content = await storage.readFile(packageJsonPath, 'utf-8');
-        const packageJson = JSON.parse(content);
+        const parsed = safeJsonParse(content, packageJsonPath);
+        const packageJson = validatePackageJson(parsed, packageJsonPath);
 
         if (!packageJson.name) {
             throw new Error(`Package at ${packageJsonPath} has no name field`);
