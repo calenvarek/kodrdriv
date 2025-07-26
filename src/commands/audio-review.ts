@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { getLogger } from '../logging';
+import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeReview } from './review';
 import { processAudio } from '@theunwalked/unplayable';
 import { transcribeAudio } from '../util/openai';
 import { getTimestampedAudioFilename } from '../util/general';
-import * as Storage from '../util/storage';
+import { CancellationError } from '../error/CancellationError';
+import { create as createStorage } from '../util/storage';
 import path from 'path';
 
 // Common audio file extensions
@@ -17,7 +18,7 @@ const AUDIO_EXTENSIONS = ['.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wma
  */
 const discoverAudioFiles = async (directory: string): Promise<string[]> => {
     const logger = getLogger();
-    const storage = Storage.create({ log: logger.debug });
+    const storage = createStorage({ log: logger.debug });
 
     try {
         if (!(await storage.isDirectoryReadable(directory))) {
@@ -58,6 +59,10 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
             outputDirectory: path.join(runConfig.outputDirectory || 'output', 'kodrdriv')
         });
 
+        // Safely validate transcription result
+        if (!transcription || typeof transcription !== 'object' || typeof transcription.text !== 'string') {
+            throw new Error('Invalid transcription result: missing or invalid text property');
+        }
         const audioContext = transcription.text;
 
         if (!audioContext.trim()) {
@@ -98,19 +103,22 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
 };
 
 export const execute = async (runConfig: Config): Promise<string> => {
-    const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
 
-    // Check if directory option is provided (we'll access it directly from audioReview config)
-    const directory = (runConfig.audioReview as any)?.directory;
+    // Check if directory option is provided with safe access
+    const audioReviewConfig = runConfig.audioReview;
+    const directory = audioReviewConfig && typeof audioReviewConfig === 'object' && 'directory' in audioReviewConfig
+        ? (audioReviewConfig as any).directory
+        : undefined;
 
     if (directory) {
         // Directory batch processing mode
         logger.info('🎵 Starting directory batch audio review for: %s', directory);
 
         if (isDryRun) {
-            logger.info('DRY RUN: Would discover and process all audio files in directory: %s', directory);
-            logger.info('DRY RUN: Would transcribe each audio file and run review analysis');
+            logger.info('Would discover and process all audio files in directory: %s', directory);
+            logger.info('Would transcribe each audio file and run review analysis');
             return 'DRY RUN: Directory batch processing would be performed';
         }
 
@@ -156,22 +164,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
     // Original single file/recording logic
     if (isDryRun) {
         if (runConfig.audioReview?.file) {
-            logger.info('DRY RUN: Would process audio file: %s', runConfig.audioReview.file);
-            logger.info('DRY RUN: Would transcribe audio and use as context for review analysis');
+            logger.info('Would process audio file: %s', runConfig.audioReview.file);
+            logger.info('Would transcribe audio and use as context for review analysis');
         } else {
-            logger.info('DRY RUN: Would start audio recording for review context');
-            logger.info('DRY RUN: Would transcribe audio and use as context for review analysis');
+            logger.info('Would start audio recording for review context');
+            logger.info('Would transcribe audio and use as context for review analysis');
         }
-        logger.info('DRY RUN: Would then delegate to regular review command');
+        logger.info('Would then delegate to regular review command');
 
-        // In dry run, just call the regular review command with empty note
-        return executeReview({
-            ...runConfig,
-            review: {
-                ...runConfig.review,
-                note: runConfig.review?.note || ''
-            }
-        });
+        // Return preview without calling real commands
+        return 'DRY RUN: Would process audio, transcribe it, and perform review analysis with audio context';
     }
 
     let audioContext: string;
@@ -195,7 +197,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Check if recording was cancelled
         if (audioResult.cancelled) {
             logger.info('❌ Audio review cancelled by user');
-            process.exit(0);
+            throw new CancellationError('Audio review cancelled by user');
         }
 
         // Step 2: Get the audio file path from the result
@@ -224,6 +226,10 @@ export const execute = async (runConfig: Config): Promise<string> => {
             outputDirectory: path.join(runConfig.outputDirectory || 'output', 'kodrdriv')
         });
 
+        // Safely validate transcription result
+        if (!transcription || typeof transcription !== 'object' || typeof transcription.text !== 'string') {
+            throw new Error('Invalid transcription result: missing or invalid text property');
+        }
         audioContext = transcription.text;
 
         if (!audioContext.trim()) {
@@ -235,6 +241,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
 
     } catch (error: any) {
+        // Re-throw CancellationError to properly handle cancellation
+        if (error.name === 'CancellationError') {
+            throw error;
+        }
+
         logger.error('Audio processing failed: %s', error.message);
         logger.info('Proceeding with review analysis without audio context...');
         audioContext = '';
@@ -262,4 +273,4 @@ export const execute = async (runConfig: Config): Promise<string> => {
     });
 
     return result;
-}; 
+};

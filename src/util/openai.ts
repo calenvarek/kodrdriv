@@ -17,7 +17,7 @@ export class OpenAIError extends Error {
     }
 }
 
-export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string } = { model: "gpt-4o-mini" }): Promise<string | any> {
+export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, maxTokens?: number } = { model: "gpt-4o-mini" }): Promise<string | any> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
     let openai: OpenAI | null = null;
@@ -35,12 +35,15 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
 
         logger.debug('Sending prompt to OpenAI: %j', messages);
 
+        // Use provided maxTokens or default to 10000
+        const maxCompletionTokens = options.maxTokens || 10000;
+
         // Save request debug file if enabled
         if (options.debug && (options.debugRequestFile || options.debugFile)) {
             const requestData = {
                 model: options.model || "gpt-4o-mini",
                 messages,
-                max_completion_tokens: 10000,
+                max_completion_tokens: maxCompletionTokens,
                 response_format: options.responseFormat,
             };
             const debugFile = options.debugRequestFile || options.debugFile;
@@ -52,7 +55,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         const completionPromise = openai.chat.completions.create({
             model: options.model || "gpt-4o-mini",
             messages,
-            max_completion_tokens: 10000,
+            max_completion_tokens: maxCompletionTokens,
             response_format: options.responseFormat,
         });
 

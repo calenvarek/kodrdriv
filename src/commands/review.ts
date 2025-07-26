@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import { ChatCompletionMessageParam } from 'openai/resources';
+import { ValidationError, FileOperationError, CommandError } from '../error/CommandErrors';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { createCompletion } from '../util/openai';
@@ -14,10 +15,198 @@ import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFil
 import { create as createStorage } from '../util/storage';
 import path from 'path';
 import os from 'os';
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import fs from 'fs/promises';
 
-export const execute = async (runConfig: Config): Promise<string> => {
+// Safe temp file handling with proper permissions and validation
+const createSecureTempFile = async (): Promise<string> => {
+    const logger = getLogger();
+    const tmpDir = os.tmpdir();
+
+    // Ensure temp directory exists and is writable
+    try {
+        // Use constant value directly to avoid import restrictions
+        const W_OK = 2; // fs.constants.W_OK value
+        await fs.access(tmpDir, W_OK);
+    } catch (error: any) {
+        logger.error(`Temp directory not writable: ${tmpDir}`);
+        throw new FileOperationError(`Temp directory not writable: ${error.message}`, tmpDir, error);
+    }
+
+    const tmpFilePath = path.join(tmpDir, `kodrdriv_review_${Date.now()}_${Math.random().toString(36).substring(7)}.md`);
+
+    // Create file with restrictive permissions (owner read/write only)
+    try {
+        const fd = await fs.open(tmpFilePath, 'w', 0o600);
+        await fd.close();
+        logger.debug(`Created secure temp file: ${tmpFilePath}`);
+        return tmpFilePath;
+    } catch (error: any) {
+        logger.error(`Failed to create temp file: ${error.message}`);
+        throw new FileOperationError(`Failed to create temp file: ${error.message}`, 'temporary file', error);
+    }
+};
+
+// Safe file cleanup with proper error handling
+const cleanupTempFile = async (filePath: string): Promise<void> => {
+    const logger = getLogger();
+    try {
+        await fs.unlink(filePath);
+        logger.debug(`Cleaned up temp file: ${filePath}`);
+    } catch (error: any) {
+        // Only ignore ENOENT (file not found) errors, log others
+        if (error.code !== 'ENOENT') {
+            logger.warn(`Failed to cleanup temp file ${filePath}: ${error.message}`);
+            // Don't throw here to avoid masking the main operation
+        }
+    }
+};
+
+// Editor with timeout and proper error handling
+const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeoutMs = 300000): Promise<void> => {
+    const logger = getLogger();
+
+    return new Promise((resolve, reject) => {
+        logger.debug(`Opening editor: ${editorCmd} ${filePath} (timeout: ${timeoutMs}ms)`);
+
+        const child = spawn(editorCmd, [filePath], {
+            stdio: 'inherit',
+            shell: false // Prevent shell injection
+        });
+
+        const timeout = setTimeout(() => {
+            logger.warn(`Editor timed out after ${timeoutMs}ms, terminating...`);
+            child.kill('SIGTERM');
+
+            // Give it a moment to terminate gracefully, then force kill
+            setTimeout(() => {
+                if (!child.killed) {
+                    logger.warn('Editor did not terminate gracefully, force killing...');
+                    child.kill('SIGKILL');
+                }
+            }, 5000);
+
+            reject(new Error(`Editor '${editorCmd}' timed out after ${timeoutMs}ms. Consider using a different editor or increasing the timeout.`));
+        }, timeoutMs);
+
+        child.on('exit', (code, signal) => {
+            clearTimeout(timeout);
+            logger.debug(`Editor exited with code ${code}, signal ${signal}`);
+
+            if (signal === 'SIGTERM' || signal === 'SIGKILL') {
+                reject(new Error(`Editor was terminated (${signal})`));
+            } else if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error(`Editor exited with non-zero code: ${code}`));
+            }
+        });
+
+        child.on('error', (error) => {
+            clearTimeout(timeout);
+            logger.error(`Editor error: ${error.message}`);
+            reject(new Error(`Failed to launch editor '${editorCmd}': ${error.message}`));
+        });
+    });
+};
+
+// Validate API response format before use
+const validateReviewResult = (data: any): Issues.ReviewResult => {
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid API response: expected object, got ' + typeof data);
+    }
+
+    if (typeof data.summary !== 'string') {
+        throw new Error('Invalid API response: missing or invalid summary field');
+    }
+
+    if (typeof data.totalIssues !== 'number' || data.totalIssues < 0) {
+        throw new Error('Invalid API response: missing or invalid totalIssues field');
+    }
+
+    if (data.issues && !Array.isArray(data.issues)) {
+        throw new Error('Invalid API response: issues field must be an array');
+    }
+
+    // Validate each issue if present
+    if (data.issues) {
+        for (let i = 0; i < data.issues.length; i++) {
+            const issue = data.issues[i];
+            if (!issue || typeof issue !== 'object') {
+                throw new Error(`Invalid API response: issue ${i} is not an object`);
+            }
+            if (typeof issue.title !== 'string') {
+                throw new Error(`Invalid API response: issue ${i} missing title`);
+            }
+            if (typeof issue.priority !== 'string') {
+                throw new Error(`Invalid API response: issue ${i} missing priority`);
+            }
+        }
+    }
+
+    return data as Issues.ReviewResult;
+};
+
+// Enhanced TTY detection with fallback handling
+const isTTYSafe = (): boolean => {
+    try {
+        // Primary check
+        if (process.stdin.isTTY === false) {
+            return false;
+        }
+
+        // Additional checks for edge cases
+        if (process.stdin.isTTY === true) {
+            return true;
+        }
+
+        // Handle undefined case (some environments)
+        if (process.stdin.isTTY === undefined) {
+            // Check if we can reasonably assume interactive mode
+            return process.stdout.isTTY === true && process.stderr.isTTY === true;
+        }
+
+        return false;
+    } catch (error) {
+        // If TTY detection fails entirely, assume non-interactive
+        getLogger().debug(`TTY detection failed: ${error}, assuming non-interactive`);
+        return false;
+    }
+};
+
+// Safe file write with disk space and permission validation
+const safeWriteFile = async (filePath: string, content: string, encoding: BufferEncoding = 'utf-8'): Promise<void> => {
+    const logger = getLogger();
+
+    try {
+        // Check if parent directory exists and is writable
+        const parentDir = path.dirname(filePath);
+        const W_OK = 2; // fs.constants.W_OK value
+        await fs.access(parentDir, W_OK);
+
+        // Check available disk space (basic check by writing a small test)
+        const testFile = `${filePath}.test`;
+        try {
+            await fs.writeFile(testFile, 'test', encoding);
+            await fs.unlink(testFile);
+        } catch (error: any) {
+            if (error.code === 'ENOSPC') {
+                throw new Error(`Insufficient disk space to write file: ${filePath}`);
+            }
+            throw error;
+        }
+
+        // Write the actual file
+        await fs.writeFile(filePath, content, encoding);
+        logger.debug(`Successfully wrote file: ${filePath} (${content.length} characters)`);
+
+    } catch (error: any) {
+        logger.error(`Failed to write file ${filePath}: ${error.message}`);
+        throw new Error(`Failed to write file ${filePath}: ${error.message}`);
+    }
+};
+
+const executeInternal = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
 
@@ -56,15 +245,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
         return 'DRY RUN: Review command would analyze note, gather context, and create GitHub issues';
     }
 
-    // Fail fast if STDIN is piped but sendit mode is not enabled
-    if (!process.stdin.isTTY && !runConfig.review?.sendit) {
+    // Enhanced TTY check with proper error handling
+    const isInteractive = isTTYSafe();
+    if (!isInteractive && !runConfig.review?.sendit) {
         logger.error('❌ STDIN is piped but --sendit flag is not enabled');
         logger.error('   Interactive prompts cannot be used when input is piped');
         logger.error('   Solutions:');
         logger.error('   • Add --sendit flag to auto-create all issues');
         logger.error('   • Use terminal input instead of piping');
         logger.error('   • Example: echo "note" | kodrdriv review --sendit');
-        throw new Error('Piped input requires --sendit flag for non-interactive operation');
+        throw new ValidationError('Piped input requires --sendit flag for non-interactive operation');
     }
 
     // Get the review note from configuration
@@ -74,54 +264,55 @@ export const execute = async (runConfig: Config): Promise<string> => {
     if (!reviewNote || !reviewNote.trim()) {
         const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
 
-        // Create a temporary file for the user to edit.
-        const tmpDir = os.tmpdir();
-        const tmpFilePath = path.join(tmpDir, `kodrdriv_review_${Date.now()}.md`);
-
-        // Pre-populate the file with a helpful header so users know what to do.
-        const templateContent = [
-            '# Kodrdriv Review Note',
-            '',
-            '# Please enter your review note below. Lines starting with "#" will be ignored.',
-            '# Save and close the editor when you are done.',
-            '',
-            '',
-        ].join('\n');
-
-        await fs.writeFile(tmpFilePath, templateContent, 'utf8');
-
-        logger.info(`No review note provided – opening ${editor} to capture input...`);
-
-        // Open the editor synchronously so execution resumes after the user closes it.
-        const result = spawnSync(editor, [tmpFilePath], { stdio: 'inherit' });
-
-        if (result.error) {
-            throw new Error(`Failed to launch editor '${editor}': ${result.error.message}`);
-        }
-
-        // Read the file back in, stripping comment lines and whitespace.
-        const fileContent = (await fs.readFile(tmpFilePath, 'utf8'))
-            .split('\n')
-            .filter(line => !line.trim().startsWith('#'))
-            .join('\n')
-            .trim();
-
-        // Clean up the temporary file (best-effort – ignore errors).
+        let tmpFilePath: string | null = null;
         try {
-            await fs.unlink(tmpFilePath);
-        } catch {
-            /* ignore */
-        }
+            // Create secure temporary file
+            tmpFilePath = await createSecureTempFile();
 
-        if (!fileContent) {
-            throw new Error('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
-        }
+            // Pre-populate the file with a helpful header so users know what to do.
+            const templateContent = [
+                '# Kodrdriv Review Note',
+                '',
+                '# Please enter your review note below. Lines starting with "#" will be ignored.',
+                '# Save and close the editor when you are done.',
+                '',
+                '',
+            ].join('\n');
 
-        reviewNote = fileContent;
+            await safeWriteFile(tmpFilePath, templateContent);
 
-        // If the original runConfig.review object exists, update it so downstream code has the note.
-        if (runConfig.review) {
-            runConfig.review.note = reviewNote;
+            logger.info(`No review note provided – opening ${editor} to capture input...`);
+
+            // Open the editor with timeout protection
+            const editorTimeout = runConfig.review?.editorTimeout || 300000; // 5 minutes default
+            await openEditorWithTimeout(editor, tmpFilePath, editorTimeout);
+
+            // Read the file back in, stripping comment lines and whitespace.
+            const fileContent = (await fs.readFile(tmpFilePath, 'utf8'))
+                .split('\n')
+                .filter(line => !line.trim().startsWith('#'))
+                .join('\n')
+                .trim();
+
+            if (!fileContent) {
+                throw new ValidationError('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
+            }
+
+            reviewNote = fileContent;
+
+            // If the original runConfig.review object exists, update it so downstream code has the note.
+            if (runConfig.review) {
+                runConfig.review.note = reviewNote;
+            }
+
+        } catch (error: any) {
+            logger.error(`Failed to capture review note via editor: ${error.message}`);
+            throw error;
+        } finally {
+            // Always clean up the temp file
+            if (tmpFilePath) {
+                await cleanupTempFile(tmpFilePath);
+            }
         }
     }
 
@@ -129,11 +320,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
     logger.debug('Review note: %s', reviewNote);
     logger.debug('Review note length: %d characters', reviewNote.length);
 
-    // Gather additional context based on configuration
+    // Gather additional context based on configuration with improved error handling
     let logContext = '';
     let diffContext = '';
     let releaseNotesContext = '';
     let issuesContext = '';
+    const contextErrors: string[] = [];
 
     // Fetch commit history if enabled
     if (runConfig.review?.includeCommitHistory) {
@@ -148,7 +340,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 logger.debug('Added commit history to context (%d characters)', logContent.length);
             }
         } catch (error: any) {
-            logger.warn('Failed to fetch commit history: %s', error.message);
+            const errorMsg = `Failed to fetch commit history: ${error.message}`;
+            logger.warn(errorMsg);
+            contextErrors.push(errorMsg);
         }
     }
 
@@ -162,8 +356,13 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 baseExcludedPatterns: basePatterns
             });
             diffContext += recentDiffs;
+            if (recentDiffs.trim()) {
+                logger.debug('Added recent diffs to context (%d characters)', recentDiffs.length);
+            }
         } catch (error: any) {
-            logger.warn('Failed to fetch recent diffs: %s', error.message);
+            const errorMsg = `Failed to fetch recent diffs: ${error.message}`;
+            logger.warn(errorMsg);
+            contextErrors.push(errorMsg);
         }
     }
 
@@ -179,7 +378,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 logger.debug('Added release notes to context (%d characters)', releaseNotesContent.length);
             }
         } catch (error: any) {
-            logger.warn('Failed to fetch release notes: %s', error.message);
+            const errorMsg = `Failed to fetch release notes: ${error.message}`;
+            logger.warn(errorMsg);
+            contextErrors.push(errorMsg);
         }
     }
 
@@ -190,9 +391,25 @@ export const execute = async (runConfig: Config): Promise<string> => {
             issuesContext = await Issues.get({
                 limit: runConfig.review.githubIssuesLimit || 20
             });
-            logger.debug('Added GitHub issues to context (%d characters)', issuesContext.length);
+            if (issuesContext.trim()) {
+                logger.debug('Added GitHub issues to context (%d characters)', issuesContext.length);
+            }
         } catch (error: any) {
-            logger.warn('Failed to fetch GitHub issues: %s', error.message);
+            const errorMsg = `Failed to fetch GitHub issues: ${error.message}`;
+            logger.warn(errorMsg);
+            contextErrors.push(errorMsg);
+        }
+    }
+
+    // Report context gathering results
+    if (contextErrors.length > 0) {
+        logger.warn(`Context gathering completed with ${contextErrors.length} error(s):`);
+        contextErrors.forEach(error => logger.warn(`  - ${error}`));
+
+        // For critical operations, consider failing if too many context sources fail
+        const maxContextErrors = runConfig.review?.maxContextErrors || contextErrors.length; // Default: allow all errors
+        if (contextErrors.length > maxContextErrors) {
+            throw new Error(`Too many context gathering errors (${contextErrors.length}), aborting review. Consider checking your configuration and network connectivity.`);
         }
     }
 
@@ -251,21 +468,32 @@ export const execute = async (runConfig: Config): Promise<string> => {
             reviewNotesContent += `# User Context\n\n${runConfig.review.context}\n\n`;
         }
 
-        await storage.writeFile(reviewNotesPath, reviewNotesContent, 'utf-8');
+        await safeWriteFile(reviewNotesPath, reviewNotesContent);
         logger.debug('Saved timestamped review notes and context: %s', reviewNotesPath);
     } catch (error: any) {
         logger.warn('Failed to save timestamped review notes: %s', error.message);
+        // Don't fail the entire operation for this
     }
 
     const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
 
-    const analysisResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
-        model: runConfig.model,
-        responseFormat: { type: 'json_object' },
-        debug: runConfig.debug,
-        debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('review-analysis')),
-        debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('review-analysis')),
-    }) as Issues.ReviewResult;
+    let analysisResult: Issues.ReviewResult;
+    try {
+        const rawResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
+            model: runConfig.model,
+            responseFormat: { type: 'json_object' },
+            debug: runConfig.debug,
+            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('review-analysis')),
+            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('review-analysis')),
+        });
+
+        // Validate the API response before using it
+        analysisResult = validateReviewResult(rawResult);
+
+    } catch (error: any) {
+        logger.error(`Failed to analyze review note: ${error.message}`);
+        throw new Error(`Review analysis failed: ${error.message}`);
+    }
 
     logger.info('✅ Analysis completed');
     logger.debug('Analysis result summary: %s', analysisResult.summary);
@@ -289,13 +517,47 @@ export const execute = async (runConfig: Config): Promise<string> => {
             `## Issues\n\n${JSON.stringify(analysisResult.issues, null, 2)}\n\n` +
             `---\n\n*Analysis completed at ${new Date().toISOString()}*`;
 
-        await storage.writeFile(reviewPath, reviewContent, 'utf-8');
+        await safeWriteFile(reviewPath, reviewContent);
         logger.debug('Saved timestamped review analysis: %s', reviewPath);
     } catch (error: any) {
         logger.warn('Failed to save timestamped review analysis: %s', error.message);
+        // Don't fail the entire operation for this
     }
 
     // Handle GitHub issue creation using the issues module
     const senditMode = runConfig.review?.sendit || false;
     return await Issues.handleIssueCreation(analysisResult, senditMode);
-}; 
+};
+
+export const execute = async (runConfig: Config): Promise<string> => {
+    try {
+        return await executeInternal(runConfig);
+    } catch (error: any) {
+        const logger = getLogger();
+
+        if (error instanceof ValidationError) {
+            logger.error(`review failed: ${error.message}`);
+            process.exit(1);
+        }
+
+        if (error instanceof FileOperationError) {
+            logger.error(`review failed: ${error.message}`);
+            if (error.cause) {
+                logger.debug(`Caused by: ${error.cause.message}`);
+            }
+            process.exit(1);
+        }
+
+        if (error instanceof CommandError) {
+            logger.error(`review failed: ${error.message}`);
+            if (error.cause) {
+                logger.debug(`Caused by: ${error.cause.message}`);
+            }
+            process.exit(1);
+        }
+
+        // Unexpected errors
+        logger.error(`review encountered unexpected error: ${error.message}`);
+        process.exit(1);
+    }
+};

@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import { ExitError } from '../../src/error/ExitError';
+import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../../src/constants';
 
 // Mock ESM modules
 vi.mock('../../src/util/child', () => ({
@@ -44,7 +45,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log from..to');
+            expect(run.run).toHaveBeenCalledWith('git log from..to', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -56,7 +57,7 @@ describe('log', () => {
             const log = await Log.create({ from: 'from', to: 'to' });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log from..to');
+            expect(run.run).toHaveBeenCalledWith('git log from..to', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
             expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git log produced stderr: %s', mockStderr);
         });
@@ -70,7 +71,7 @@ describe('log', () => {
             const log = await Log.create({ from: 'abc123' });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log abc123');
+            expect(run.run).toHaveBeenCalledWith('git log abc123', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -81,7 +82,7 @@ describe('log', () => {
             const log = await Log.create({ to: 'develop' });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log develop');
+            expect(run.run).toHaveBeenCalledWith('git log develop', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -92,7 +93,7 @@ describe('log', () => {
             const log = await Log.create({});
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log');
+            expect(run.run).toHaveBeenCalledWith('git log', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
     });
@@ -105,7 +106,7 @@ describe('log', () => {
             const log = await Log.create({ currentBranchOnly: true });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log main..HEAD');
+            expect(run.run).toHaveBeenCalledWith('git log main..HEAD', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -119,7 +120,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD');
+            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -134,7 +135,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD');
+            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
     });
@@ -151,7 +152,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log from..to -n 10');
+            expect(run.run).toHaveBeenCalledWith('git log from..to -n 10', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -166,7 +167,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log from..to');
+            expect(run.run).toHaveBeenCalledWith('git log from..to', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -181,7 +182,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log from..to');
+            expect(run.run).toHaveBeenCalledWith('git log from..to', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -196,7 +197,7 @@ describe('log', () => {
             });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD -n 5');
+            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD -n 5', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
 
@@ -207,7 +208,7 @@ describe('log', () => {
             const log = await Log.create({ limit: 3 });
             const result = await log.get();
 
-            expect(run.run).toHaveBeenCalledWith('git log -n 3');
+            expect(run.run).toHaveBeenCalledWith('git log -n 3', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
         });
     });

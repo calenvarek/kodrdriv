@@ -155,7 +155,7 @@ describe('ConfigSchema', () => {
                     '@myorg': '/path/to/packages',
                     '@utils': '/path/to/utils'
                 },
-                workspaceFile: 'pnpm-workspace.yaml',
+
                 dryRun: true
             }
         };

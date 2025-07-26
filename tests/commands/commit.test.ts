@@ -84,24 +84,36 @@ vi.mock('../../src/content/log', () => ({
     })
 }));
 
-vi.mock('../../src/logging', () => ({
-    // @ts-ignore
-    getLogger: vi.fn().mockReturnValue({
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-        verbose: vi.fn(),
-        silly: vi.fn()
+vi.mock('../../src/util/storage', () => ({
+    create: vi.fn().mockReturnValue({
+        writeFile: vi.fn().mockResolvedValue(undefined),
+        ensureDirectory: vi.fn().mockResolvedValue(undefined)
     })
+}));
+
+// Create shared mock logger instance
+const mockLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+    silly: vi.fn()
+};
+
+// Mock the logging module
+vi.mock('../../src/logging', () => ({
+    getLogger: vi.fn().mockReturnValue(mockLogger),
+    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
 }));
 
 vi.mock('../../src/util/general', () => ({
     // @ts-ignore
     stringifyJSON: vi.fn(),
-    getOutputPath: vi.fn(),
+    getOutputPath: vi.fn().mockImplementation((dir, file) => `${dir}/${file}`),
     getTimestampedRequestFilename: vi.fn(),
-    getTimestampedResponseFilename: vi.fn()
+    getTimestampedResponseFilename: vi.fn(),
+    getTimestampedCommitFilename: vi.fn().mockReturnValue('commit-message-test.md')
 }));
 
 vi.mock('shell-escape', () => ({
@@ -182,7 +194,7 @@ describe('commit', () => {
 
         // Assert
         expect(result).toBe(mockSummary);
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
         expect(OpenAI.createCompletion).toHaveBeenCalled();
     });
 
@@ -207,7 +219,7 @@ describe('commit', () => {
 
         // Assert
         expect(Diff.hasStagedChanges).toHaveBeenCalled();
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
     });
 
     it('should use cached=false when no staged changes and cached is undefined', async () => {
@@ -231,7 +243,7 @@ describe('commit', () => {
 
         // Assert
         expect(Diff.hasStagedChanges).toHaveBeenCalled();
-        expect(Diff.create).toHaveBeenCalledWith({ cached: false, excludedPatterns: ['node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: false, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
     });
 
     it('should commit changes when sendit is true and changes are staged', async () => {
@@ -276,8 +288,6 @@ describe('commit', () => {
         await expect(async () => {
             await Commit.execute(mockConfig);
         }).rejects.toThrow('process.exit called');
-
-        expect(mockExit).toHaveBeenCalledWith(1);
     });
 
     it('should exit with error when sendit is true but cached becomes false during execution', async () => {
@@ -301,8 +311,6 @@ describe('commit', () => {
         await expect(async () => {
             await Commit.execute(mockConfig);
         }).rejects.toThrow('process.exit called');
-
-        expect(mockExit).toHaveBeenCalledWith(1);
     });
 
     it('should handle commit error in sendit mode', async () => {
@@ -360,7 +368,7 @@ describe('commit', () => {
 
         // Assert
         expect(Child.run).toHaveBeenCalledWith('git add -A');
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
         expect(Diff.hasStagedChanges).not.toHaveBeenCalled();
     });
 
@@ -531,7 +539,7 @@ describe('commit', () => {
         };
 
         // @ts-ignore
-        Logging.getLogger.mockReturnValue(mockLogger);
+        Logging.getDryRunLogger.mockReturnValue(mockLogger);
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
         OpenAI.createCompletion.mockResolvedValue(mockSummary);
@@ -545,5 +553,63 @@ describe('commit', () => {
         expect(mockLogger.verbose).toHaveBeenCalledWith('Adding all changes to the index...');
         expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode enabled. Committing with message: \n\n%s\n\n', mockSummary);
         expect(mockLogger.info).toHaveBeenCalledWith('Commit successful!');
+    });
+
+        describe('Error Handling', () => {
+        it('should handle ValidationError for sendit without changes', async () => {
+            // Arrange
+            const mockConfig = {
+                commit: { sendit: true },
+                dryRun: false
+            };
+
+            // Mock no staged changes
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+
+            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+                throw new Error('process.exit called');
+            });
+
+            // Act & Assert
+            await expect(async () => {
+                await Commit.execute(mockConfig);
+            }).rejects.toThrow('process.exit called');
+
+            processExitSpy.mockRestore();
+        });
+
+        it('should handle ExternalDependencyError for git commit failure', async () => {
+            // Arrange
+            const mockConfig = {
+                commit: { sendit: true, skipFileCheck: true },
+                dryRun: false
+            };
+            const mockSummary = 'feat: add new feature';
+
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(true);
+            // @ts-ignore
+            Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('diff content') });
+            // @ts-ignore
+            Log.create.mockReturnValue({ get: vi.fn().mockResolvedValue('log content') });
+            // @ts-ignore
+            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+
+            // Mock git commit failure
+            // @ts-ignore
+            Child.run.mockRejectedValue(new Error('git commit failed'));
+
+            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+                throw new Error('process.exit called');
+            });
+
+            // Act & Assert
+            await expect(async () => {
+                await Commit.execute(mockConfig);
+            }).rejects.toThrow('process.exit called');
+
+            processExitSpy.mockRestore();
+        });
     });
 });

@@ -1,43 +1,16 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import './StoryPage.css'
 
 function StoryPage() {
-    const [scrollY, setScrollY] = useState(0)
     const [currentChapter, setCurrentChapter] = useState(0)
 
-        useEffect(() => {
+    useEffect(() => {
         const handleScroll = () => {
-            setScrollY(window.scrollY)
-
             // Calculate current chapter based on scroll position
             const windowHeight = window.innerHeight
             const chapter = Math.floor(window.scrollY / windowHeight)
             setCurrentChapter(Math.min(chapter, 5))
-
-            // Add parallax effects to story sections
-            const sections = document.querySelectorAll('.story-section')
-            sections.forEach((section, index) => {
-                const rect = section.getBoundingClientRect()
-                const isVisible = rect.top < window.innerHeight && rect.bottom > 0
-
-                if (isVisible) {
-                    const parallaxSpeed = 0.5
-                    const yPos = -(rect.top * parallaxSpeed)
-                    const backgrounds = section.querySelectorAll('.background-layer > *')
-
-                    backgrounds.forEach((bg, bgIndex) => {
-                        const speed = parallaxSpeed * (bgIndex + 1) * 0.3
-                        const element = bg as HTMLElement
-                        element.style.transform = `translateY(${yPos * speed}px)`
-                    })
-
-                    // Add fade-in animation for content
-                    const content = section.querySelector('.story-content-inner')
-                    if (content && rect.top < window.innerHeight * 0.7) {
-                        content.classList.add('visible')
-                    }
-                }
-            })
         }
 
         window.addEventListener('scroll', handleScroll)
@@ -45,20 +18,14 @@ function StoryPage() {
     }, [])
 
     const chapters = [
-        { id: 'prologue', title: 'The Learning Machine' },
+        { id: 'prologue', title: 'The Context Switch' },
         { id: 'discovery', title: 'First Contact' },
-        { id: 'adaptation', title: 'Adaptation' },
-        { id: 'acceleration', title: 'Acceleration' },
-        { id: 'mastery', title: 'Mastery' },
-        { id: 'future', title: 'The Future' }
+        { id: 'adaptation', title: 'Personalization' },
+        { id: 'acceleration', title: 'No Pirates in the Release' },
+        { id: 'review', title: 'Wait, I can Talk to KodrDriv?' },
+        { id: 'links', title: 'Death by a Thousand Links' },
+        { id: 'publishing', title: 'Publishing is a Pain' }
     ]
-
-    const scrollToChapter = (index: number) => {
-        const element = document.getElementById(chapters[index].id)
-        if (element) {
-            element.scrollIntoView({ behavior: 'smooth' })
-        }
-    }
 
     return (
         <div className="story-page">
@@ -66,193 +33,202 @@ function StoryPage() {
             <nav className="story-nav">
                 <div className="nav-content">
                     <div className="logo-section">
-                        <img
-                            src="./kodrdriv-logo.svg"
-                            alt="KodrDriv Logo"
-                            width="32"
-                            height="32"
-                            className="nav-logo"
-                        />
-                        <span className="nav-title">KodrDriv</span>
+                        <a href="/kodrdriv/" className="logo-link">
+                            <img
+                                src="/kodrdriv/kodrdriv-logo.svg"
+                                alt="KodrDriv Logo"
+                                width="32"
+                                height="32"
+                                className="nav-logo"
+                            />
+                            <h1 className="nav-title">KodrDriv</h1>
+                        </a>
                     </div>
                     <div className="nav-links">
-                        <a href="./">Home</a>
-                        <a href="./installation">Docs</a>
-                        <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">GitHub</a>
+                        <Link to="/">← Back to Home</Link>
+                        <Link to="/commands">Commands</Link>
+                        <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">
+                            GitHub
+                        </a>
                     </div>
                 </div>
             </nav>
-
-            {/* Chapter Navigation */}
-            <div className="chapter-nav">
-                <div className="chapter-list">
-                    {chapters.map((chapter, index) => (
-                        <button
-                            key={chapter.id}
-                            className={`chapter-button ${currentChapter === index ? 'active' : ''}`}
-                            onClick={() => scrollToChapter(index)}
-                        >
-                            <span className="chapter-number">{String(index + 1).padStart(2, '0')}</span>
-                            <span className="chapter-title">{chapter.title}</span>
-                        </button>
-                    ))}
-                </div>
-            </div>
 
             {/* Story Content */}
             <main className="story-content">
                 {/* Prologue - The Learning Machine */}
                 <section id="prologue" className="story-section prologue">
-                    <div className="background-layer">
-                        <div className="neural-network" style={{ transform: `translateY(${scrollY * 0.5}px)` }}>
-                            <div className="neural-nodes"></div>
-                        </div>
-                        <div className="code-rain" style={{ transform: `translateY(${scrollY * 0.3}px)` }}></div>
-                    </div>
                     <div className="story-content-inner">
                         <div className="story-header">
-                            <h1 className="story-title">The Learning Machine</h1>
-                            <p className="story-subtitle">How KodrDriv transforms chaos into clarity</p>
+                            <h1 className="story-title">The Context Switch</h1>
+                            <p className="story-subtitle">How KodrDriv eliminates the documentation burden</p>
                         </div>
                         <div className="story-text">
                             <p className="lead">
-                                In the depths of Silicon Valley, where coffee flows like water and keyboards never sleep,
-                                a developer named Alex faces the same nightmare that haunts thousands of engineers:
-                                the dreaded commit message.
+                                A developer sits in the flow state, mind fully absorbed in solving complex logic problems.
+                                Hours pass unnoticed as elegant solutions emerge from intricate algorithms and data structures.
+                                Then comes the inevitable interruption: the commit message dialog.
                             </p>
                             <p>
-                                At 2:47 AM, after six hours of deep coding, the cursor blinks mockingly in the Git commit dialog.
-                                "What did I even change?" Alex wonders, staring at the diff that spans 14 files and 200 lines.
-                                The deadline looms. The team waits. The perfect commit message feels impossible.
+                                After six hours of deep coding, the cursor blinks mockingly in the Git commit dialog.
+                                "What did I even change?" they wonder, staring at the diff that spans 14 files and 200 lines.
+                                The deadline looms. The team waits. The mental switch from pure logic to documentation
+                                feels like trying to write poetry while solving calculus.
                             </p>
                             <p>
-                                This is where our story begins — and where everything changes.
+                                This cognitive burden — the constant interruption of deep work to summarize and document —
+                                is where our story begins, and where everything changes.
                             </p>
                         </div>
-                    </div>
-                    <div className="scroll-indicator">
-                        <div className="scroll-arrow"></div>
-                        <span>Scroll to continue</span>
                     </div>
                 </section>
 
                 {/* Chapter 1 - First Contact */}
                 <section id="discovery" className="story-section discovery">
-                    <div className="background-layer">
-                        <div className="terminal-visualization" style={{ transform: `translateY(${scrollY * 0.2}px)` }}>
-                            <div className="floating-terminal">
-                                <div className="terminal-header">
-                                    <div className="terminal-controls">
-                                        <span className="control red"></span>
-                                        <span className="control yellow"></span>
-                                        <span className="control green"></span>
-                                    </div>
-                                </div>
-                                <div className="terminal-body">
-                                    <div className="terminal-line">
-                                        <span className="prompt">$</span> npm install -g @eldrforge/kodrdriv
-                                    </div>
-                                    <div className="terminal-line output">
-                                        <span className="success">✓</span> KodrDriv installed successfully
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                     <div className="story-content-inner">
                         <h2 className="chapter-title">First Contact</h2>
                         <div className="story-text">
                             <p>
-                                The installation was simple. One command, thirty seconds, and KodrDriv became part of Alex's toolkit.
-                                But this wasn't just another CLI tool — it was the beginning of a relationship.
+                                Three hours later, staring at the Git log, the developer scrolls through cryptic commit messages:
+                                "fix stuff", "wip", "updates". "Ok, what was I working on three hours ago? How about two hours ago?"
+                                The context has completely evaporated.
                             </p>
                             <p>
-                                The first `kodrdriv commit` felt like magic. The AI analyzed the changes, understood the context,
-                                and generated: <code className="inline-code">feat(auth): implement OAuth2 flow with JWT validation</code>
+                                Frustrated, they turn to Slack: "Can anyone remember what I was working on in the auth module this morning?"
+                                A teammate responds: "Have you installed KodrDriv yet? It can help with that."
                             </p>
                             <p>
-                                "That's... exactly what I would have written," Alex whispered, "if I had the time to think clearly."
+                                One command: <code className="inline-code">npx @eldrforge/kodrdriv commit</code>
+                            </p>
+                            <div className="commit-message-box">
+                                <code className="block-code">{`feat(auth): implement OAuth2 flow
+
+- Add OAuth2 server integration
+- Implement JWT validation
+- Create session management
+
+Breaking change: Auth required
+Closes: #247, #198`}</code>
+                            </div>
+                            <p>
+                                The AI analyzed the changes, understood the context, and generated this comprehensive commit message: →
+                            </p>
+                            <p>
+                                "That's... exactly the commit message I needed," they realized, staring at the perfect summary
+                                of hours of complex work distilled into a single, clear line.
+                            </p>
+                            <p>
+                                The teammate chimed in again: "Oh, I forgot — next time run it with <code className="inline-code">--cached --sendit</code>"
+                            </p>
+                            <p>
+                                "That means it'll create a git commit for everything that is staged for commit, and it will just commit it without having to copy the message.  This saves me at least an hour every day."
                             </p>
                         </div>
 
-                        <div className="insight-box">
-                            <div className="insight-icon">🧠</div>
-                            <div className="insight-content">
-                                <h3>The Learning Begins</h3>
-                                <p>KodrDriv didn't just analyze the code — it began studying Alex's patterns, preferences, and style.</p>
-                            </div>
-                        </div>
+
                     </div>
                 </section>
 
                 {/* Chapter 2 - Adaptation */}
                 <section id="adaptation" className="story-section adaptation">
-                    <div className="background-layer">
-                        <div className="data-visualization" style={{ transform: `translateY(${scrollY * 0.1}px)` }}>
-                            <div className="data-streams"></div>
-                            <div className="pattern-recognition"></div>
-                        </div>
-                    </div>
                     <div className="story-content-inner">
-                        <h2 className="chapter-title">Adaptation</h2>
+                        <h2 className="chapter-title">Personalization</h2>
                         <div className="story-text">
                             <p>
-                                Week by week, commit by commit, KodrDriv learned. It noticed Alex preferred present tense
-                                over past tense. It understood the team's convention of using specific prefixes for different
-                                types of changes. It recognized patterns in how Alex structured messages for the
-                                microservices architecture.
+                                After a few days of using KodrDriv, the developer realized the commit messages, while perfect,
+                                felt a bit... generic. Back to Slack: "Is there a way to make KodrDriv more personal? The messages
+                                are great but they don't feel like *my* style.  I'm also missing pirate Tuesdays."
                             </p>
                             <p>
-                                When Alex worked on the authentication service, KodrDriv suggested security-focused commit messages.
-                                When touching the API gateway, it emphasized performance and routing changes.
-                                When refactoring tests, it highlighted coverage improvements and test clarity.
+                                A teammate responded: "Oh absolutely! Create a <code className="inline-code">~/.kodrdriv</code> directory
+                                and add some configuration. You can even set it to always use <code className="inline-code">--sendit</code> mode."
                             </p>
+
+                            <div className="commit-message-box">
+                                <code className="block-code">{`# ~/.kodrdriv/config.yaml
+verbose: false
+model: gpt-4.1
+contextDirectories:
+  - .kodrdriv/context
+commit:
+  add: true
+  cached: true
+  sendit: true
+
+# ~/.kodrdriv/personas/you.md
+You are a developer that values
+accuracy, and you also write
+all of your commit messages in
+piratespeak on Tuesdays.`}</code>
+                            </div>
+
+                            <p>
+                                "Wait, what?" they typed back. "Piratespeak on Tuesdays?"
+                            </p>
+                            <p>
+                                "Trust me," came the reply. "Try it on a Tuesday. KodrDriv will honor any persona you give it.
+                                The AI adapts to your style preferences, your team's conventions, even your sense of humor."
+                            </p>
+                            <p>
+                                The teammate continued: "You know, we could also change how these commit messages are generated for the project if we created more context for the project. KodrDriv starts with the directory you are running it in and it checks for .kodrdriv customizations in every parent directory."
+                            </p>
+                            <p>
+                                "Not so fast," the developer replied. "I'm getting used to this, let's just see if it gets Piratespeak right first."
+                            </p>
+
                         </div>
 
                         <div className="metrics-display">
                             <div className="metric">
                                 <div className="metric-value">127</div>
-                                <div className="metric-label">Commits Analyzed</div>
+                                <div className="metric-label">Commits Generated</div>
                             </div>
                             <div className="metric">
-                                <div className="metric-value">94%</div>
-                                <div className="metric-label">Accuracy Rate</div>
+                                <div className="metric-value">100%</div>
+                                <div className="metric-label">Personal Style</div>
                             </div>
                             <div className="metric">
-                                <div className="metric-value">3.2s</div>
-                                <div className="metric-label">Avg. Generation Time</div>
+                                <div className="metric-value">3</div>
+                                <div className="metric-label">Piratespeak Commits Generated</div>
                             </div>
-                        </div>
-
-                        <div className="story-text">
-                            <p>
-                                But KodrDriv wasn't just memorizing — it was understanding. It learned that Alex's late-night
-                                commits needed extra context. It recognized when changes were part of larger feature branches
-                                and adjusted the messaging accordingly.
-                            </p>
                         </div>
                     </div>
                 </section>
 
                 {/* Chapter 3 - Acceleration */}
                 <section id="acceleration" className="story-section acceleration">
-                    <div className="background-layer">
-                        <div className="workflow-visualization" style={{ transform: `translateY(${scrollY * 0.15}px)` }}>
-                            <div className="workflow-nodes"></div>
-                            <div className="automation-lines"></div>
-                        </div>
-                    </div>
                     <div className="story-content-inner">
-                        <h2 className="chapter-title">Acceleration</h2>
+                        <h2 className="chapter-title">No Pirates in the Release</h2>
                         <div className="story-text">
                             <p>
-                                The transformation wasn't just about commit messages. KodrDriv began orchestrating Alex's entire
-                                workflow. Release notes generated automatically. Pull request descriptions that actually told a story.
-                                Dependency updates that understood the impact across the monorepo.
+                                Two weeks passed. During the weekly team meeting, their manager Sarah pulled up the Git log
+                                and scrolled through the recent commits. "I'm noting that our commit messages are all very
+                                detailed lately," she said, looking around the room. "They're professional and comprehensive,
+                                but I'm noticing that they all seem like you spent actual time writing them."
                             </p>
                             <p>
-                                "I used to spend Friday afternoons writing release notes," Alex told a colleague.
-                                "Now KodrDriv generates them in seconds, and they're better than what I used to write."
+                                She paused, suppressing a smile. "For example, I see that some of us are still respecting
+                                Piratespeak Tuesday?"
+                            </p>
+                            <p>
+                                After the meeting, the team retreated to their private Slack channel — the one without Sarah.
+                                "Okay," someone typed, "are we all agreed that switching to KodrDriv was a good idea?"
+                                A stream of checkmarks and thumbs-up emojis followed.
+                            </p>
+                            <p>
+                                "The personality configuration was genius," another teammate added. "But speaking of which,
+                                who's doing the release notes this sprint? We ship Friday."
+                            </p>
+                            <p>
+                                The developer looked up from their screen. "How do I even do release notes? I've never
+                                written them before."
+                            </p>
+                            <p>
+                                "Easy," came the reply. "Just run <code className="inline-code">npx @eldrforge/kodrdriv release</code>"
+                            </p>
+                            <p>
+                                "Oh, and just so you know — there's a different persona for generating release notes,
+                                so you don't have to worry about Piratespeak Tuesdays."
                             </p>
                         </div>
 
@@ -260,149 +236,139 @@ function StoryPage() {
                             <div className="workflow-step">
                                 <div className="step-icon">💻</div>
                                 <div className="step-content">
-                                    <h4>Code Changes</h4>
-                                    <p>Alex focuses on solving problems, not documentation</p>
+                                    <h4>Personal Commits</h4>
+                                    <p>Individual style and humor preserved</p>
                                 </div>
                             </div>
                             <div className="workflow-arrow">→</div>
                             <div className="workflow-step">
                                 <div className="step-icon">🤖</div>
                                 <div className="step-content">
-                                    <h4>AI Analysis</h4>
-                                    <p>KodrDriv understands context, patterns, and preferences</p>
+                                    <h4>Context Switching</h4>
+                                    <p>Different personas for different audiences</p>
                                 </div>
                             </div>
                             <div className="workflow-arrow">→</div>
                             <div className="workflow-step">
                                 <div className="step-icon">📋</div>
                                 <div className="step-content">
-                                    <h4>Perfect Documentation</h4>
-                                    <p>Commits, releases, and reviews generated automatically</p>
+                                    <h4>Professional Releases</h4>
+                                    <p>Customer-facing documentation, no pirates</p>
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </section>
 
+                {/* Chapter 4 - Review */}
+                <section id="review" className="story-section review">
+                    <div className="story-content-inner">
+                        <h2 className="chapter-title">Wait, I can Talk to KodrDriv?</h2>
                         <div className="story-text">
                             <p>
-                                The audio feature changed everything. Instead of stopping to write commit messages,
-                                Alex could simply speak thoughts while coding: "Adding rate limiting to the API endpoint
-                                to prevent abuse." KodrDriv would transform those casual words into professional,
-                                structured commit messages.
+                                A few days later, back in Slack, the original teammate who had introduced KodrDriv was
+                                frustrated: "Ugh, this release has so many bugs. I'm going to be spending all weekend
+                                filing GitHub issues to track them all."
+                            </p>
+                            <p>
+                                The developer looked up, remembering their own learning curve. "You know, you can just
+                                send that to the 'review' command in KodrDriv. If your GITHUB_TOKEN environment variable
+                                is set correctly, the tool will just look at your review, examine the project, and create
+                                a few GitHub issues automatically."
+                            </p>
+                            <p>
+                                "Wait, what? <code className="inline-code">npx @eldrforge/kodrdriv review</code> does that?"
+                            </p>
+                            <p>
+                                "Yeah, just run it and it'll start up your EDITOR and you can send it pages and pages of feedback.
+                                After that it'll analyze it and, again, if you have a GITHUB_TOKEN, it'll prompt you to create new issues."
+                            </p>
+                            <p>
+                                "That seems easy."
+                            </p>
+                            <p>
+                                "You know, I haven't even told you about the audio-review feature yet. If you run
+                                <code className="inline-code">select-audio</code> to choose a microphone, you can just complain to KodrDriv
+                                and it'll take care of creating GitHub issues for you."
+                            </p>
+                            <p>
+                                "Yep. You taught me about commit messages, now I'm teaching you about issue management.
+                                Full circle.  Let's stop here, otherwise I'll be telling you about audio-commit."
                             </p>
                         </div>
                     </div>
                 </section>
 
-                {/* Chapter 4 - Mastery */}
-                <section id="mastery" className="story-section mastery">
-                    <div className="background-layer">
-                        <div className="mastery-visualization" style={{ transform: `translateY(${scrollY * 0.05}px)` }}>
-                            <div className="neural-pathways"></div>
-                            <div className="knowledge-graph"></div>
-                        </div>
-                    </div>
+                {/* Chapter 5 - Death by a Thousand Links */}
+                <section id="links" className="story-section links">
                     <div className="story-content-inner">
-                        <h2 className="chapter-title">Mastery</h2>
+                        <h2 className="chapter-title">Death by a Thousand Links</h2>
                         <div className="story-text">
                             <p>
-                                Six months later, KodrDriv had become an extension of Alex's mind. It knew when Alex was
-                                working on critical bug fixes versus experimental features. It understood the difference
-                                between customer-facing changes and internal refactoring. It had learned the team's
-                                release cadence and could predict which changes belonged in which version.
+                                A week later, another developer in the team was venting in Slack: "Every time we update to a new version
+                                of an open source project and I want to develop everything end-to-end without rebuilding everything,
+                                I end up having to update the package.json with a link or a relative directory. This is getting really old,
+                                and I'm inadvertently checking in broken crap to Git."
                             </p>
                             <p>
-                                "It's not just saving me time," Alex reflected during a team retrospective.
-                                "It's making me a better developer. I think more clearly about my changes because
-                                I know KodrDriv will document them properly."
+                                The now-experienced KodrDriv user jumped in: "Wait, I'm teaching you about KodrDriv again.
+                                Just run <code className="inline-code">link</code> and <code className="inline-code">unlink</code>.
+                                Configure KodrDriv with some directories for it to scan for package.json files, and you can just link
+                                it to anything that's present on the filesystem. THEN when you need to deploy something to production,
+                                run <code className="inline-code">unlink</code>."
                             </p>
-                        </div>
-
-                        <div className="testimonial">
-                            <div className="testimonial-content">
-                                <p>
-                                    "KodrDriv doesn't just automate documentation — it elevates it.
-                                    Our commit history went from cryptic one-liners to professional,
-                                    searchable documentation that tells the story of our product."
-                                </p>
-                                <div className="testimonial-author">
-                                    <div className="author-avatar">👨‍💻</div>
-                                    <div className="author-info">
-                                        <div className="author-name">Alex Chen</div>
-                                        <div className="author-title">Senior Engineer, TechCorp</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="story-text">
                             <p>
-                                The team's code review process transformed. Instead of spending time asking "what does this do?",
-                                reviewers could focus on "is this the right approach?" KodrDriv's generated descriptions
-                                provided the context that made meaningful code review possible.
+                                "Is there an audio version of this one too?"
+                            </p>
+                            <p>
+                                "No."
                             </p>
                         </div>
                     </div>
                 </section>
 
-                {/* Chapter 5 - The Future */}
-                <section id="future" className="story-section future">
-                    <div className="background-layer">
-                        <div className="future-visualization" style={{ transform: `translateY(${scrollY * 0.1}px)` }}>
-                            <div className="expanding-network"></div>
-                            <div className="possibility-space"></div>
-                        </div>
-                    </div>
+                {/* Chapter 6 - Publishing is a Pain */}
+                <section id="publishing" className="story-section publishing">
                     <div className="story-content-inner">
-                        <h2 className="chapter-title">The Future</h2>
+                        <h2 className="chapter-title">Publishing is a Pain</h2>
                         <div className="story-text">
                             <p>
-                                Today, Alex's team ships features faster, with better documentation, and fewer bugs.
-                                Their Git history reads like a professional engineering journal. New team members can
-                                understand the codebase's evolution by reading commit messages alone.
+                                The next sprint planning meeting had arrived, and Sarah was looking around the room.
+                                "Okay team, we need to decide who's going to be responsible for publishing the next release.
+                                It's a complex process — updating dependencies, running tests, creating release notes,
+                                managing the PR, waiting for CI, merging, tagging, creating the GitHub release..."
                             </p>
                             <p>
-                                But this is just the beginning. KodrDriv continues to learn, to adapt, to understand
-                                the unique patterns of each developer and team. It's not replacing human creativity —
-                                it's amplifying human intelligence.
+                                The room fell silent. Everyone knew publishing was tedious and error-prone. Too many steps,
+                                too many things that could go wrong, too much manual coordination required.
                             </p>
-                        </div>
-
-                        <div className="future-features">
-                            <div className="feature-preview">
-                                <div className="feature-icon">🔮</div>
-                                <h4>Predictive Commits</h4>
-                                <p>AI that suggests commits before you're done coding</p>
-                            </div>
-                            <div className="feature-preview">
-                                <div className="feature-icon">🌍</div>
-                                <h4>Team Learning</h4>
-                                <p>Collective intelligence that improves as teams grow</p>
-                            </div>
-                            <div className="feature-preview">
-                                <div className="feature-icon">🔗</div>
-                                <h4>Universal Integration</h4>
-                                <p>Every tool in your workflow speaks the same language</p>
-                            </div>
-                        </div>
-
-                        <div className="story-text">
                             <p>
-                                The question isn't whether AI will change how we develop software.
-                                The question is: will you be ready when it does?
+                                Slowly, one hand raised. It was the developer who had become the team's unofficial KodrDriv expert.
                             </p>
-                        </div>
-
-                        <div className="cta-section">
-                            <h3>Start Your Story</h3>
-                            <p>Join thousands of developers who've transformed their Git workflow with KodrDriv.</p>
-                            <div className="cta-buttons">
-                                <a href="./installation" className="btn-primary">Install KodrDriv</a>
-                                <a href="./" className="btn-secondary">Learn More</a>
-                            </div>
+                            <p>
+                                Sarah looked over with a knowing smile. "Let me guess — you have a way to automate this too?"
+                            </p>
+                            <p>
+                                The developer grinned. "Well..."
+                            </p>
                         </div>
                     </div>
                 </section>
             </main>
+
+            {/* Call to Action Section */}
+            <section className="cta-wrapper">
+                <div className="story-content-inner">
+                    <div className="cta-section">
+                        <h3>Start Your Story</h3>
+                        <p>Join thousands of developers who've transformed their Git workflow with KodrDriv.</p>
+                        <div className="cta-buttons">
+                            <a href="/kodrdriv/installation" className="btn-primary">Install KodrDriv</a>
+                            <a href="/kodrdriv/" className="btn-secondary">Learn More</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
             {/* Floating Progress */}
             <div className="progress-indicator">

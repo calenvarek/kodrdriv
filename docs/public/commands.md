@@ -292,11 +292,11 @@ kodrdriv publish
 
 The `publish` command orchestrates a comprehensive release workflow, designed to ensure a safe and consistent release process. Here's what it does:
 
-1. **Dependency Management**: If a `pnpm-workspace.yaml` file is present, it's temporarily renamed to switch from workspace dependencies to registry versions. It then runs `pnpm update --latest` to ensure dependencies are up to date. You can configure specific dependency patterns to update instead of updating all dependencies using the `dependencyUpdatePatterns` configuration option.
+1. **Dependency Management**: For projects with npm workspaces, it temporarily switches from workspace dependencies to registry versions. It then runs `npm update` to ensure dependencies are up to date. You can configure specific dependency patterns to update instead of updating all dependencies using the `dependencyUpdatePatterns` configuration option.
 
 2. **Pre-flight Checks**: Before committing any changes, it runs the `prepublishOnly` script from your `package.json`. This script should contain your project's pre-flight checks (e.g., `clean`, `lint`, `build`, `test`) to ensure the project is in a good state. **Note**: A `prepublishOnly` script is required in your `package.json` - the publish command will fail if this script is not present.
 
-3. **Release Commit**: If there are changes to `package.json` or `pnpm-lock.yaml`, it creates an intelligent commit message for the dependency updates.
+3. **Release Commit**: If there are changes to `package.json` or `package-lock.json`, it creates an intelligent commit message for the dependency updates.
 
 4. **Version Bump**: It automatically bumps the patch version of your project.
 
@@ -556,7 +556,7 @@ kodrdriv publish-tree --publish --start-from my-failed-package
 
 **Execute custom shell commands:**
 ```bash
-kodrdriv publish-tree --cmd "pnpm run test && pnpm run build"
+kodrdriv publish-tree --cmd "npm run test && npm run build"
 ```
 
 **Process specific workspace directory with exclusions:**
@@ -569,7 +569,7 @@ kodrdriv publish-tree --directory ./packages --excluded-paths "**/test-packages/
 kodrdriv publish-tree \
   --directory ./workspace \
   --excluded-paths "examples/**,**/*-demo" \
-  --script "pnpm run lint && pnpm run build" \
+  --script "npm run lint && npm run build" \
   --start-from core-package
 ```
 
@@ -582,7 +582,7 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
   "publishTree": {
     "directory": "./packages",
     "excludedPatterns": ["**/node_modules/**", "**/dist/**", "**/examples/**"],
-    "script": "pnpm run build",
+    "script": "npm run build",
     "startFrom": null,
     "cmd": null,
     "publish": false
@@ -603,7 +603,7 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
 **CI/CD Pipeline Build:**
 ```bash
 # Build all packages in correct dependency order
-kodrdriv publish-tree --script "pnpm run build"
+kodrdriv publish-tree --script "npm run build"
 ```
 
 **Incremental Publishing:**
@@ -615,7 +615,7 @@ kodrdriv publish-tree --publish --start-from updated-package
 **Quality Assurance:**
 ```bash
 # Run tests across all packages
-kodrdriv publish-tree --script "pnpm run test"
+kodrdriv publish-tree --script "npm run test"
 ```
 
 **Version Management:**
@@ -648,13 +648,13 @@ To resume from this package, use: --start-from api-client
 
 ## Link Command
 
-Manage pnpm workspace links for local development with sibling projects:
+Manage npm workspace links for local development with sibling projects:
 
 ```bash
 kodrdriv link
 ```
 
-The `link` command automates the creation and management of pnpm workspace configurations for local development. It scans your project's dependencies and automatically discovers matching sibling packages in configured scope directories, then updates your `pnpm-workspace.yaml` file to link them for local development.
+The `link` command automates the creation and management of npm workspace configurations for local development. It scans your project's dependencies and automatically discovers matching sibling packages in configured scope directories, then creates file: dependencies in your package.json to link them for local development.
 
 This is particularly useful when working with monorepos or related packages where you want to use local versions of dependencies instead of published registry versions during development.
 
@@ -663,7 +663,7 @@ This is particularly useful when working with monorepos or related packages wher
 - `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories for package discovery (required)
   - **Format**: `'{"@scope": "path", "@another": "path"}'`
   - **Example**: `'{"@company": "../", "@myorg": "../../packages/"}'`
-- `--workspace-file <workspaceFile>`: Path to the workspace file to create/update (default: 'pnpm-workspace.yaml')
+
 
 ### Examples
 
@@ -672,7 +672,7 @@ This is particularly useful when working with monorepos or related packages wher
 kodrdriv link --scope-roots '{"@mycompany": "../", "@utils": "../../shared/"}'
 
 # Link with custom workspace file
-kodrdriv link --scope-roots '{"@myorg": "../"}' --workspace-file custom-workspace.yaml
+kodrdriv link --scope-roots '{"@myorg": "../"}'
 
 # Link packages from multiple scope directories
 kodrdriv link --scope-roots '{"@frontend": "../ui/", "@backend": "../api/", "@shared": "../common/"}'
@@ -680,7 +680,7 @@ kodrdriv link --scope-roots '{"@frontend": "../ui/", "@backend": "../api/", "@sh
 
 ## Unlink Command
 
-Remove pnpm workspace links and rebuild dependencies from registry:
+Remove npm workspace links and rebuild dependencies from registry:
 
 ```bash
 kodrdriv unlink
@@ -691,7 +691,7 @@ The `unlink` command removes workspace links created by the `link` command and r
 ### Unlink Command Options
 
 - `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories (same as link command)
-- `--workspace-file <workspaceFile>`: Path to the workspace file to modify (default: 'pnpm-workspace.yaml')
+
 
 ### Examples
 
@@ -700,7 +700,7 @@ The `unlink` command removes workspace links created by the `link` command and r
 kodrdriv unlink --scope-roots '{"@mycompany": "../"}'
 
 # Unlink with custom workspace file
-kodrdriv unlink --workspace-file custom-workspace.yaml
+kodrdriv unlink
 ```
 
 ## Clean Command

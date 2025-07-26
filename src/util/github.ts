@@ -201,11 +201,99 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
         );
 
         if (failingChecks.length > 0) {
-            logger.error(`PR #${prNumber} has failing checks:`);
-            for (const check of failingChecks) {
-                logger.error(`- ${check.name}: ${check.conclusion}`);
+            const { owner, repo } = await getRepoDetails();
+            const prUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
+
+            // Get current branch name for better guidance
+            let currentBranch: string | undefined;
+            try {
+                currentBranch = await getCurrentBranchName();
+            } catch {
+                // Fallback to generic branch reference if we can't get the current branch
+                currentBranch = undefined;
             }
-            throw new Error(`PR #${prNumber} checks failed.`);
+
+            // Collect detailed information about each failed check
+            const detailedFailedChecks = await Promise.all(
+                failingChecks.map(async (check) => {
+                    try {
+                        // Get additional details from the check run
+                        const checkDetails = await octokit.checks.get({
+                            owner,
+                            repo,
+                            check_run_id: check.id,
+                        });
+
+                        return {
+                            name: check.name,
+                            conclusion: check.conclusion || 'unknown',
+                            detailsUrl: check.details_url || undefined,
+                            summary: checkDetails.data.output?.summary || undefined,
+                            output: {
+                                title: checkDetails.data.output?.title || undefined,
+                                summary: checkDetails.data.output?.summary || undefined,
+                                text: checkDetails.data.output?.text || undefined,
+                            },
+                        };
+                    } catch {
+                        // Fallback to basic information if we can't get details
+                        return {
+                            name: check.name,
+                            conclusion: check.conclusion || 'unknown',
+                            detailsUrl: check.details_url || undefined,
+                        };
+                    }
+                })
+            );
+
+            logger.error(`❌ PR #${prNumber} has ${failingChecks.length} failing check${failingChecks.length > 1 ? 's' : ''}:`);
+            logger.error('');
+
+            for (const check of detailedFailedChecks) {
+                const statusIcon = check.conclusion === 'failure' ? '❌' :
+                    check.conclusion === 'timed_out' ? '⏰' : '🚫';
+                logger.error(`${statusIcon} ${check.name}: ${check.conclusion}`);
+
+                // Show more detailed error information if available
+                if (check.output?.title && check.output.title !== check.name) {
+                    logger.error(`   Issue: ${check.output.title}`);
+                }
+
+                if (check.output?.summary) {
+                    // Truncate very long summaries
+                    const summary = check.output.summary.length > 200
+                        ? check.output.summary.substring(0, 200) + '...'
+                        : check.output.summary;
+                    logger.error(`   Summary: ${summary}`);
+                }
+
+                // Include direct link to check details
+                if (check.detailsUrl) {
+                    logger.error(`   Details: ${check.detailsUrl}`);
+                }
+                logger.error('');
+            }
+
+            // Import the new error class
+            const { PullRequestCheckError } = await import('../error/CommandErrors');
+
+            // Create and throw the enhanced error with detailed recovery instructions
+            const prError = new PullRequestCheckError(
+                `PR #${prNumber} checks failed. ${failingChecks.length} check${failingChecks.length > 1 ? 's' : ''} failed.`,
+                prNumber,
+                detailedFailedChecks,
+                prUrl,
+                currentBranch
+            );
+
+            // Display recovery instructions
+            const instructions = prError.getRecoveryInstructions();
+            for (const instruction of instructions) {
+                logger.error(instruction);
+            }
+            logger.error('');
+
+            throw prError;
         }
 
         const allChecksCompleted = checkRuns.every((cr) => cr.status === 'completed');

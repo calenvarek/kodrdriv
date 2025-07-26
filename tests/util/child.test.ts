@@ -1,11 +1,13 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { run } from '../../src/util/child';
+import { run, runWithDryRunSupport } from '../../src/util/child';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { getLogger } from '../../src/logging';
 
 // Mock the dependencies
 vi.mock('child_process');
 vi.mock('util');
+vi.mock('../../src/logging');
 
 describe('child.ts - run function', () => {
     const mockExec = vi.mocked(exec);
@@ -303,4 +305,218 @@ describe('child.ts - run function', () => {
 
         expect(mockExecPromise).toHaveBeenCalledWith('windows-command', options);
     });
-}); 
+});
+
+describe('child.ts - runWithDryRunSupport function', () => {
+    const mockExec = vi.mocked(exec);
+    const mockPromisify = vi.mocked(promisify);
+    const mockExecPromise = vi.fn();
+    const mockLogger = {
+        info: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn()
+    };
+    const mockGetLogger = vi.mocked(getLogger);
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockPromisify.mockReturnValue(mockExecPromise);
+        mockGetLogger.mockReturnValue(mockLogger as any);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    test('should log command and return empty result when isDryRun is true', async () => {
+        const command = 'echo "test command"';
+        const isDryRun = true;
+
+        const result = await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockGetLogger).toHaveBeenCalled();
+        expect(mockLogger.info).toHaveBeenCalledWith(`DRY RUN: Would execute command: ${command}`);
+        expect(result).toEqual({ stdout: '', stderr: '' });
+        expect(mockExecPromise).not.toHaveBeenCalled();
+    });
+
+    test('should log command and return empty result when isDryRun is true with options', async () => {
+        const command = 'npm install';
+        const isDryRun = true;
+        const options = { cwd: '/test/directory' };
+
+        const result = await runWithDryRunSupport(command, isDryRun, options);
+
+        expect(mockLogger.info).toHaveBeenCalledWith(`DRY RUN: Would execute command: ${command}`);
+        expect(result).toEqual({ stdout: '', stderr: '' });
+        expect(mockExecPromise).not.toHaveBeenCalled();
+    });
+
+    test('should execute command normally when isDryRun is false', async () => {
+        const command = 'echo "real command"';
+        const isDryRun = false;
+        const expectedResult = { stdout: 'real command output', stderr: '' };
+
+        mockExecPromise.mockResolvedValue(expectedResult);
+
+        const result = await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockLogger.info).not.toHaveBeenCalled();
+        expect(mockExecPromise).toHaveBeenCalledWith(command, {});
+        expect(result).toEqual(expectedResult);
+    });
+
+    test('should execute command with options when isDryRun is false', async () => {
+        const command = 'npm test';
+        const isDryRun = false;
+        const options = {
+            cwd: '/project/root',
+            env: { NODE_ENV: 'test' },
+            timeout: 30000
+        };
+        const expectedResult = { stdout: 'test output', stderr: 'test warnings' };
+
+        mockExecPromise.mockResolvedValue(expectedResult);
+
+        const result = await runWithDryRunSupport(command, isDryRun, options);
+
+        expect(mockExecPromise).toHaveBeenCalledWith(command, options);
+        expect(result).toEqual(expectedResult);
+    });
+
+    test('should propagate errors when isDryRun is false and command fails', async () => {
+        const command = 'failing-command';
+        const isDryRun = false;
+        const error = new Error('Command execution failed');
+
+        mockExecPromise.mockRejectedValue(error);
+
+        await expect(runWithDryRunSupport(command, isDryRun)).rejects.toThrow('Command execution failed');
+        expect(mockExecPromise).toHaveBeenCalledWith(command, {});
+    });
+
+    test('should handle complex commands in dry run mode', async () => {
+        const command = 'git commit -m "Complex commit with special chars: $VAR & symbols"';
+        const isDryRun = true;
+
+        const result = await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockLogger.info).toHaveBeenCalledWith(`DRY RUN: Would execute command: ${command}`);
+        expect(result).toEqual({ stdout: '', stderr: '' });
+    });
+
+    test('should handle empty command in dry run mode', async () => {
+        const command = '';
+        const isDryRun = true;
+
+        const result = await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would execute command: ');
+        expect(result).toEqual({ stdout: '', stderr: '' });
+    });
+
+    test('should handle commands with unicode in dry run mode', async () => {
+        const command = 'echo "🚀 Deploy to production! 中文测试"';
+        const isDryRun = true;
+
+        const result = await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockLogger.info).toHaveBeenCalledWith(`DRY RUN: Would execute command: ${command}`);
+        expect(result).toEqual({ stdout: '', stderr: '' });
+    });
+
+    test('should call getLogger only once per invocation in dry run mode', async () => {
+        const command = 'test command';
+        const isDryRun = true;
+
+        await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockGetLogger).toHaveBeenCalledTimes(1);
+        expect(mockLogger.info).toHaveBeenCalledTimes(1);
+    });
+
+    test('should not call getLogger when isDryRun is false', async () => {
+        const command = 'test command';
+        const isDryRun = false;
+
+        mockExecPromise.mockResolvedValue({ stdout: 'output', stderr: '' });
+
+        await runWithDryRunSupport(command, isDryRun);
+
+        expect(mockGetLogger).toHaveBeenCalledTimes(1);
+        expect(mockLogger.info).not.toHaveBeenCalled();
+    });
+});
+
+// Additional edge cases for run function
+describe('child.ts - run function additional edge cases', () => {
+    const mockExec = vi.mocked(exec);
+    const mockPromisify = vi.mocked(promisify);
+    const mockExecPromise = vi.fn();
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockPromisify.mockReturnValue(mockExecPromise);
+    });
+
+    test('should handle null options parameter', async () => {
+        const expectedResult = { stdout: 'test', stderr: '' };
+        mockExecPromise.mockResolvedValue(expectedResult);
+
+        const result = await run('test-command', null as any);
+
+        expect(mockExecPromise).toHaveBeenCalledWith('test-command', null);
+        expect(result).toEqual(expectedResult);
+    });
+
+    test('should handle undefined options parameter explicitly', async () => {
+        const expectedResult = { stdout: 'test', stderr: '' };
+        mockExecPromise.mockResolvedValue(expectedResult);
+
+        const result = await run('test-command', undefined);
+
+        // When undefined is passed, default parameter kicks in and converts to {}
+        expect(mockExecPromise).toHaveBeenCalledWith('test-command', {});
+        expect(result).toEqual(expectedResult);
+    });
+
+    test('should handle commands with newlines', async () => {
+        const command = 'echo "line1\nline2\nline3"';
+        const expectedResult = { stdout: 'line1\nline2\nline3', stderr: '' };
+        mockExecPromise.mockResolvedValue(expectedResult);
+
+        const result = await run(command);
+
+        expect(result.stdout).toBe('line1\nline2\nline3');
+    });
+
+    test('should handle commands with tabs and special whitespace', async () => {
+        const command = 'echo "\t\r\n\v\f"';
+        const expectedResult = { stdout: '\t\r\n\v\f', stderr: '' };
+        mockExecPromise.mockResolvedValue(expectedResult);
+
+        const result = await run(command);
+
+        expect(result.stdout).toBe('\t\r\n\v\f');
+    });
+
+    test('should handle error with custom properties', async () => {
+        const customError = Object.assign(new Error('Custom error'), {
+            code: 'CUSTOM_CODE',
+            errno: -2,
+            path: '/test/path',
+            syscall: 'spawn'
+        });
+
+        mockExecPromise.mockRejectedValue(customError);
+
+        await expect(run('custom-error-command')).rejects.toMatchObject({
+            message: 'Custom error',
+            code: 'CUSTOM_CODE',
+            errno: -2,
+            path: '/test/path',
+            syscall: 'spawn'
+        });
+    });
+});

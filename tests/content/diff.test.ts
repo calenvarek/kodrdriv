@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import { ExitError } from '../../src/error/ExitError';
+import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../../src/constants';
 
 // Mock ESM modules
 vi.mock('../../src/util/child', () => ({
@@ -41,7 +42,7 @@ describe('diff', () => {
             const diff = await Diff.create({ cached: true, excludedPatterns: ['whatever'] });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff --cached -- . \':(exclude)whatever\'');
+            expect(run.run).toHaveBeenCalledWith('git diff --cached -- . \':(exclude)whatever\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -52,7 +53,7 @@ describe('diff', () => {
             const diff = await Diff.create({ cached: false, excludedPatterns: ['whatever'] });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff -- . \':(exclude)whatever\'');
+            expect(run.run).toHaveBeenCalledWith('git diff -- . \':(exclude)whatever\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -68,7 +69,7 @@ describe('diff', () => {
             });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff abc123..def456 -- . \':(exclude)test\'');
+            expect(run.run).toHaveBeenCalledWith('git diff abc123..def456 -- . \':(exclude)test\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -83,7 +84,7 @@ describe('diff', () => {
             });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff abc123 -- . \':(exclude)test\'');
+            expect(run.run).toHaveBeenCalledWith('git diff abc123 -- . \':(exclude)test\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -98,7 +99,7 @@ describe('diff', () => {
             });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff def456 -- . \':(exclude)test\'');
+            expect(run.run).toHaveBeenCalledWith('git diff def456 -- . \':(exclude)test\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -114,7 +115,7 @@ describe('diff', () => {
             });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff --cached abc123..def456 -- . \':(exclude)test\'');
+            expect(run.run).toHaveBeenCalledWith('git diff --cached abc123..def456 -- . \':(exclude)test\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -128,7 +129,7 @@ describe('diff', () => {
             });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff -- . \':(exclude)*.log\' \':(exclude)*.tmp\' \':(exclude)node_modules/*\'');
+            expect(run.run).toHaveBeenCalledWith('git diff -- . \':(exclude)*.log\' \':(exclude)*.tmp\' \':(exclude)node_modules/*\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -142,7 +143,7 @@ describe('diff', () => {
             });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff -- . ');
+            expect(run.run).toHaveBeenCalledWith('git diff -- . ', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
         });
 
@@ -154,9 +155,9 @@ describe('diff', () => {
             const diff = await Diff.create({ cached: true, excludedPatterns: ['whatever'] });
             const result = await diff.get();
 
-            expect(run.run).toHaveBeenCalledWith('git diff --cached -- . \':(exclude)whatever\'');
+            expect(run.run).toHaveBeenCalledWith('git diff --cached -- . \':(exclude)whatever\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
-            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git log produced stderr: %s', mockStderr);
+            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git diff produced stderr: %s', mockStderr);
         });
 
         it('should handle git diff execution error', async () => {
@@ -166,8 +167,8 @@ describe('diff', () => {
             const diff = await Diff.create({ cached: false, excludedPatterns: ['whatever'] });
 
             await expect(diff.get()).rejects.toThrow(ExitError);
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', mockError.message);
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Error occurred during gather change phase: %s %s', mockError.message, expect.any(String));
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git diff: %s', 'git diff failed');
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Error occurred during gather change phase: %s %s', 'git diff failed', expect.any(String));
         });
 
         it('should call verbose and debug logging methods', async () => {
@@ -179,7 +180,7 @@ describe('diff', () => {
 
             expect(getLogger.getLogger().verbose).toHaveBeenCalledWith('Gathering change information from Git');
             expect(getLogger.getLogger().debug).toHaveBeenCalledWith('Executing git diff');
-            expect(getLogger.getLogger().debug).toHaveBeenCalledWith('Git log output: %s', mockDiff);
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith('Git diff output: %s', mockDiff);
         });
     });
 
@@ -265,7 +266,7 @@ describe('diff', () => {
             const result = Diff.getReviewExcludedPatterns(basePatterns);
 
             // Lock files
-            expect(result).toContain('pnpm-lock.yaml');
+            expect(result).not.toContain('pnpm-lock.yaml');
             expect(result).toContain('package-lock.json');
             expect(result).toContain('yarn.lock');
 

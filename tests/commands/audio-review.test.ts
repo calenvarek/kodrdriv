@@ -8,22 +8,21 @@ import { transcribeAudio } from '../../src/util/openai';
 import { getTimestampedAudioFilename } from '../../src/util/general';
 import * as Storage from '../../src/util/storage';
 import path from 'path';
+import * as Logging from '../../src/logging';
+import * as ReviewCommand from '../../src/commands/review';
+import * as Unplayable from '@theunwalked/unplayable';
+import * as OpenAI from '../../src/util/openai';
 
-// Mock all dependencies
-vi.mock('../../src/logging');
+// Mock the logging module
+vi.mock('../../src/logging', () => ({
+    getLogger: vi.fn(),
+    getDryRunLogger: vi.fn()
+}));
 vi.mock('../../src/commands/review');
 vi.mock('@theunwalked/unplayable');
 vi.mock('../../src/util/openai');
 vi.mock('../../src/util/general');
 vi.mock('../../src/util/storage');
-
-// Mock logger 
-const mockLogger = {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-} as any;
 
 // Mock storage that matches the Storage.Utility interface
 const mockStorage = {
@@ -48,17 +47,36 @@ const mockStorage = {
 } as any;
 
 describe('audio-review command', () => {
+    // Create mock logger instance
+    const mockLogger = {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
-        (getLogger as MockedFunction<typeof getLogger>).mockReturnValue(mockLogger);
-        (Storage.create as MockedFunction<typeof Storage.create>).mockReturnValue(mockStorage);
+
+        // Setup logging mocks
+        vi.mocked(Logging.getLogger).mockReturnValue(mockLogger as any);
+        vi.mocked(Logging.getDryRunLogger).mockReturnValue(mockLogger as any);
+
+        vi.mocked(Storage.create).mockReturnValue(mockStorage);
+        vi.mocked(OpenAI.transcribeAudio).mockResolvedValue({ text: 'Mock transcription' } as any);
+        vi.mocked(ReviewCommand.execute).mockResolvedValue('Mock review result');
+        vi.mocked(Unplayable.processAudio).mockResolvedValue({
+            audioFilePath: '/mock/audio.wav'
+        } as any);
     });
 
     afterEach(() => {
         vi.restoreAllMocks();
     });
 
-    // Note: discoverAudioFiles and processSingleAudioFile are internal functions 
+    // Note: discoverAudioFiles and processSingleAudioFile are internal functions
     // and are tested indirectly through the execute function
 
     describe('execute function', () => {
@@ -107,7 +125,7 @@ describe('audio-review command', () => {
                 expect(result).toContain('Batch Audio Review Results (2 files)');
                 expect(result).toContain('File: file1.wav');
                 expect(result).toContain('File: file2.mp3');
-                expect(mockLogger.info).toHaveBeenCalledWith('🎵 Starting directory batch audio review for: %s', '/test/directory');
+                expect(mockLogger.info).toHaveBeenCalledWith('Found 2 audio files in directory: /test/directory');
             });
 
             it('should handle empty directory', async () => {
@@ -156,13 +174,14 @@ describe('audio-review command', () => {
                     }
                 };
 
-                const mockReviewResult = 'Dry run review result';
-                (executeReview as MockedFunction<typeof executeReview>).mockResolvedValue(mockReviewResult);
-
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would process audio file: %s', '/test/audio.wav');
-                expect(result).toBe(mockReviewResult);
+                expect(mockLogger.info).toHaveBeenCalledWith('Would process audio file: %s', '/test/audio.wav');
+                expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for review analysis');
+                expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular review command');
+                expect(result).toBe('DRY RUN: Would process audio, transcribe it, and perform review analysis with audio context');
+                // Should not call the actual review command in dry run
+                expect(executeReview).not.toHaveBeenCalled();
             });
 
             it('should handle dry run without file', async () => {
@@ -171,13 +190,14 @@ describe('audio-review command', () => {
                     dryRun: true
                 };
 
-                const mockReviewResult = 'Dry run review result';
-                (executeReview as MockedFunction<typeof executeReview>).mockResolvedValue(mockReviewResult);
-
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would start audio recording for review context');
-                expect(result).toBe(mockReviewResult);
+                expect(mockLogger.info).toHaveBeenCalledWith('Would start audio recording for review context');
+                expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for review analysis');
+                expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular review command');
+                expect(result).toBe('DRY RUN: Would process audio, transcribe it, and perform review analysis with audio context');
+                // Should not call the actual review command in dry run
+                expect(executeReview).not.toHaveBeenCalled();
             });
 
             it('should handle dry run directory mode', async () => {
@@ -192,7 +212,8 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would discover and process all audio files in directory: %s', '/test/directory');
+                expect(mockLogger.info).toHaveBeenCalledWith('Would discover and process all audio files in directory: %s', '/test/directory');
+                expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe each audio file and run review analysis');
                 expect(result).toBe('DRY RUN: Directory batch processing would be performed');
             });
         });
@@ -235,31 +256,23 @@ describe('audio-review command', () => {
             });
 
             it('should handle cancelled recording', async () => {
+                // Clear any existing mocks first
+                vi.mocked(Unplayable.processAudio).mockReset();
+
                 const config = baseConfig;
                 const mockProcessAudioResult = {
                     cancelled: true,
                     audioFilePath: undefined
                 };
 
-                (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockProcessAudioResult);
+                // Set up the mock to return cancellation result
+                vi.mocked(Unplayable.processAudio).mockResolvedValue(mockProcessAudioResult);
 
-                // Mock process.exit to prevent actual exit but still throw to simulate termination
-                const mockExit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-                    // Don't throw here, just prevent actual exit
-                    return undefined as never;
-                }) as any);
-
-                // The execute function should not return normally when cancelled
-                const result = await execute(config);
+                // The execute function should throw CancellationError when cancelled
+                await expect(execute(config)).rejects.toThrow('Audio review cancelled by user');
 
                 // Verify the cancellation was logged
                 expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio review cancelled by user');
-                expect(mockExit).toHaveBeenCalledWith(0);
-
-                // Since process.exit was mocked to not actually exit, the function returns undefined
-                expect(result).toBeUndefined();
-
-                mockExit.mockRestore();
             });
 
             it('should handle audio processing error gracefully', async () => {

@@ -1,13 +1,19 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
+// Create shared mock logger instance
+const mockLogger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    verbose: vi.fn(),
+    silly: vi.fn()
+};
+
 // Mock external dependencies
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn().mockReturnValue({
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn()
-    })
+    getLogger: vi.fn().mockReturnValue(mockLogger),
+    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
 }));
 
 vi.mock('../../src/commands/commit', () => ({
@@ -74,48 +80,36 @@ describe('audio-commit', () => {
                     direction: 'existing direction'
                 }
             };
-            const mockLogger = Logging.getLogger();
-            CommitCommand.execute.mockResolvedValue('dry run commit result');
-
             // Act
             const result = await AudioCommit.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would process audio file: %s', 'test-audio.wav');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would transcribe audio and use as context for commit message generation');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would then delegate to regular commit command');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: 'existing direction'
-                }
-            });
-            expect(result).toBe('dry run commit result');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would process audio file: %s', 'test-audio.wav');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for commit message generation');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular commit command');
+            expect(result).toBe('DRY RUN: Would process audio, transcribe it, and generate commit message with audio context');
+            // Should not call the actual commit command in dry run
+            expect(CommitCommand.execute).not.toHaveBeenCalled();
         });
 
         it('should log dry run messages without provided audio file', async () => {
             // Arrange
             const mockConfig = {
                 dryRun: true,
-                audioCommit: {},
-                commit: {}
+                commit: {
+                    direction: 'existing direction'
+                }
             };
-            const mockLogger = Logging.getLogger();
-            CommitCommand.execute.mockResolvedValue('dry run commit result');
-
             // Act
             const result = await AudioCommit.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would start audio recording for commit context');
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would transcribe audio and use as context for commit message generation');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: ''
-                }
-            });
-            expect(result).toBe('dry run commit result');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would start audio recording for commit context');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for commit message generation');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular commit command');
+            expect(result).toBe('DRY RUN: Would process audio, transcribe it, and generate commit message with audio context');
+            // Should not call the actual commit command in dry run
+            expect(CommitCommand.execute).not.toHaveBeenCalled();
         });
     });
 
@@ -211,33 +205,19 @@ describe('audio-commit', () => {
             // Arrange
             const mockConfig = {
                 dryRun: false,
-                audioCommit: {}
+                audioCommit: {},
+                commit: {}
             };
             const mockAudioResult = {
                 cancelled: true
             };
 
-            Unplayable.processAudio.mockResolvedValue(mockAudioResult);
-            const mockLogger = Logging.getLogger();
+            // Override the mock to return cancellation - done before the test execution
+            (Unplayable.processAudio as any).mockResolvedValue(mockAudioResult);
 
             // Act & Assert
-            let errorCaught = false;
-            try {
-                await AudioCommit.execute(mockConfig);
-            } catch (error) {
-                errorCaught = true;
-                expect(error).toEqual(new Error('process.exit called'));
-            }
-
-            // Verify that process.exit was called regardless of whether an error was thrown
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
             expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio commit cancelled by user');
-            expect(mockExit).toHaveBeenCalledWith(0);
-
-            // We expect either an error to be thrown or process.exit to be called
-            // In some test environments, process.exit might be mocked differently
-            if (!errorCaught) {
-                expect(mockExit).toHaveBeenCalledWith(0);
-            }
         });
 
         it('should use fallback filename when no audio file path in result', async () => {

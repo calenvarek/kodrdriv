@@ -39,7 +39,15 @@ vi.mock('../../src/logging', () => ({
         debug: vi.fn(),
         verbose: vi.fn(),
         silly: vi.fn()
-    })
+    }),
+    getDryRunLogger: vi.fn().mockImplementation((isDryRun: boolean) => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    }))
 }));
 
 vi.mock('../../src/util/storage', () => ({
@@ -75,7 +83,6 @@ describe('Unlink Command', () => {
             resolvedConfigDirs: [],
             link: {
                 scopeRoots: { '@test': '../test-packages' },
-                workspaceFile: 'pnpm-workspace.yaml',
                 dryRun: false,
             },
         };
@@ -86,6 +93,7 @@ describe('Unlink Command', () => {
             readFile: vi.fn(),
             writeFile: vi.fn(),
             listFiles: vi.fn(),
+            deleteFile: vi.fn(),
         };
 
         const storageModule = await import('../../src/util/storage');
@@ -95,7 +103,7 @@ describe('Unlink Command', () => {
     it('should throw error when package.json not found', async () => {
         mockStorage.exists.mockResolvedValue(false);
 
-        await expect(Unlink.execute(mockConfig)).rejects.toThrow('package.json not found in current directory.');
+        await expect(Unlink.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories.');
     });
 
     it('should skip gracefully when no scope roots configured', async () => {
@@ -112,33 +120,49 @@ describe('Unlink Command', () => {
 
         const result = await Unlink.execute(configWithoutScopes);
 
-        expect(result).toBe('No scope roots configured. Skipping unlink management.');
+        expect(result).toBe('No scope roots configured. Skipping link management.');
     });
 
-    it('should remove overrides from pnpm-workspace.yaml', async () => {
+    it('should clean up file: dependencies and verify cleanup', async () => {
         // Arrange
-        mockStorage.exists.mockResolvedValue(true);
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
+        });
         mockStorage.isDirectory.mockResolvedValue(true);
 
         const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
 
         mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
             if (filePath === testPackagesPath) return Promise.resolve(['package-a', 'package-b']);
             return Promise.resolve([]);
         });
 
         mockStorage.readFile.mockImplementation((filePath: string) => {
             if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
+                return Promise.resolve(JSON.stringify({
+                    name: 'test-package',
+                    dependencies: {
+                        '@test/package-a': 'file:../test-packages/package-a',
+                        '@other/package': '1.0.0'
+                    }
+                }));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({
+                    '.:@test/package-a': {
+                        originalVersion: '^1.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    }
+                }));
             }
             if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
             }
             if (filePath === path.join(testPackagesPath, 'package-b', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-b' }));
-            }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve("overrides:\n  '@test/package-a': 'link:../test-packages/package-a'\n  '@other/package': '1.0.0'\n");
             }
             return Promise.resolve('');
         });
@@ -147,44 +171,151 @@ describe('Unlink Command', () => {
         const result = await Unlink.execute(mockConfig);
 
         // Assert
-        expect(result).toContain('Successfully unlinked 1 sibling packages');
-        expect(result).toContain('@test/package-a');
+        expect(result).toContain('Successfully cleaned up 1 linked dependencies and 0 other problematic dependencies across');
 
-        const writeFileCall = mockStorage.writeFile.mock.calls[0];
-        expect(writeFileCall[0]).toContain('pnpm-workspace.yaml');
-        const writtenContent = writeFileCall[1];
-        expect(writtenContent).not.toContain('@test/package-a');
-        expect(writtenContent).toContain("'@other/package': 1.0.0");
-        expect(Child.run).toHaveBeenCalledWith('pnpm install');
+        const writeFileCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+        expect(writeFileCall[0]).toContain('package.json');
+        const writtenPackageJson = JSON.parse(writeFileCall[1]);
+        expect(writtenPackageJson.dependencies['@test/package-a']).toBe('^1.0.0');
+        expect(writtenPackageJson.dependencies['@other/package']).toBe('1.0.0');
     });
 
-    it('should return message when no packages found for unlinking', async () => {
-        mockStorage.exists.mockResolvedValue(true);
-        mockStorage.readFile.mockResolvedValue('{"name": "test-package"}');
-        mockStorage.isDirectory.mockResolvedValue(false);
-        mockStorage.listFiles.mockResolvedValue([]);
-
-        const result = await Unlink.execute(mockConfig);
-
-        expect(result).toBe('No packages found matching scope roots for unlinking.');
-    });
-
-    it('should handle dry run mode correctly', async () => {
-        const dryRunConfig = { ...mockConfig, dryRun: true };
-        mockStorage.exists.mockResolvedValue(true);
+    it('should clean up workspace configurations and overrides', async () => {
+        // Arrange
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
+        });
         mockStorage.isDirectory.mockResolvedValue(true);
 
         const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
-        mockStorage.listFiles.mockResolvedValue(['package-a']);
+
+        mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
+            if (filePath === testPackagesPath) return Promise.resolve(['package-a']);
+            return Promise.resolve([]);
+        });
+
+        let packageJsonData = {
+            name: 'test-package',
+            dependencies: {
+                '@test/package-a': 'file:../test-packages/package-a'
+            },
+            workspaces: ['packages/*'],
+            overrides: {
+                '@test/package-a': 'file:../test-packages/package-a',
+                'some-other-package': '1.0.0'
+            },
+            resolutions: {
+                '@test/package-a': 'link:../test-packages/package-a'
+            }
+        };
+
         mockStorage.readFile.mockImplementation((filePath: string) => {
             if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
+                return Promise.resolve(JSON.stringify(packageJsonData));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({
+                    '.:@test/package-a': {
+                        originalVersion: '^1.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    }
+                }));
             }
             if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
             }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve("overrides:\n  '@test/package-a': 'link:../test-packages/package-a'\n");
+            return Promise.resolve('');
+        });
+
+        // Mock writeFile to capture the writes
+        mockStorage.writeFile.mockImplementation((filePath: string, content: string) => {
+            if (filePath.includes('package.json')) {
+                const parsed = JSON.parse(content);
+                // Verify that the cleanup happened correctly in the call
+                expect(parsed.dependencies['@test/package-a']).toBe('^1.0.0'); // Restored
+                expect(parsed.workspaces).toBeUndefined(); // Removed
+                expect(parsed.overrides['@test/package-a']).toBeUndefined(); // Removed
+                expect(parsed.overrides['some-other-package']).toBe('1.0.0'); // Preserved
+                expect(parsed.resolutions).toBeUndefined(); // Removed entirely
+            }
+            return Promise.resolve();
+        });
+
+        // Act
+        const result = await Unlink.execute(mockConfig);
+
+        // Assert
+        expect(result).toContain('Successfully cleaned up 1 linked dependencies and 3 other problematic dependencies across');
+    });
+
+    it('should return message when no packages found for unlinking', async () => {
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
+        });
+        mockStorage.isDirectory.mockResolvedValue(true);
+
+        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
+        mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
+            if (filePath === testPackagesPath) return Promise.resolve([]); // No packages found
+            return Promise.resolve([]);
+        });
+
+        mockStorage.readFile.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), 'package.json')) {
+                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({})); // Empty backup
+            }
+            return Promise.resolve('');
+        });
+
+        const result = await Unlink.execute(mockConfig);
+
+        expect(result).toBe('No packages found matching scope roots for unlinking and no problematic dependencies detected.');
+    });
+
+    it('should handle dry run mode correctly', async () => {
+        const dryRunConfig = { ...mockConfig, dryRun: true };
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
+        });
+        mockStorage.isDirectory.mockResolvedValue(true);
+
+        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
+        mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
+            if (filePath === testPackagesPath) return Promise.resolve(['package-a']);
+            return Promise.resolve([]);
+        });
+
+        mockStorage.readFile.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), 'package.json')) {
+                return Promise.resolve(JSON.stringify({
+                    name: 'test-package',
+                    dependencies: {
+                        '@test/package-a': 'file:../test-packages/package-a'
+                    },
+                    workspaces: ['packages/*']
+                }));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({
+                    '.:@test/package-a': {
+                        originalVersion: '^1.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    }
+                }));
+            }
+            if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
+                return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
             }
             return Promise.resolve('');
         });
@@ -193,67 +324,45 @@ describe('Unlink Command', () => {
         const result = await Unlink.execute(dryRunConfig);
 
         // Assert
-        expect(result).toContain('Successfully unlinked 1 sibling packages');
+        expect(result).toContain('DRY RUN: Would unlink 1 dependency reference(s) and clean up 2 problematic dependencies across 1 package.json files');
         expect(mockStorage.writeFile).not.toHaveBeenCalled();
-        expect(Child.run).not.toHaveBeenCalled();
     });
 
     it('should correctly remove all overrides if all are unlinked', async () => {
         // Arrange
-        mockStorage.exists.mockResolvedValue(true);
-        mockStorage.isDirectory.mockResolvedValue(true);
-
-        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
-        mockStorage.listFiles.mockResolvedValue(['package-a']);
-        mockStorage.readFile.mockImplementation((filePath: string) => {
-            if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
-            }
-            if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
-            }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve("overrides:\n  '@test/package-a': 'link:../test-packages/package-a'\n");
-            }
-            return Promise.resolve('');
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
         });
-
-        // Act
-        await Unlink.execute(mockConfig);
-
-        // Assert
-        const writeFileCall = mockStorage.writeFile.mock.calls[0];
-        expect(writeFileCall[1].trim()).toBe('{}');
-        expect(Child.run).toHaveBeenCalledWith('pnpm install');
-    });
-
-    it('should preserve other properties in pnpm-workspace.yaml when unlinking', async () => {
-        // Arrange
-        mockStorage.exists.mockResolvedValue(true);
         mockStorage.isDirectory.mockResolvedValue(true);
 
         const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
-
         mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
             if (filePath === testPackagesPath) return Promise.resolve(['package-a']);
             return Promise.resolve([]);
         });
 
         mockStorage.readFile.mockImplementation((filePath: string) => {
             if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
+                return Promise.resolve(JSON.stringify({
+                    name: 'test-package',
+                    dependencies: {
+                        '@test/package-a': 'file:../test-packages/package-a'
+                    }
+                }));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({
+                    '.:@test/package-a': {
+                        originalVersion: '^1.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    }
+                }));
             }
             if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
-            }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve(
-                    `packages:
-  - 'packages/*'
-overrides:
-  '@test/package-a': 'link:../test-packages/package-a'
-  '@another/unrelated': 2.0.0`
-                );
             }
             return Promise.resolve('');
         });
@@ -262,17 +371,108 @@ overrides:
         await Unlink.execute(mockConfig);
 
         // Assert
-        const writeFileCall = mockStorage.writeFile.mock.calls[0];
-        expect(writeFileCall[0]).toContain('pnpm-workspace.yaml');
-        const writtenContent = writeFileCall[1];
-        expect(writtenContent).toContain('packages:');
-        expect(writtenContent).toContain(`  - 'packages/*'`);
-        expect(writtenContent).not.toContain('@test/package-a');
-        expect(writtenContent).toContain(`'@another/unrelated': 2.0.0`);
-        expect(Child.run).toHaveBeenCalledWith('pnpm install');
+        const writeFileCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+        const writtenPackageJson = JSON.parse(writeFileCall[1]);
+        expect(writtenPackageJson.dependencies['@test/package-a']).toBe('^1.0.0');
+        // Verify that npm command was called (either npm install or npm ci)
+        expect(Child.run).toHaveBeenCalled();
     });
 
-    it('should do nothing if pnpm-workspace.yaml has no overrides', async () => {
+    it('should preserve other properties in package.json when unlinking', async () => {
+        // Arrange
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
+        });
+        mockStorage.isDirectory.mockResolvedValue(true);
+
+        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
+
+        mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
+            if (filePath === testPackagesPath) return Promise.resolve(['package-a']);
+            return Promise.resolve([]);
+        });
+
+        mockStorage.readFile.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), 'package.json')) {
+                return Promise.resolve(JSON.stringify({
+                    name: 'test-package',
+                    workspaces: ['packages/*'],
+                    dependencies: {
+                        '@test/package-a': 'file:../test-packages/package-a',
+                        '@another/unrelated': '2.0.0'
+                    }
+                }));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({
+                    '.:@test/package-a': {
+                        originalVersion: '^1.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    }
+                }));
+            }
+            if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
+                return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
+            }
+            return Promise.resolve('');
+        });
+
+        // Act
+        await Unlink.execute(mockConfig);
+
+        // Assert
+        const writeFileCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+        expect(writeFileCall[0]).toContain('package.json');
+        const writtenPackageJson = JSON.parse(writeFileCall[1]);
+        expect(writtenPackageJson.workspaces).toBeUndefined(); // Workspace should be removed
+        expect(writtenPackageJson.dependencies['@test/package-a']).toBe('^1.0.0');
+        expect(writtenPackageJson.dependencies['@another/unrelated']).toBe('2.0.0');
+        // Verify that npm command was called (either npm install or npm ci)
+        expect(Child.run).toHaveBeenCalled();
+    });
+
+    it('should do nothing if no problematic dependencies found', async () => {
+        // Arrange
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(false);
+            return Promise.resolve(true);
+        });
+        mockStorage.isDirectory.mockResolvedValue(true);
+
+        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
+        mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
+            if (filePath === testPackagesPath) return Promise.resolve(['package-a']);
+            return Promise.resolve([]);
+        });
+
+        mockStorage.readFile.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), 'package.json')) {
+                return Promise.resolve(JSON.stringify({
+                    name: 'test-package',
+                    dependencies: {
+                        '@other/package': '1.0.0'
+                    }
+                }));
+            }
+            if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
+                return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
+            }
+            return Promise.resolve('');
+        });
+
+        // Act
+        const result = await Unlink.execute(mockConfig);
+
+        // Assert
+        expect(result).toBe('No problematic dependencies were found to clean up.');
+        expect(mockStorage.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('should throw error for invalid package.json', async () => {
         // Arrange
         mockStorage.exists.mockResolvedValue(true);
         mockStorage.isDirectory.mockResolvedValue(true);
@@ -286,103 +486,72 @@ overrides:
             if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
             }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve(
-                    `packages:
-  - 'packages/*'`
-                );
-            }
-            return Promise.resolve('');
-        });
-
-        // Act
-        const result = await Unlink.execute(mockConfig);
-
-        // Assert
-        expect(result).toBe('No overrides found in workspace file. Nothing to do.');
-        expect(mockStorage.writeFile).not.toHaveBeenCalled();
-        expect(Child.run).not.toHaveBeenCalled();
-    });
-
-    it('should do nothing if no overrides match scope roots', async () => {
-        // Arrange
-        mockStorage.exists.mockResolvedValue(true);
-        mockStorage.isDirectory.mockResolvedValue(true);
-
-        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
-        mockStorage.listFiles.mockResolvedValue(['package-a']); // finds @test/package-a
-        mockStorage.readFile.mockImplementation((filePath: string) => {
-            if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
-            }
-            if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
-            }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve(
-                    `overrides:
-  '@another/package': '1.0.0'
-  '@unrelated/package': 'link:../some-other-place'`
-                );
-            }
-            return Promise.resolve('');
-        });
-
-        // Act
-        const result = await Unlink.execute(mockConfig);
-
-        // Assert
-        expect(result).toBe('No linked packages found in workspace file that match scope roots.');
-        expect(mockStorage.writeFile).not.toHaveBeenCalled();
-        expect(Child.run).not.toHaveBeenCalled();
-    });
-
-    it('should throw error for invalid pnpm-workspace.yaml', async () => {
-        // Arrange
-        mockStorage.exists.mockResolvedValue(true);
-        mockStorage.isDirectory.mockResolvedValue(true);
-
-        const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
-        mockStorage.listFiles.mockResolvedValue(['package-a']);
-        mockStorage.readFile.mockImplementation((filePath: string) => {
-            if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
-            }
-            if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
-            }
-            if (filePath.includes('pnpm-workspace.yaml')) {
+            if (filePath.includes('package.json')) {
                 return Promise.resolve("invalid: yaml:");
             }
             return Promise.resolve('');
         });
 
         // Act & Assert
-        await expect(Unlink.execute(mockConfig)).rejects.toThrow('Failed to parse existing workspace file');
+        await expect(Unlink.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories');
     });
 
     it('should throw error for invalid package.json', async () => {
         mockStorage.exists.mockResolvedValue(true);
-        mockStorage.readFile.mockResolvedValue('not a valid json');
+        mockStorage.isDirectory.mockResolvedValue(false);
+        mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
+            return Promise.resolve([]);
+        });
+        mockStorage.readFile.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), 'package.json')) {
+                return Promise.resolve('not a valid json');
+            }
+            return Promise.resolve('');
+        });
 
-        await expect(Unlink.execute(mockConfig)).rejects.toThrow('Failed to parse package.json');
+        await expect(Unlink.execute(mockConfig)).rejects.toThrow('No package.json files found in current directory or subdirectories');
     });
 
     it('should skip packages with invalid package.json during scan', async () => {
         // Arrange
-        mockStorage.exists.mockResolvedValue(true);
+        mockStorage.exists.mockImplementation((filePath: string) => {
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) return Promise.resolve(true);
+            return Promise.resolve(true);
+        });
         mockStorage.isDirectory.mockResolvedValue(true);
 
         const testPackagesPath = path.resolve(process.cwd(), '../test-packages');
 
         mockStorage.listFiles.mockImplementation((filePath: string) => {
+            if (filePath === process.cwd()) return Promise.resolve(['package.json']);
             if (filePath === testPackagesPath) return Promise.resolve(['package-a', 'package-b', 'package-c']);
             return Promise.resolve([]);
         });
 
         mockStorage.readFile.mockImplementation((filePath: string) => {
             if (filePath === path.join(process.cwd(), 'package.json')) {
-                return Promise.resolve(JSON.stringify({ name: 'test-package' }));
+                return Promise.resolve(JSON.stringify({
+                    name: 'test-package',
+                    dependencies: {
+                        '@test/package-a': 'file:../test-packages/package-a',
+                        '@test/package-c': 'file:../test-packages/package-c'
+                    }
+                }));
+            }
+            if (filePath === path.join(process.cwd(), '.kodrdriv-link-backup.json')) {
+                return Promise.resolve(JSON.stringify({
+                    '.:@test/package-a': {
+                        originalVersion: '^1.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    },
+                    '.:@test/package-c': {
+                        originalVersion: '^2.0.0',
+                        dependencyType: 'dependencies',
+                        relativePath: '.'
+                    }
+                }));
             }
             if (filePath === path.join(testPackagesPath, 'package-a', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-a' }));
@@ -393,12 +562,6 @@ overrides:
             if (filePath === path.join(testPackagesPath, 'package-c', 'package.json')) {
                 return Promise.resolve(JSON.stringify({ name: '@test/package-c' }));
             }
-            if (filePath.includes('pnpm-workspace.yaml')) {
-                return Promise.resolve(`overrides:
-  '@test/package-a': 'link:../test-packages/package-a'
-  '@test/package-c': 'link:../test-packages/package-c'
-`);
-            }
             return Promise.resolve('');
         });
 
@@ -406,9 +569,10 @@ overrides:
         await Unlink.execute(mockConfig);
 
         // Assert
-        const writeFileCall = mockStorage.writeFile.mock.calls[0];
-        const writtenContent = writeFileCall[1];
-        expect(writtenContent.trim()).toBe('{}');
+        const writeFileCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
+        const writtenPackageJson = JSON.parse(writeFileCall[1]);
+        expect(writtenPackageJson.dependencies['@test/package-a']).toBe('^1.0.0');
+        expect(writtenPackageJson.dependencies['@test/package-c']).toBe('^2.0.0');
         // The real test is that no error was thrown, and only valid packages were unlinked
     });
-}); 
+});

@@ -2,6 +2,7 @@
 import { ExitError } from '../error/ExitError';
 import { getLogger } from '../logging';
 import { run } from '../util/child';
+import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../constants';
 
 export interface Instance {
     get(): Promise<string>;
@@ -14,7 +15,6 @@ export const getReviewExcludedPatterns = (basePatterns: string[]): string[] => {
         // Lock files and dependency files (often massive)
         "*lock*",
         "*.lock",
-        "pnpm-lock.yaml",
         "package-lock.json",
         "yarn.lock",
         "bun.lockb",
@@ -160,14 +160,14 @@ export const create = async (options: { from?: string, to?: string, cached?: boo
                 } else {
                     command = `git diff${range ? ' ' + range : ''} -- . ${excludeString}`;
                 }
-                const { stdout, stderr } = await run(command);
+                const { stdout, stderr } = await run(command, { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
                 if (stderr) {
-                    logger.warn('Git log produced stderr: %s', stderr);
+                    logger.warn('Git diff produced stderr: %s', stderr);
                 }
-                logger.debug('Git log output: %s', stdout);
+                logger.debug('Git diff output: %s', stdout);
                 return stdout;
             } catch (error: any) {
-                logger.error('Failed to execute git log: %s', error.message);
+                logger.error('Failed to execute git diff: %s', error.message);
                 throw error;
             }
         } catch (error: any) {
