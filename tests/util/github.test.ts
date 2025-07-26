@@ -243,6 +243,7 @@ describe('GitHub Utilities', () => {
         });
 
         it('should throw an error if any check has failed', async () => {
+            vi.spyOn(GitHub, 'getRepoDetails').mockResolvedValue({ owner: 'test-owner', repo: 'test-repo' });
             mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
             mockOctokit.checks.listForRef.mockResolvedValue({
                 data: {
@@ -250,7 +251,7 @@ describe('GitHub Utilities', () => {
                 },
             });
 
-            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow('PR #123 checks failed.');
+            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow('PR #123 checks failed. See above for recovery steps.');
         });
 
         it('should wait if no checks are found initially', async () => {
@@ -268,6 +269,7 @@ describe('GitHub Utilities', () => {
         });
 
         it('should handle multiple check failures', async () => {
+            vi.spyOn(GitHub, 'getRepoDetails').mockResolvedValue({ owner: 'test-owner', repo: 'test-repo' });
             mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
             mockOctokit.checks.listForRef.mockResolvedValue({
                 data: {
@@ -279,7 +281,7 @@ describe('GitHub Utilities', () => {
                 },
             });
 
-            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow('PR #123 checks failed.');
+            await expect(GitHub.waitForPullRequestChecks(123)).rejects.toThrow('PR #123 checks failed. See above for recovery steps.');
         });
 
         it('should handle mixed check statuses', async () => {
@@ -996,13 +998,14 @@ jobs:
             expect(promptConfirmation).toHaveBeenCalled();
         });
 
-                        it('should handle user rejection when no workflows configured', async () => {
+                                                                        it('should handle user rejection when no workflows configured', async () => {
             mockOctokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'test-sha' } } });
             mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
             mockOctokit.actions.listRepoWorkflows.mockResolvedValue({ data: { workflows: [] } });
             promptConfirmation.mockResolvedValue(false);
 
-            const promise = GitHub.waitForPullRequestChecks(123, { timeout: 300000 }); // Use default timeout
+            // Use shorter timeout for test to reduce timing issues
+            const promise = GitHub.waitForPullRequestChecks(123, { timeout: 60000 });
 
             // Wait for exactly 6 consecutive no-checks attempts (6 attempts at 10s each = 60s)
             for (let i = 0; i < 6; i++) {

@@ -282,7 +282,7 @@ describe('link command', () => {
             expect(writeFileCall[0]).toContain('package.json');
             expect(writeFileCall[1]).toContain('"@company/cache": "file:../company-packages/cache"');
             expect(writeFileCall[1]).toContain('"@company/utils": "file:../company-packages/utils"');
-            expect(Child.run).toHaveBeenCalledWith('npm install');
+            expect(Child.run).toHaveBeenCalledWith('npm install --silent --prefer-offline --no-audit --no-fund');
         });
 
         it('should merge with existing overrides in workspace file', async () => {
@@ -323,7 +323,7 @@ describe('link command', () => {
             // Assert
             const writeFileCall = mockStorage.writeFile.mock.calls.find((call: any) => call[0].includes('package.json'));
             expect(writeFileCall[1]).toContain('"@company/cache": "file:../company-packages/cache"');
-            expect(Child.run).toHaveBeenCalledWith('npm install');
+            expect(Child.run).toHaveBeenCalledWith('npm install --silent --prefer-offline --no-audit --no-fund');
         });
 
         it('should not run npm install in dry run mode', async () => {
