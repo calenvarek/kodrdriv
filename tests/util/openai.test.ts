@@ -11,6 +11,11 @@ vi.mock('../../src/util/storage', () => ({
     })
 }));
 
+// Mock the archiveAudio function
+vi.mock('../../src/util/general', () => ({
+    archiveAudio: vi.fn().mockResolvedValue(undefined)
+}));
+
 // Define mock functions with any type to avoid TS errors
 const mockChatCreate = vi.fn<any>();
 const mockTranscriptionsCreate = vi.fn<any>();
@@ -35,11 +40,11 @@ describe('openai', () => {
     let Storage: any;
     let createCompletion: any;
     let transcribeAudio: any;
-    let originalApiKey: string | undefined;
+    let originalEnv: any;
 
     beforeEach(async () => {
-        // Save the original API key
-        originalApiKey = process.env.OPENAI_API_KEY;
+        // Save the original environment
+        originalEnv = { ...process.env };
 
         // Import modules after mocking
         openai = await import('openai');
@@ -48,17 +53,13 @@ describe('openai', () => {
         createCompletion = openaiModule.createCompletion;
         transcribeAudio = openaiModule.transcribeAudio;
 
-        // Set up environment
+        // Set up default test environment with API key
         process.env.OPENAI_API_KEY = 'test-api-key';
     });
 
     afterEach(() => {
-        // Restore the original API key
-        if (originalApiKey) {
-            process.env.OPENAI_API_KEY = originalApiKey;
-        } else {
-            delete process.env.OPENAI_API_KEY;
-        }
+        // Restore the original environment
+        process.env = originalEnv;
         vi.clearAllMocks();
     });
 
@@ -109,8 +110,11 @@ describe('openai', () => {
         });
 
         it('should throw error if OPENAI_API_KEY is not set', async () => {
+            // Temporarily remove the API key for this test
             delete process.env.OPENAI_API_KEY;
             await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('OPENAI_API_KEY environment variable is not set');
+            // Restore it for other tests
+            process.env.OPENAI_API_KEY = 'test-api-key';
         });
 
         it('should throw error on API failure', async () => {
@@ -149,15 +153,11 @@ describe('openai', () => {
         });
 
         it('should throw error if OPENAI_API_KEY is not set', async () => {
-            const savedKey = process.env.OPENAI_API_KEY;
+            // Temporarily remove the API key for this test
             delete process.env.OPENAI_API_KEY;
-
             await expect(transcribeAudio('test.mp3')).rejects.toThrow('OPENAI_API_KEY environment variable is not set');
-
-            // Restore the API key for subsequent tests
-            if (savedKey) {
-                process.env.OPENAI_API_KEY = savedKey;
-            }
+            // Restore it for other tests
+            process.env.OPENAI_API_KEY = 'test-api-key';
         });
 
         it('should throw error on API failure', async () => {
