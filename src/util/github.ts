@@ -499,10 +499,20 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
 
                 // Filter runs that were triggered by our specific release
                 const releaseRuns = runsResponse.data.workflow_runs.filter(run => {
-                    // Must be a release event
-                    if (run.event !== 'release') {
-                        logger.debug(`Excluding workflow run ${run.id}: not a release event (${run.event})`);
+                    // Must be a release or push event (tag pushes trigger workflows with event=push)
+                    if (run.event !== 'release' && run.event !== 'push') {
+                        logger.debug(`Excluding workflow run ${run.id}: not a release or push event (${run.event})`);
                         return false;
+                    }
+
+                    // For push events, be more restrictive - only include if head_branch is null (indicating tag push)
+                    if (run.event === 'push') {
+                        // Tag pushes typically have head_branch as null, branch pushes have the branch name
+                        if (run.head_branch !== null) {
+                            logger.debug(`Excluding push event workflow run ${run.id}: appears to be branch push (head_branch: ${run.head_branch})`);
+                            return false;
+                        }
+                        logger.debug(`Including push event workflow run ${run.id}: appears to be tag push (head_branch: null)`);
                     }
 
                     // Must have required data
@@ -531,10 +541,17 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                         return false; // Be strict about commit SHA matching
                     }
 
-                    // If we don't have release info but it's a release event, check if it matches our tag name
-                    // Look for the tag name in run references (this is a fallback when we can't get release info)
-                    if (!releaseCreatedAt && run.head_branch && !run.head_branch.includes(tagName.replace('v', ''))) {
-                        logger.debug(`Excluding workflow run ${run.id}: branch doesn't match tag pattern (branch: ${run.head_branch}, tag: ${tagName})`);
+                    // If we don't have release info, use more permissive fallback filtering
+                    // For tag pushes, head_branch is often null, so we can't rely on branch name matching
+                    if (!releaseCreatedAt && run.event === 'release' && run.head_branch && !run.head_branch.includes(tagName.replace('v', ''))) {
+                        logger.debug(`Excluding workflow run ${run.id}: branch doesn't match tag pattern for release event (branch: ${run.head_branch}, tag: ${tagName})`);
+                        return false;
+                    }
+
+                    // For push events without release info, be conservative and exclude them
+                    // unless we have other indicators that this is a tag push
+                    if (!releaseCreatedAt && run.event === 'push') {
+                        logger.debug(`Excluding push event workflow run ${run.id} due to lack of release info (cannot confirm this is a tag push)`);
                         return false;
                     }
 
