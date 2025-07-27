@@ -875,6 +875,7 @@ describe('Argument Parsing and Configuration', () => {
                 script: 'npm run build',
                 cmd: 'npm test',
                 publish: true,
+                parallel: true,
             };
 
             const result = InputSchema.parse(publishTreeInput);
@@ -1679,6 +1680,7 @@ describe('Argument Parsing and Configuration', () => {
                     script: 'npm run test && npm run build',
                     cmd: 'npm audit --audit-level moderate',
                     publish: true,
+                    parallel: true,
                 },
             };
 
@@ -1690,6 +1692,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.publishTree?.script).toBe('npm run test && npm run build');
             expect(result.publishTree?.cmd).toBe('npm audit --audit-level moderate');
             expect(result.publishTree?.publish).toBe(true);
+            expect(result.publishTree?.parallel).toBe(true);
         });
 
         it('should handle complete review configuration', async () => {

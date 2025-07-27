@@ -510,6 +510,7 @@ The `publish-tree` command is designed for complex workspace environments where 
 - **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
 - **Resume Capability**: Can resume from a specific package if a previous run failed
 - **Flexible Execution**: Supports custom scripts, shell commands, or the kodrdriv publish command
+- **Parallel Execution**: Execute packages in parallel when dependencies allow, significantly speeding up build times
 - **Pattern Exclusion**: Exclude specific packages or directories from processing
 - **Dry Run Mode**: Preview the build order and execution plan without making changes
 
@@ -520,6 +521,7 @@ The `publish-tree` command is designed for complex workspace environments where 
 - `--script <script>`: Script command to execute in each package directory (e.g., `"npm run build"`)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"git add -A"`)
 - `--publish`: Execute kodrdriv publish command in each package directory
+- `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
 - `--excluded-paths <patterns>`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
 
 > [!NOTE]
@@ -542,6 +544,11 @@ kodrdriv publish-tree
 **Build all packages in dependency order:**
 ```bash
 kodrdriv publish-tree --script "npm run build"
+```
+
+**Build packages in parallel for faster execution:**
+```bash
+kodrdriv publish-tree --script "npm run build" --parallel
 ```
 
 **Publish all packages using kodrdriv:**
@@ -585,7 +592,8 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
     "script": "npm run build",
     "startFrom": null,
     "cmd": null,
-    "publish": false
+    "publish": false,
+    "parallel": true
   }
 }
 ```
@@ -596,6 +604,7 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
 - `script`: Default script to execute in each package
 - `cmd`: Default shell command to execute in each package
 - `publish`: Whether to run kodrdriv publish by default
+- `parallel`: Execute packages in parallel when dependencies allow
 - `startFrom`: Default package to start from (useful for automated retries)
 
 ### Typical Workflows
@@ -604,6 +613,12 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
 ```bash
 # Build all packages in correct dependency order
 kodrdriv publish-tree --script "npm run build"
+```
+
+**Fast Parallel Build:**
+```bash
+# Build packages in parallel for faster CI/CD execution
+kodrdriv publish-tree --script "npm run build" --parallel
 ```
 
 **Incremental Publishing:**

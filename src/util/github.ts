@@ -455,17 +455,25 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
 
         // Get release information to filter by creation time and commit SHA
         let releaseInfo: any;
+        let releaseCreatedAt: string | undefined;
+        let releaseCommitSha: string | undefined;
+
         try {
             releaseInfo = await getReleaseByTagName(tagName);
+            releaseCreatedAt = releaseInfo?.created_at;
+            releaseCommitSha = releaseInfo?.target_commitish;
         } catch (error: any) {
-            logger.warn(`Could not get release info for ${tagName}: ${error.message}. Will use fallback filtering.`);
+            logger.debug(`Could not get release info for ${tagName}: ${error.message}. Using more permissive filtering.`);
         }
-
-        const releaseCreatedAt = releaseInfo?.created_at;
-        const releaseCommitSha = releaseInfo?.target_commitish;
 
         if (releaseCreatedAt) {
             logger.debug(`Release ${tagName} was created at ${releaseCreatedAt}, filtering workflows created after this time`);
+        } else {
+            logger.debug(`No release creation time available for ${tagName}, using more permissive time filtering`);
+        }
+
+        if (releaseCommitSha) {
+            logger.debug(`Release ${tagName} targets commit ${releaseCommitSha}`);
         }
 
         // Get all workflows
@@ -494,25 +502,19 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                     owner,
                     repo,
                     workflow_id: workflow.id,
-                    per_page: 20, // Check more runs to account for filtering
+                    per_page: 30, // Check more runs to account for filtering
                 });
+
+                logger.debug(`Checking ${runsResponse.data.workflow_runs.length} recent runs for workflow "${workflow.name}"`);
 
                 // Filter runs that were triggered by our specific release
                 const releaseRuns = runsResponse.data.workflow_runs.filter(run => {
+                    logger.debug(`Evaluating run ${run.id} for workflow "${workflow.name}": event=${run.event}, head_branch=${run.head_branch}, created_at=${run.created_at}, head_sha=${run.head_sha?.substring(0, 7)}`);
+
                     // Must be a release or push event (tag pushes trigger workflows with event=push)
                     if (run.event !== 'release' && run.event !== 'push') {
                         logger.debug(`Excluding workflow run ${run.id}: not a release or push event (${run.event})`);
                         return false;
-                    }
-
-                    // For push events, be more restrictive - only include if head_branch is null (indicating tag push)
-                    if (run.event === 'push') {
-                        // Tag pushes typically have head_branch as null, branch pushes have the branch name
-                        if (run.head_branch !== null) {
-                            logger.debug(`Excluding push event workflow run ${run.id}: appears to be branch push (head_branch: ${run.head_branch})`);
-                            return false;
-                        }
-                        logger.debug(`Including push event workflow run ${run.id}: appears to be tag push (head_branch: null)`);
                     }
 
                     // Must have required data
@@ -521,41 +523,70 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
                         return false;
                     }
 
-                    // If we have release info, filter by creation time more strictly
+                    // If we have release info, filter by creation time and commit SHA
                     if (releaseCreatedAt) {
                         const runCreatedAt = new Date(run.created_at).getTime();
                         const releaseCreatedAtTime = new Date(releaseCreatedAt).getTime();
 
-                        // Be more strict: only include runs created within 10 minutes after the release
-                        // This helps exclude old workflow runs that might match other criteria
+                        // Allow runs created up to 2 minutes before release (for races) and up to 20 minutes after
+                        // This is more permissive than before to account for various timing scenarios
                         const timeDiff = runCreatedAt - releaseCreatedAtTime;
-                        if (timeDiff < -30000 || timeDiff > 600000) { // 30 seconds before to 10 minutes after
+                        if (timeDiff < -120000 || timeDiff > 1200000) { // 2 minutes before to 20 minutes after
                             logger.debug(`Excluding workflow run ${run.id}: outside time window (run: ${run.created_at}, release: ${releaseCreatedAt}, diff: ${timeDiff}ms)`);
                             return false;
                         }
+
+                        // For release events, require exact commit SHA match if available
+                        if (run.event === 'release' && releaseCommitSha && run.head_sha !== releaseCommitSha) {
+                            logger.debug(`Excluding release event workflow run ${run.id}: commit SHA mismatch (run: ${run.head_sha}, release: ${releaseCommitSha})`);
+                            return false;
+                        }
+
+                        // For push events, be more permissive - don't require exact SHA match as the tag push might be slightly different
+                        if (run.event === 'push') {
+                            // Check if this looks like a tag push:
+                            // 1. head_branch is null (most common for tag pushes)
+                            // 2. OR head_branch matches the tag pattern
+                            // 3. OR commit SHA matches (in case head_branch behavior is inconsistent)
+                            const looksLikeTagPush = run.head_branch === null ||
+                                                   (run.head_branch && run.head_branch.includes(tagName.replace('v', ''))) ||
+                                                   (releaseCommitSha && run.head_sha === releaseCommitSha);
+
+                            if (!looksLikeTagPush) {
+                                logger.debug(`Excluding push event workflow run ${run.id}: doesn't look like tag push (head_branch: ${run.head_branch})`);
+                                return false;
+                            }
+                        }
+                    } else {
+                        // No release info available - use more permissive fallback filtering
+                        logger.debug(`Using permissive filtering for run ${run.id} due to missing release info`);
+
+                        // For release events without release info, look for recent runs only
+                        if (run.event === 'release') {
+                            const runAge = Date.now() - new Date(run.created_at).getTime();
+                            if (runAge > 1800000) { // 30 minutes
+                                logger.debug(`Excluding old release event workflow run ${run.id}: created ${run.created_at}`);
+                                return false;
+                            }
+                        }
+
+                        // For push events without release info, be more permissive but still look for tag-like patterns
+                        if (run.event === 'push') {
+                            const runAge = Date.now() - new Date(run.created_at).getTime();
+                            if (runAge > 1800000) { // 30 minutes
+                                logger.debug(`Excluding old push event workflow run ${run.id}: created ${run.created_at}`);
+                                return false;
+                            }
+
+                            // Accept if head_branch is null (likely tag push) or if it's a recent run
+                            // This is more permissive than the original logic
+                            if (run.head_branch !== null && !run.head_branch.includes(tagName.replace('v', ''))) {
+                                logger.debug(`Push event run ${run.id} has head_branch '${run.head_branch}' which doesn't look like tag '${tagName}', but including due to permissive filtering`);
+                            }
+                        }
                     }
 
-                    // Additional check: if we have the release commit SHA, be stricter about matching it
-                    if (releaseCommitSha && run.head_sha !== releaseCommitSha) {
-                        logger.debug(`Excluding workflow run ${run.id}: commit SHA mismatch (run: ${run.head_sha}, release: ${releaseCommitSha})`);
-                        return false; // Be strict about commit SHA matching
-                    }
-
-                    // If we don't have release info, use more permissive fallback filtering
-                    // For tag pushes, head_branch is often null, so we can't rely on branch name matching
-                    if (!releaseCreatedAt && run.event === 'release' && run.head_branch && !run.head_branch.includes(tagName.replace('v', ''))) {
-                        logger.debug(`Excluding workflow run ${run.id}: branch doesn't match tag pattern for release event (branch: ${run.head_branch}, tag: ${tagName})`);
-                        return false;
-                    }
-
-                    // For push events without release info, be conservative and exclude them
-                    // unless we have other indicators that this is a tag push
-                    if (!releaseCreatedAt && run.event === 'push') {
-                        logger.debug(`Excluding push event workflow run ${run.id} due to lack of release info (cannot confirm this is a tag push)`);
-                        return false;
-                    }
-
-                    logger.debug(`Including workflow run ${run.id}: ${run.name} (${run.status}/${run.conclusion}) created ${run.created_at}`);
+                    logger.debug(`Including workflow run ${run.id}: ${workflow.name} (${run.status}/${run.conclusion || 'pending'}) created ${run.created_at}`);
                     return true;
                 });
 
@@ -563,6 +594,8 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
 
                 if (releaseRuns.length > 0) {
                     logger.debug(`Found ${releaseRuns.length} relevant workflow runs for ${workflow.name}`);
+                } else {
+                    logger.debug(`No relevant workflow runs found for ${workflow.name}`);
                 }
             } catch (error: any) {
                 logger.warn(`Failed to get runs for workflow ${workflow.name}: ${error.message}`);
@@ -584,17 +617,9 @@ export const getWorkflowRunsTriggeredByRelease = async (tagName: string, workflo
         });
 
         logger.debug(`Found ${allRuns.length} workflow runs triggered by release ${tagName}`);
-
-        if (allRuns.length > 0 && releaseCreatedAt) {
-            logger.debug(`Workflow runs created after release ${tagName}:`);
-            allRuns.forEach(run => {
-                logger.debug(`- ${run.name}: created ${run.created_at}, commit ${run.head_sha?.substring(0, 7)}`);
-            });
-        }
-
         return allRuns;
     } catch (error: any) {
-        logger.warn(`Failed to fetch workflow runs: ${error.message}`);
+        logger.error(`Failed to get workflow runs for release ${tagName}: ${error.message}`);
         return [];
     }
 };
@@ -613,9 +638,9 @@ export const waitForReleaseWorkflows = async (
 
     logger.info(`Waiting for workflows triggered by release ${tagName}...`);
 
-    // Wait a bit for workflows to start (GitHub can take a moment to trigger them)
-    logger.debug('Waiting 30 seconds for workflows to start...');
-    await delay(30000);
+    // Wait longer for workflows to start (GitHub can take time to process the release and trigger workflows)
+    logger.debug('Waiting 60 seconds for workflows to start...');
+    await delay(60000);
 
     const startTime = Date.now();
     let workflowRuns: any[] = [];
@@ -653,6 +678,16 @@ export const waitForReleaseWorkflows = async (
         if (workflowRuns.length === 0) {
             consecutiveNoWorkflowsCount++;
             logger.info(`No release workflows found (${consecutiveNoWorkflowsCount}/${maxConsecutiveNoWorkflows}). Waiting...`);
+
+            // Add debug info about what we're looking for
+            if (consecutiveNoWorkflowsCount === 1) {
+                logger.debug(`Looking for workflows triggered by release ${tagName}`);
+                if (options.workflowNames && options.workflowNames.length > 0) {
+                    logger.debug(`Specific workflows to monitor: ${options.workflowNames.join(', ')}`);
+                } else {
+                    logger.debug('Monitoring all workflows that might be triggered by releases');
+                }
+            }
 
             // After several attempts with no workflows, ask user if they want to continue
             if (consecutiveNoWorkflowsCount >= maxConsecutiveNoWorkflows) {
