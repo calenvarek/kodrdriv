@@ -477,6 +477,30 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         logger.info(`Cleaned up ${totalRestoredCount} linked dependencies and ${totalCleanedCount} other problematic dependencies across ${packageJsonFiles.length} package.json file(s)`);
 
+        // CRITICAL: Clean up package-lock.json to prevent GitHub build failures
+        // The lock file may still contain file: references even after restoring package.json
+        logger.info('🧹 Cleaning up package-lock.json to remove any stale file references...');
+        const packageLockPath = path.join(process.cwd(), 'package-lock.json');
+        if (await storage.exists(packageLockPath)) {
+            await storage.deleteFile(packageLockPath);
+            logger.info('🗑️ Deleted package-lock.json to ensure clean state');
+        }
+
+        // Optionally clean up node_modules for thorough cleanup
+        const cleanNodeModules = runConfig.unlink?.cleanNodeModules !== false; // default to true
+        if (cleanNodeModules) {
+            logger.info('🧹 Cleaning up node_modules for complete fresh start...');
+            const nodeModulesPath = path.join(process.cwd(), 'node_modules');
+            if (await storage.exists(nodeModulesPath)) {
+                try {
+                    await storage.removeDirectory(nodeModulesPath);
+                    logger.info('🗑️ Deleted node_modules directory');
+                } catch (error: any) {
+                    logger.warn(`Could not delete node_modules (${error.message}), continuing...`);
+                }
+            }
+        }
+
         // Re-read package.json files for verification
         const updatedPackageJsonFiles = await findAllPackageJsonFiles(process.cwd(), storage);
 
@@ -487,19 +511,19 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.warn('⚠️ Some problematic dependencies may still remain. Please review the output above.');
         }
 
-        // Rebuild dependencies
-        logger.info('⏳ Running npm install to apply changes (this may take a moment)...');
+        // Rebuild dependencies with fresh install (NOT npm ci to avoid using stale lock file)
+        logger.info('⏳ Running fresh npm install to regenerate clean dependencies (this may take a moment)...');
         try {
             const installResult = await smartNpmInstall({
                 skipIfNotNeeded: false, // Always install after unlinking changes
-                preferCi: true, // Can use npm ci since we restored original dependencies
+                preferCi: false, // NEVER use npm ci here - we need fresh npm install to regenerate lock file
                 verbose: false
             });
 
             if (installResult.skipped) {
                 logger.info(`⚡ Dependencies were up to date (${installResult.method})`);
             } else {
-                logger.info(`✅ Dependencies rebuilt successfully using ${installResult.method} (${installResult.duration}ms)`);
+                logger.info(`✅ Dependencies rebuilt cleanly using ${installResult.method} (${installResult.duration}ms)`);
             }
         } catch (error) {
             logger.warn(`Failed to rebuild dependencies: ${error}. You may need to run 'npm install' manually.`);
