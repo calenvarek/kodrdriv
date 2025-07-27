@@ -67,6 +67,7 @@ export const COMMAND_REVIEW = 'review';
 export const COMMAND_AUDIO_REVIEW = 'audio-review';
 export const COMMAND_PUBLISH = 'publish';
 export const COMMAND_PUBLISH_TREE = 'publish-tree';
+export const COMMAND_COMMIT_TREE = 'commit-tree';
 export const COMMAND_LINK = 'link';
 export const COMMAND_UNLINK = 'unlink';
 export const COMMAND_CLEAN = 'clean';
@@ -82,6 +83,7 @@ export const ALLOWED_COMMANDS = [
     COMMAND_AUDIO_REVIEW,
     COMMAND_PUBLISH,
     COMMAND_PUBLISH_TREE,
+    COMMAND_COMMIT_TREE,
     COMMAND_LINK,
     COMMAND_UNLINK,
     COMMAND_CLEAN
@@ -213,6 +215,12 @@ export const KODRDRIV_DEFAULTS = {
         script: undefined,
         cmd: undefined,
         publish: false,
+        parallel: false,
+    },
+    commitTree: {
+        directory: undefined,
+        excludedPatterns: undefined,
+        startFrom: undefined,
         parallel: false,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
