@@ -85,6 +85,7 @@ export const ConfigSchema = z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
         workspaceFile: z.string().optional(),
         dryRun: z.boolean().optional(),
+        cleanNodeModules: z.boolean().optional(),
     }).optional(),
     publishTree: z.object({
         directory: z.string().optional(),
@@ -178,6 +179,7 @@ export type UnlinkConfig = {
     scopeRoots?: Record<string, string>;
     workspaceFile?: string;
     dryRun?: boolean;
+    cleanNodeModules?: boolean;
 }
 
 export type PublishConfig = {
