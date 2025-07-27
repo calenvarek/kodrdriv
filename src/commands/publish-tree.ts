@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import path from 'path';
 import fs from 'fs/promises';
-import { getLogger } from '../logging';
+import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { run } from '../util/child';
 import * as Publish from './publish';
+import * as GitHub from '../util/github';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
 
 // Create a package-scoped logger that prefixes all messages
@@ -272,6 +273,224 @@ const topologicalSort = (graph: DependencyGraph): string[] => {
     return result;
 };
 
+// Workspace-level prechecks that apply to the entire repository
+const runWorkspacePrechecks = async (runConfig: Config): Promise<void> => {
+    const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+
+    logger.info('Running workspace-level prechecks...');
+
+    // Check if we're in a git repository
+    try {
+        if (isDryRun) {
+            logger.info('Would check git repository with: git rev-parse --git-dir');
+        } else {
+            await run('git rev-parse --git-dir');
+        }
+    } catch (error) {
+        if (!isDryRun) {
+            throw new Error('Not in a git repository. Please run this command from within a git repository.');
+        }
+    }
+
+    // Check for uncommitted changes at workspace level
+    logger.info('Checking for uncommitted changes...');
+    try {
+        if (isDryRun) {
+            logger.info('Would check git status with: git status --porcelain');
+        } else {
+            const { stdout } = await run('git status --porcelain');
+            if (stdout.trim()) {
+                throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish-tree.');
+            }
+        }
+    } catch (error) {
+        if (!isDryRun) {
+            throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
+        }
+    }
+
+    // Check if we're on a release branch
+    logger.info('Checking current branch...');
+    if (isDryRun) {
+        logger.info('Would verify current branch is a release branch (starts with "release/")');
+    } else {
+        const currentBranch = await GitHub.getCurrentBranchName();
+        if (!currentBranch.startsWith('release/')) {
+            throw new Error(`Current branch '${currentBranch}' is not a release branch. Please switch to a release branch (e.g., release/1.0.0) before running publish-tree.`);
+        }
+    }
+
+    logger.info('Workspace-level prechecks passed.');
+};
+
+// Per-package prechecks that apply to each individual package
+const runPackagePrechecks = async (
+    packageName: string,
+    packageInfo: PackageInfo,
+    runConfig: Config,
+    index: number,
+    total: number
+): Promise<void> => {
+    const isDryRun = runConfig.dryRun || false;
+    const packageLogger = createPackageLogger(packageName, index + 1, total, isDryRun);
+    const storage = createStorage({ log: packageLogger.info });
+    const packageDir = packageInfo.path;
+
+    packageLogger.verbose('Running package prechecks...');
+
+    // Check if prepublishOnly script exists in package.json
+    packageLogger.verbose('Checking for prepublishOnly script...');
+    const packageJsonPath = path.join(packageDir, 'package.json');
+
+    if (!await storage.exists(packageJsonPath)) {
+        if (!isDryRun) {
+            throw new Error(`package.json not found in ${packageDir}`);
+        } else {
+            packageLogger.warn(`package.json not found in ${packageDir}`);
+        }
+    } else {
+        let packageJson;
+        try {
+            const packageJsonContents = await storage.readFile(packageJsonPath, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContents, packageJsonPath);
+            packageJson = validatePackageJson(parsed, packageJsonPath);
+        } catch (error) {
+            if (!isDryRun) {
+                throw new Error(`Failed to parse package.json in ${packageDir}. Please ensure it contains valid JSON.`);
+            } else {
+                packageLogger.warn(`Failed to parse package.json in ${packageDir}. Please ensure it contains valid JSON.`);
+            }
+        }
+
+        if (packageJson && !packageJson.scripts?.prepublishOnly) {
+            if (!isDryRun) {
+                throw new Error(`prepublishOnly script is required in package.json but was not found in ${packageDir}. Please add a prepublishOnly script that runs your pre-flight checks (e.g., clean, lint, build, test).`);
+            } else {
+                packageLogger.warn(`prepublishOnly script is required in package.json but was not found in ${packageDir}.`);
+            }
+        }
+    }
+
+    // Check required environment variables for this package
+    packageLogger.verbose('Checking required environment variables...');
+    const coreRequiredEnvVars = runConfig.publish?.requiredEnvVars || [];
+
+    // Scan for .npmrc environment variables in this package directory
+    const npmrcEnvVars: string[] = [];
+    if (!isDryRun) {
+        const npmrcPath = path.join(packageDir, '.npmrc');
+        if (await storage.exists(npmrcPath)) {
+            try {
+                const npmrcContent = await storage.readFile(npmrcPath, 'utf-8');
+                const envVarMatches = npmrcContent.match(/\$\{([^}]+)\}|\$([A-Z_][A-Z0-9_]*)/g);
+                if (envVarMatches) {
+                    for (const match of envVarMatches) {
+                        const varName = match.replace(/\$\{|\}|\$/g, '');
+                        if (varName && !npmrcEnvVars.includes(varName)) {
+                            npmrcEnvVars.push(varName);
+                        }
+                    }
+                }
+            } catch (error: any) {
+                packageLogger.warn(`Failed to read .npmrc file at ${npmrcPath}: ${error.message}`);
+            }
+        }
+    }
+
+    const allRequiredEnvVars = [...new Set([...coreRequiredEnvVars, ...npmrcEnvVars])];
+    if (allRequiredEnvVars.length > 0) {
+        packageLogger.verbose(`Required environment variables: ${allRequiredEnvVars.join(', ')}`);
+        const missingEnvVars: string[] = [];
+        for (const envVar of allRequiredEnvVars) {
+            if (!process.env[envVar]) {
+                missingEnvVars.push(envVar);
+            }
+        }
+
+        if (missingEnvVars.length > 0) {
+            if (isDryRun) {
+                packageLogger.warn(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+            } else {
+                throw new Error(`Missing required environment variables for ${packageName}: ${missingEnvVars.join(', ')}. Please set these environment variables before running publish-tree.`);
+            }
+        }
+    }
+
+    packageLogger.verbose('Package prechecks passed.');
+};
+
+// Run all prechecks for publish-tree operation
+const runTreePrechecks = async (
+    graph: DependencyGraph,
+    buildOrder: string[],
+    runConfig: Config
+): Promise<void> => {
+    const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+
+    logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Running prechecks for all ${buildOrder.length} packages...`);
+
+    // First run workspace-level prechecks
+    await runWorkspacePrechecks(runConfig);
+
+    // Then run package-level prechecks for each package
+    const failedPackages: { name: string; error: string }[] = [];
+
+    for (let i = 0; i < buildOrder.length; i++) {
+        const packageName = buildOrder[i];
+        const packageInfo = graph.packages.get(packageName)!;
+
+        try {
+            await runPackagePrechecks(packageName, packageInfo, runConfig, i, buildOrder.length);
+        } catch (error: any) {
+            failedPackages.push({ name: packageName, error: error.message });
+
+            if (!isDryRun) {
+                // Continue checking other packages to give a complete picture
+                const packageLogger = createPackageLogger(packageName, i + 1, buildOrder.length, isDryRun);
+                packageLogger.error(`Prechecks failed: ${error.message}`);
+            }
+        }
+    }
+
+    if (failedPackages.length > 0 && !isDryRun) {
+        logger.error(`❌ Prechecks failed for ${failedPackages.length} package${failedPackages.length === 1 ? '' : 's'}:`);
+        logger.error('');
+
+        for (const failed of failedPackages) {
+            logger.error(`   • ${failed.name}: ${failed.error}`);
+        }
+
+        logger.error('');
+        logger.error('📋 To fix these issues:');
+        logger.error('');
+        logger.error('   1. For missing prepublishOnly scripts:');
+        logger.error('      Add a "prepublishOnly" script to package.json that runs pre-flight checks');
+        logger.error('      Example: "prepublishOnly": "npm run clean && npm run lint && npm run build && npm run test"');
+        logger.error('');
+        logger.error('   2. For missing environment variables:');
+        logger.error('      Set the required environment variables in your shell or .env file');
+        logger.error('      Check your .npmrc files for variable references like ${NPM_TOKEN}');
+        logger.error('');
+        logger.error('   3. For invalid package.json files:');
+        logger.error('      Fix JSON syntax errors and ensure all required fields are present');
+        logger.error('');
+        logger.error('   4. For git repository issues:');
+        logger.error('      Ensure you are in a git repository on a release branch with no uncommitted changes');
+        logger.error('');
+        logger.error('💡 After fixing these issues, re-run the command to continue with the publish process.');
+
+        throw new Error(`Prechecks failed for ${failedPackages.length} package${failedPackages.length === 1 ? '' : 's'}. Please fix the issues above and try again.`);
+    }
+
+    if (isDryRun && failedPackages.length > 0) {
+        logger.warn(`DRY RUN: Found potential issues in ${failedPackages.length} package${failedPackages.length === 1 ? '' : 's'} that would cause publish to fail.`);
+    }
+
+    logger.info(`${isDryRun ? 'DRY RUN: ' : ''}All prechecks passed for ${buildOrder.length} packages.`);
+};
+
 // Group packages into dependency levels for parallel execution
 const groupPackagesByDependencyLevels = (graph: DependencyGraph, buildOrder: string[]): string[][] => {
     const logger = getLogger();
@@ -513,6 +732,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
 
         if (commandToRun || shouldPublish) {
+            // Run prechecks for publish operations
+            if (shouldPublish) {
+                await runTreePrechecks(dependencyGraph, buildOrder, runConfig);
+            }
+
             const executionDescription = shouldPublish ? 'publish command' : `"${commandToRun}"`;
             const parallelInfo = useParallel ? ' (with parallel execution)' : '';
             logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${actionName} ${executionDescription} in ${buildOrder.length} packages${parallelInfo}...`);

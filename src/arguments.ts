@@ -57,7 +57,7 @@ export const InputSchema = z.object({
 export type Input = z.infer<typeof InputSchema>;
 
 // Function to transform flat CLI args into nested Config structure
-export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
+export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Partial<Config> => {
     const transformedCliArgs: Partial<Config> = {};
 
     // Direct mappings from Input to Config
@@ -179,17 +179,31 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
     }
 
-    // Nested mappings for 'publishTree' options
-    const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-    if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined || finalCliArgs.parallel !== undefined) {
-        transformedCliArgs.publishTree = {};
-        if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
-        if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
-        if (finalCliArgs.startFrom !== undefined) transformedCliArgs.publishTree.startFrom = finalCliArgs.startFrom;
-        if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
-        if (finalCliArgs.cmd !== undefined) transformedCliArgs.publishTree.cmd = finalCliArgs.cmd;
-        if (finalCliArgs.publish !== undefined) transformedCliArgs.publishTree.publish = finalCliArgs.publish;
-        if (finalCliArgs.parallel !== undefined) transformedCliArgs.publishTree.parallel = finalCliArgs.parallel;
+    // Nested mappings for 'publishTree' options (add when relevant args present, unless we're specifically doing commit-tree)
+    if (commandName !== 'commit-tree') {
+        const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
+        if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined || finalCliArgs.parallel !== undefined) {
+            transformedCliArgs.publishTree = {};
+            if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
+            if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
+            if (finalCliArgs.startFrom !== undefined) transformedCliArgs.publishTree.startFrom = finalCliArgs.startFrom;
+            if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
+            if (finalCliArgs.cmd !== undefined) transformedCliArgs.publishTree.cmd = finalCliArgs.cmd;
+            if (finalCliArgs.publish !== undefined) transformedCliArgs.publishTree.publish = finalCliArgs.publish;
+            if (finalCliArgs.parallel !== undefined) transformedCliArgs.publishTree.parallel = finalCliArgs.parallel;
+        }
+    }
+
+    // Nested mappings for 'commitTree' options (only when the command is actually commit-tree)
+    if (commandName === 'commit-tree') {
+        const commitTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
+        if (finalCliArgs.directory !== undefined || commitTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.parallel !== undefined) {
+            transformedCliArgs.commitTree = {};
+            if (finalCliArgs.directory !== undefined) transformedCliArgs.commitTree.directory = finalCliArgs.directory;
+            if (commitTreeExcludedPatterns !== undefined) transformedCliArgs.commitTree.excludedPatterns = commitTreeExcludedPatterns;
+            if (finalCliArgs.startFrom !== undefined) transformedCliArgs.commitTree.startFrom = finalCliArgs.startFrom;
+            if (finalCliArgs.parallel !== undefined) transformedCliArgs.commitTree.parallel = finalCliArgs.parallel;
+        }
     }
 
     // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
@@ -265,7 +279,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     logger.silly('Loaded Command Line Options: %s', JSON.stringify(finalCliArgs, null, 2));
 
     // Transform the flat CLI args using the new function
-    const transformedCliArgs: Partial<Config> = transformCliArgs(finalCliArgs);
+    const transformedCliArgs: Partial<Config> = transformCliArgs(finalCliArgs, commandConfig.commandName);
     logger.silly('Transformed CLI Args for merging: %s', JSON.stringify(transformedCliArgs, null, 2));
 
     // Get values from config file using Cardigantime's hierarchical configuration
@@ -431,6 +445,15 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .description('Analyze package dependencies in workspace and determine publish order');
     addSharedOptions(publishTreeCommand);
 
+    const commitTreeCommand = program
+        .command('commit-tree')
+        .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
+        .option('--start-from <startFrom>', 'resume commit order from this package directory name (useful for restarting failed commits)')
+        .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
+        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
+        .description('Analyze package dependencies in workspace and run commit operations (git add -A + kodrdriv commit) in dependency order');
+    addSharedOptions(commitTreeCommand);
+
     const linkCommand = program
         .command('link')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
@@ -594,6 +617,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             commandOptions = publishCommand.opts<Partial<Input>>();
         } else if (commandName === 'publish-tree' && publishTreeCommand.opts) {
             commandOptions = publishTreeCommand.opts<Partial<Input>>();
+        } else if (commandName === 'commit-tree' && commitTreeCommand.opts) {
+            commandOptions = commitTreeCommand.opts<Partial<Input>>();
         } else if (commandName === 'link' && linkCommand.opts) {
             commandOptions = linkCommand.opts<Partial<Input>>();
         } else if (commandName === 'unlink' && unlinkCommand.opts) {
@@ -738,6 +763,12 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             cmd: options.publishTree?.cmd ?? KODRDRIV_DEFAULTS.publishTree.cmd,
             publish: options.publishTree?.publish ?? KODRDRIV_DEFAULTS.publishTree.publish,
             parallel: options.publishTree?.parallel ?? KODRDRIV_DEFAULTS.publishTree.parallel,
+        },
+        commitTree: {
+            directory: options.commitTree?.directory ?? KODRDRIV_DEFAULTS.commitTree.directory,
+            excludedPatterns: options.commitTree?.excludedPatterns ?? KODRDRIV_DEFAULTS.commitTree.excludedPatterns,
+            startFrom: options.commitTree?.startFrom ?? KODRDRIV_DEFAULTS.commitTree.startFrom,
+            parallel: options.commitTree?.parallel ?? KODRDRIV_DEFAULTS.commitTree.parallel,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

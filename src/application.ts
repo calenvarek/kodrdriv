@@ -9,11 +9,12 @@ import * as Commit from './commands/commit';
 import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as PublishTree from './commands/publish-tree';
+import * as CommitTree from './commands/commit-tree';
 import * as Release from './commands/release';
 import * as Review from './commands/review';
 import * as SelectAudio from './commands/select-audio';
 import * as Unlink from './commands/unlink';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_PUBLISH_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_COMMIT_TREE, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_PUBLISH_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { Config, ConfigSchema, SecureConfig } from './types';
 import { UserCancellationError } from './error/CommandErrors';
@@ -96,7 +97,7 @@ export async function runApplication(): Promise<void> {
     let commandName = commandConfig.commandName;
 
     // If we have a specific command argument, use that
-    if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'publish-tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio') {
+    if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'publish-tree' || command === 'commit-tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio') {
         commandName = command;
     }
 
@@ -124,6 +125,18 @@ export async function runApplication(): Promise<void> {
                 runConfig.publishTree.excludedPatterns = runConfig.excludedPatterns;
             }
             summary = await PublishTree.execute(runConfig);
+        } else if (commandName === COMMAND_COMMIT_TREE) {
+            // Handle commitTree directory mapping from command-specific arguments
+            if (runConfig.audioReview?.directory && !runConfig.commitTree?.directory) {
+                runConfig.commitTree = runConfig.commitTree || {};
+                runConfig.commitTree.directory = runConfig.audioReview.directory;
+            }
+            // Handle commitTree exclusion patterns - use global excludedPatterns for commit-tree
+            if (runConfig.excludedPatterns && !runConfig.commitTree?.excludedPatterns) {
+                runConfig.commitTree = runConfig.commitTree || {};
+                runConfig.commitTree.excludedPatterns = runConfig.excludedPatterns;
+            }
+            summary = await CommitTree.execute(runConfig);
         } else if (commandName === COMMAND_LINK) {
             summary = await Link.execute(runConfig);
         } else if (commandName === COMMAND_UNLINK) {

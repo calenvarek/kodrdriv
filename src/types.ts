@@ -96,6 +96,12 @@ export const ConfigSchema = z.object({
         publish: z.boolean().optional(),
         parallel: z.boolean().optional(),
     }).optional(),
+    commitTree: z.object({
+        directory: z.string().optional(),
+        excludedPatterns: z.array(z.string()).optional(),
+        startFrom: z.string().optional(),
+        parallel: z.boolean().optional(),
+    }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
 

@@ -34,12 +34,13 @@ const determineCachedState = async (config: Config): Promise<boolean> => {
 };
 
 // Single validation of sendit + cached state
-const validateSenditState = (config: Config, cached: boolean, isDryRun: boolean, logger: any): void => {
+const validateSenditState = (config: Config, cached: boolean, isDryRun: boolean, logger: any): boolean => {
     if (config.commit?.sendit && !cached && !isDryRun) {
         const message = 'SendIt mode enabled, but no changes to commit.';
-        logger.error(message);
-        throw new ValidationError(message);
+        logger.warn(message);
+        return false; // Return false to indicate no changes to commit
     }
+    return true; // Return true to indicate we can proceed
 };
 
 // Better file save handling with fallbacks
@@ -95,13 +96,34 @@ const executeInternal = async (runConfig: Config) => {
     // Determine cached state with single, clear logic
     const cached = await determineCachedState(runConfig);
 
-    // Validate sendit state early
+    // Validate sendit state early - now returns boolean instead of throwing
     validateSenditState(runConfig, cached, isDryRun, logger);
 
     let diffContent = '';
     const options = { cached, excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS };
     const diff = await Diff.create(options);
     diffContent = await diff.get();
+
+    // Check if there are actually any changes in the diff
+    const hasActualChanges = diffContent.trim().length > 0;
+
+    // If there are no changes and sendit is enabled, log warning and return early
+    if (!hasActualChanges && runConfig.commit?.sendit && !isDryRun) {
+        logger.warn('No changes detected to commit. Skipping commit operation.');
+        return 'No changes to commit.';
+    }
+
+    // If there are no changes but we're not in sendit mode, we might still want to generate a message
+    // This allows for dry-run scenarios or testing commit message generation
+    if (!hasActualChanges) {
+        logger.info('No changes detected in the working directory.');
+        if (runConfig.commit?.sendit) {
+            logger.info('Skipping commit operation due to no changes.');
+            return 'No changes to commit.';
+        } else {
+            logger.info('Generating commit message template for future use...');
+        }
+    }
 
     const logOptions = {
         limit: runConfig.commit?.messageLimit,
@@ -149,7 +171,7 @@ const executeInternal = async (runConfig: Config) => {
 
     // 🛡️ Universal Safety Check: Run before ANY commit operation
     // This protects both direct commits (--sendit) and automated commits (publish, etc.)
-    const willCreateCommit = runConfig.commit?.sendit || cached;
+    const willCreateCommit = runConfig.commit?.sendit && hasActualChanges && cached;
     if (willCreateCommit && !runConfig.commit?.skipFileCheck && !isDryRun) {
         logger.debug('Checking for file: dependencies before commit operation...');
 
@@ -189,7 +211,7 @@ const executeInternal = async (runConfig: Config) => {
         if (isDryRun) {
             logger.info('Would commit with message: \n\n%s\n\n', summary);
             logger.info('Would execute: git commit -m <generated-message>');
-        } else {
+        } else if (hasActualChanges && cached) {
             logger.info('SendIt mode enabled. Committing with message: \n\n%s\n\n', summary);
             try {
                 const validatedSummary = validateString(summary, 'commit summary');
@@ -200,6 +222,8 @@ const executeInternal = async (runConfig: Config) => {
                 logger.error('Failed to commit:', error);
                 throw new ExternalDependencyError('Failed to create commit', 'git', error);
             }
+        } else {
+            logger.info('SendIt mode enabled, but no changes to commit. Generated message: \n\n%s\n\n', summary);
         }
     } else if (isDryRun) {
         logger.info('Generated commit message: \n\n%s\n\n', summary);
