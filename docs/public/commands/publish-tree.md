@@ -29,7 +29,7 @@ The `publish-tree` command is designed for complex workspace environments where 
 - `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
 - `--start-from <startFrom>`: Resume build order from this package directory name (useful for restarting failed builds)
 - `--script <script>`: Script command to execute in each package directory (e.g., `"npm run build"`)
-- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"git add -A"`)
+- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm audit fix"`)
 - `--publish`: Execute kodrdriv publish command in each package directory
 - `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
 - `--excluded-patterns <patterns>`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)

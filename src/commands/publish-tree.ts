@@ -6,7 +6,6 @@ import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { run } from '../util/child';
 import * as Publish from './publish';
-import * as GitHub from '../util/github';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
 
 // Create a package-scoped logger that prefixes all messages
@@ -273,67 +272,7 @@ const topologicalSort = (graph: DependencyGraph): string[] => {
     return result;
 };
 
-// Workspace-level prechecks that apply to the entire repository
-const runWorkspacePrechecks = async (runConfig: Config, requireGitRepo: boolean = false): Promise<void> => {
-    const isDryRun = runConfig.dryRun || false;
-    const logger = getDryRunLogger(isDryRun);
 
-    logger.info('Running workspace-level prechecks...');
-
-    // Check if we're in a git repository at workspace level
-    let isWorkspaceGitRepo = false;
-    try {
-        if (isDryRun) {
-            logger.info('Would check git repository with: git rev-parse --git-dir');
-            isWorkspaceGitRepo = true; // Assume true for dry run
-        } else {
-            await run('git rev-parse --git-dir');
-            isWorkspaceGitRepo = true;
-        }
-    } catch {
-        if (!isDryRun) {
-            if (requireGitRepo) {
-                throw new Error('Not in a git repository');
-            } else {
-                logger.info('Workspace is not a git repository. Skipping workspace-level git checks (multi-repo workspace detected).');
-                isWorkspaceGitRepo = false;
-            }
-        }
-    }
-
-    // Only perform workspace-level git checks if we're in a git repository
-    if (isWorkspaceGitRepo) {
-        // Check for uncommitted changes at workspace level
-        logger.info('Checking for uncommitted changes...');
-        try {
-            if (isDryRun) {
-                logger.info('Would check git status with: git status --porcelain');
-            } else {
-                const { stdout } = await run('git status --porcelain');
-                if (stdout.trim()) {
-                    throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish-tree.');
-                }
-            }
-        } catch {
-            if (!isDryRun) {
-                throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
-            }
-        }
-
-        // Check if we're on a release branch
-        logger.info('Checking current branch...');
-        if (isDryRun) {
-            logger.info('Would verify current branch is a release branch (starts with "release/")');
-        } else {
-            const currentBranch = await GitHub.getCurrentBranchName();
-            if (!currentBranch.startsWith('release/')) {
-                throw new Error(`Current branch '${currentBranch}' is not a release branch. Please switch to a release branch (e.g., release/1.0.0) before running publish-tree.`);
-            }
-        }
-    }
-
-    logger.info('Workspace-level prechecks passed.');
-};
 
 // Per-package prechecks that apply to each individual package
 const runPackagePrechecks = async (
@@ -442,10 +381,7 @@ const runTreePrechecks = async (
 
     logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Running prechecks for all ${buildOrder.length} packages...`);
 
-    // First run workspace-level prechecks
-    await runWorkspacePrechecks(runConfig, true);
-
-    // Then run package-level prechecks for each package
+    // Run package-level prechecks for each package
     const failedPackages: { name: string; error: string }[] = [];
 
     for (let i = 0; i < buildOrder.length; i++) {
@@ -486,9 +422,6 @@ const runTreePrechecks = async (
         logger.error('');
         logger.error('   3. For invalid package.json files:');
         logger.error('      Fix JSON syntax errors and ensure all required fields are present');
-        logger.error('');
-        logger.error('   4. For git repository issues:');
-        logger.error('      Ensure you are in a git repository on a release branch with no uncommitted changes');
         logger.error('');
         logger.error('💡 After fixing these issues, re-run the command to continue with the publish process.');
 
