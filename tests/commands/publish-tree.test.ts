@@ -76,9 +76,7 @@ vi.mock('../../src/commands/publish', () => ({
     execute: vi.fn()
 }));
 
-vi.mock('../../src/util/github', () => ({
-    getCurrentBranchName: vi.fn()
-}));
+
 
 import fs from 'fs/promises';
 import { execute } from '../../src/commands/publish-tree';
@@ -86,7 +84,6 @@ import { getLogger, getDryRunLogger } from '../../src/logging';
 import { create as createStorage } from '../../src/util/storage';
 import { run } from '../../src/util/child';
 import * as Publish from '../../src/commands/publish';
-import * as GitHub from '../../src/util/github';
 import type { Config } from '../../src/types';
 
 describe('publish-tree', () => {
@@ -142,22 +139,7 @@ describe('publish-tree', () => {
         mockRun = run as Mock;
         mockPublishExecute = Publish.execute as Mock;
 
-        // Configure GitHub mocks
-        (GitHub.getCurrentBranchName as Mock).mockResolvedValue('release/1.0.0');
 
-        // Configure mockRun to handle git commands
-        mockRun.mockImplementation(async (command: string) => {
-            if (command === 'git rev-parse --git-dir') {
-                return { stdout: '.git', stderr: '' };
-            }
-            if (command === 'git status --porcelain') {
-                return { stdout: '', stderr: '' }; // No uncommitted changes
-            }
-            if (command.startsWith('git symbolic-ref --short HEAD')) {
-                return { stdout: 'release/1.0.0', stderr: '' };
-            }
-            return { stdout: '', stderr: '' };
-        });
 
         // Mock process.cwd and process.chdir
         vi.spyOn(process, 'cwd').mockReturnValue('/workspace');
@@ -466,11 +448,8 @@ describe('publish-tree', () => {
             await execute(config);
 
             expect(mockPublishExecute).toHaveBeenCalledWith(config);
-            // Allow git commands for workspace prechecks, but ensure no custom script/cmd was run
-            const nonGitCalls = mockRun.mock.calls.filter(call =>
-                !call[0].includes('git rev-parse') && !call[0].includes('git status') && !call[0].includes('git symbolic-ref')
-            );
-            expect(nonGitCalls).toHaveLength(0);
+            // Ensure no custom script/cmd was run (only publish should be called)
+            expect(mockRun).not.toHaveBeenCalled();
             expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Multiple execution options provided'));
         });
 
@@ -584,170 +563,7 @@ describe('publish-tree', () => {
         });
     });
 
-    describe('workspace prechecks', () => {
-        it('should pass workspace prechecks in normal operation', async () => {
-            const config = createBaseConfig({
-                publishTree: {
-                    publish: true
-                }
-            });
 
-            (fs.readdir as Mock).mockResolvedValue([
-                { name: 'package-a', isDirectory: () => true }
-            ]);
-
-            (fs.access as Mock).mockResolvedValue(undefined);
-
-            mockStorage.readFile.mockResolvedValue(JSON.stringify({
-                name: 'package-a',
-                version: '1.0.0',
-                scripts: {
-                    prepublishOnly: 'npm run test'
-                }
-            }));
-
-            mockPublishExecute.mockResolvedValue(undefined);
-
-            await execute(config);
-
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Running workspace-level prechecks...');
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Checking for uncommitted changes...');
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Checking current branch...');
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Workspace-level prechecks passed.');
-        });
-
-        it('should fail workspace prechecks when not in git repository', async () => {
-            const config = createBaseConfig({
-                publishTree: {
-                    publish: true
-                }
-            });
-
-            (fs.readdir as Mock).mockResolvedValue([
-                { name: 'package-a', isDirectory: () => true }
-            ]);
-
-            (fs.access as Mock).mockResolvedValue(undefined);
-
-            mockStorage.readFile.mockResolvedValue(JSON.stringify({
-                name: 'package-a',
-                version: '1.0.0',
-                scripts: {
-                    prepublishOnly: 'npm run test'
-                }
-            }));
-
-            // Mock git command to fail
-            mockRun.mockImplementation(async (command: string) => {
-                if (command === 'git rev-parse --git-dir') {
-                    throw new Error('Not a git repository');
-                }
-                return { stdout: '', stderr: '' };
-            });
-
-            await expect(execute(config)).rejects.toThrow('Failed to analyze workspace: Not in a git repository');
-        });
-
-        it('should fail workspace prechecks when there are uncommitted changes', async () => {
-            const config = createBaseConfig({
-                publishTree: {
-                    publish: true
-                }
-            });
-
-            (fs.readdir as Mock).mockResolvedValue([
-                { name: 'package-a', isDirectory: () => true }
-            ]);
-
-            (fs.access as Mock).mockResolvedValue(undefined);
-
-            mockStorage.readFile.mockResolvedValue(JSON.stringify({
-                name: 'package-a',
-                version: '1.0.0',
-                scripts: {
-                    prepublishOnly: 'npm run test'
-                }
-            }));
-
-            // The implementation has a try-catch that converts any git status error to "Failed to check git status"
-            // So let's make the git status command throw an error that simulates uncommitted changes detection failure
-            mockRun.mockImplementation(async (command: string) => {
-                if (command === 'git rev-parse --git-dir') {
-                    return { stdout: '.git', stderr: '' };
-                }
-                if (command === 'git status --porcelain') {
-                    // Simulate git status failing (which results in the "Failed to check git status" error)
-                    throw new Error('git status failed');
-                }
-                if (command.startsWith('git symbolic-ref --short HEAD')) {
-                    return { stdout: 'release/1.0.0', stderr: '' };
-                }
-                return { stdout: '', stderr: '' };
-            });
-
-            // Also mock GitHub.getCurrentBranchName to avoid issues
-            (GitHub.getCurrentBranchName as Mock).mockResolvedValue('release/1.0.0');
-
-            await expect(execute(config)).rejects.toThrow('Failed to analyze workspace: Failed to check git status');
-        });
-
-        it('should fail workspace prechecks when not on release branch', async () => {
-            const config = createBaseConfig({
-                publishTree: {
-                    publish: true
-                }
-            });
-
-            (fs.readdir as Mock).mockResolvedValue([
-                { name: 'package-a', isDirectory: () => true }
-            ]);
-
-            (fs.access as Mock).mockResolvedValue(undefined);
-
-            mockStorage.readFile.mockResolvedValue(JSON.stringify({
-                name: 'package-a',
-                version: '1.0.0',
-                scripts: {
-                    prepublishOnly: 'npm run test'
-                }
-            }));
-
-            // Mock current branch to not be a release branch
-            (GitHub.getCurrentBranchName as Mock).mockResolvedValue('main');
-
-            await expect(execute(config)).rejects.toThrow('Failed to analyze workspace: Current branch \'main\' is not a release branch');
-        });
-
-        it('should handle workspace prechecks in dry run mode', async () => {
-            const config = createBaseConfig({
-                dryRun: true,
-                publishTree: {
-                    publish: true
-                }
-            });
-
-            (fs.readdir as Mock).mockResolvedValue([
-                { name: 'package-a', isDirectory: () => true }
-            ]);
-
-            (fs.access as Mock).mockResolvedValue(undefined);
-
-            mockStorage.readFile.mockResolvedValue(JSON.stringify({
-                name: 'package-a',
-                version: '1.0.0',
-                scripts: {
-                    prepublishOnly: 'npm run test'
-                }
-            }));
-
-            const result = await execute(config);
-
-            expect(result).toContain('DRY RUN: All 1 packages completed successfully');
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Would check git repository with: git rev-parse --git-dir');
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Would check git status with: git status --porcelain');
-            expect(mockDryRunLogger.info).toHaveBeenCalledWith('Would verify current branch is a release branch (starts with "release/")');
-        });
-    });
 
     describe('package prechecks', () => {
         it('should pass package prechecks when prepublishOnly script exists', async () => {
@@ -1806,11 +1622,8 @@ describe('publish-tree', () => {
             expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Executing publish'));
             expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
             expect(mockPublishExecute).toHaveBeenCalledTimes(2);
-            // Allow git commands for workspace prechecks, but ensure no custom script/cmd was run
-            const nonGitCalls = mockRun.mock.calls.filter(call =>
-                !call[0].includes('git rev-parse') && !call[0].includes('git status') && !call[0].includes('git symbolic-ref')
-            );
-            expect(nonGitCalls).toHaveLength(0);
+            // Ensure no custom script/cmd was run (only publish should be called)
+            expect(mockRun).not.toHaveBeenCalled();
         });
 
         it('should handle promise rejection in parallel execution', async () => {
