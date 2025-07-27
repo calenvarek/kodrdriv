@@ -81,9 +81,11 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
             await run('git rev-parse --git-dir');
         }
 
-    } catch (error) {
+    } catch (error: any) {
         if (!isDryRun) {
-            throw new Error('Not in a git repository. Please run this command from within a git repository.');
+            // Preserve the original error message to help with debugging
+            const originalMessage = error.message || error.toString();
+            throw new Error(`Not in a git repository or git command failed: ${originalMessage}. Please run this command from within a git repository.`);
         }
     }
 
@@ -99,9 +101,11 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
             }
         }
 
-    } catch (error) {
+    } catch (error: any) {
         if (!isDryRun) {
-            throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
+            // Preserve the original error message to help with debugging
+            const originalMessage = error.message || error.toString();
+            throw new Error(`Failed to check git status: ${originalMessage}. Please ensure you are in a valid git repository and try again.`);
         }
     }
 
