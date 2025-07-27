@@ -1024,7 +1024,20 @@ describe('GitHub Utilities', () => {
             expect(mockOctokit.actions.listWorkflowRuns).toHaveBeenCalledTimes(2);
         });
 
-        it('should filter out non-release/push event runs but include tag pushes', async () => {
+        it('should include all workflow runs with valid timestamps', async () => {
+            // Mock release data
+            mockOctokit.repos.getReleaseByTag.mockResolvedValue({
+                data: {
+                    created_at: '2023-01-01T00:00:00Z',
+                    target_commitish: 'abc123',
+                },
+            });
+
+            // Mock two workflows
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ id: 1, name: 'Workflow 1' }, { id: 2, name: 'Workflow 2' }] },
+            });
+
             const mockWorkflowRuns = [
                 {
                     id: 1,
@@ -1047,7 +1060,7 @@ describe('GitHub Utilities', () => {
                 },
                 {
                     id: 3,
-                    name: 'Non-relevant Workflow',
+                    name: 'PR Workflow',
                     event: 'pull_request',
                     status: 'completed',
                     conclusion: 'success',
@@ -1067,9 +1080,8 @@ describe('GitHub Utilities', () => {
 
             const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
 
-            expect(result).toHaveLength(2);
-            expect(result.map(r => r.event)).toEqual(expect.arrayContaining(['push', 'release']));
-            expect(result.find(r => r.event === 'pull_request')).toBeUndefined();
+            expect(result).toHaveLength(3); // All runs with valid timestamps are included
+            expect(result.map(r => r.event)).toEqual(expect.arrayContaining(['push', 'release', 'pull_request']));
         });
 
         it('should filter runs by specific workflow names when provided', async () => {
@@ -1125,7 +1137,7 @@ describe('GitHub Utilities', () => {
             expect(result[0].name).toBe('Release Workflow');
         });
 
-        it('should filter out release events with mismatched commit SHA but be permissive for push events', async () => {
+        it('should include all workflow runs created after release', async () => {
             const mockReleaseData = {
                 created_at: '2023-01-01T00:00:00Z',
                 target_commitish: 'correct-sha',
@@ -1177,12 +1189,11 @@ describe('GitHub Utilities', () => {
 
             const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
 
-            expect(result).toHaveLength(2); // Should include correct release event and push event
-            expect(result.find(r => r.event === 'release')?.head_sha).toBe('correct-sha');
-            expect(result.find(r => r.event === 'push')?.head_sha).toBe('push-sha');
+            expect(result).toHaveLength(3); // Should include all runs created after release
+            expect(result.map(r => r.id).sort()).toEqual([1, 2, 3]);
         });
 
-        it('should filter out runs outside time window', async () => {
+        it('should filter out runs created before release', async () => {
             const mockReleaseData = {
                 created_at: '2023-01-01T12:00:00Z',
                 target_commitish: 'abc123',
@@ -1209,12 +1220,12 @@ describe('GitHub Utilities', () => {
                 },
                 {
                     id: 2,
-                    name: 'Too Late',
+                    name: 'After Release',
                     event: 'release',
                     status: 'completed',
                     conclusion: 'success',
                     head_sha: 'abc123',
-                    created_at: '2023-01-01T12:25:00Z', // 25 minutes after release (too late, beyond 20min window)
+                    created_at: '2023-01-01T12:25:00Z', // 25 minutes after release (now included)
                 },
                 {
                     id: 3,
@@ -1233,8 +1244,8 @@ describe('GitHub Utilities', () => {
 
             const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
 
-            expect(result).toHaveLength(1);
-            expect(result[0].name).toBe('Just Right');
+            expect(result).toHaveLength(2); // Should include both runs after release
+            expect(result.map(r => r.name).sort()).toEqual(['After Release', 'Just Right']);
         });
 
         it('should handle workflow API errors gracefully', async () => {
@@ -1248,7 +1259,7 @@ describe('GitHub Utilities', () => {
             expect(result).toEqual([]);
         });
 
-        it('should sort runs by creation time and commit SHA match', async () => {
+        it('should sort runs by creation time', async () => {
             const mockReleaseData = {
                 created_at: '2023-01-01T12:00:00Z',
                 target_commitish: 'correct-sha',
@@ -1299,9 +1310,10 @@ describe('GitHub Utilities', () => {
 
             const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
 
-            expect(result).toHaveLength(2); // Only correct SHA runs
+            expect(result).toHaveLength(3); // All runs after release
             expect(result[0].name).toBe('Newer, Correct SHA'); // Newest first
-            expect(result[1].name).toBe('Older, Correct SHA');
+            expect(result[1].name).toBe('Older, Correct SHA'); // Second newest
+            expect(result[2].name).toBe('Older, Wrong SHA'); // Oldest
         });
 
         it('should handle runs with missing required data', async () => {
@@ -1354,8 +1366,8 @@ describe('GitHub Utilities', () => {
 
             const result = await GitHub.getWorkflowRunsTriggeredByRelease('v1.0.0');
 
-            expect(result).toHaveLength(1);
-            expect(result[0].name).toBe('Valid Run');
+            expect(result).toHaveLength(2); // Valid Run and Missing SHA (which is now allowed)
+            expect(result.map(r => r.name).sort()).toEqual(['Missing SHA', 'Valid Run']);
         });
 
     });
