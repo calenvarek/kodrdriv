@@ -41,6 +41,10 @@ vi.mock('../src/commands/publish-tree', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../src/commands/commit-tree', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../src/commands/link', () => ({
     execute: vi.fn()
 }));
@@ -71,6 +75,7 @@ vi.mock('../src/constants', () => ({
     COMMAND_CHECK_CONFIG: 'check-config',
     COMMAND_CLEAN: 'clean',
     COMMAND_COMMIT: 'commit',
+    COMMAND_COMMIT_TREE: 'commit-tree',
     COMMAND_INIT_CONFIG: 'init-config',
     COMMAND_LINK: 'link',
     COMMAND_PUBLISH: 'publish',
@@ -118,6 +123,7 @@ describe('Application module', () => {
             Release: await import('../src/commands/release'),
             Publish: await import('../src/commands/publish'),
             PublishTree: await import('../src/commands/publish-tree'),
+            CommitTree: await import('../src/commands/commit-tree'),
             Link: await import('../src/commands/link'),
             Unlink: await import('../src/commands/unlink'),
             AudioReview: await import('../src/commands/audio-review'),
@@ -361,6 +367,31 @@ describe('Application module', () => {
             expect(runConfig.publishTree?.directory).toBe('/test/dir');
             expect(runConfig.publishTree?.excludedPatterns).toEqual(['*.log']);
             expect(console.log).toHaveBeenCalledWith('\n\nPublish tree completed\n\n');
+        });
+
+        it('should execute commit-tree command and handle directory mapping', async () => {
+            process.argv = ['node', 'main.js', 'commit-tree'];
+            Commands.CommitTree.execute.mockResolvedValue('Commit tree completed');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                audioReview: { directory: '/test/workspace' },
+                excludedPatterns: ['**/test/**']
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'commit-tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.CommitTree.execute).toHaveBeenCalled();
+            expect(runConfig.commitTree?.directory).toBe('/test/workspace');
+            expect(runConfig.commitTree?.excludedPatterns).toEqual(['**/test/**']);
+            expect(console.log).toHaveBeenCalledWith('\n\nCommit tree completed\n\n');
         });
 
         it('should execute link command', async () => {
