@@ -274,50 +274,61 @@ const topologicalSort = (graph: DependencyGraph): string[] => {
 };
 
 // Workspace-level prechecks that apply to the entire repository
-const runWorkspacePrechecks = async (runConfig: Config): Promise<void> => {
+const runWorkspacePrechecks = async (runConfig: Config, requireGitRepo: boolean = false): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
 
     logger.info('Running workspace-level prechecks...');
 
-    // Check if we're in a git repository
+    // Check if we're in a git repository at workspace level
+    let isWorkspaceGitRepo = false;
     try {
         if (isDryRun) {
             logger.info('Would check git repository with: git rev-parse --git-dir');
+            isWorkspaceGitRepo = true; // Assume true for dry run
         } else {
             await run('git rev-parse --git-dir');
+            isWorkspaceGitRepo = true;
         }
-    } catch (error) {
+    } catch {
         if (!isDryRun) {
-            throw new Error('Not in a git repository. Please run this command from within a git repository.');
-        }
-    }
-
-    // Check for uncommitted changes at workspace level
-    logger.info('Checking for uncommitted changes...');
-    try {
-        if (isDryRun) {
-            logger.info('Would check git status with: git status --porcelain');
-        } else {
-            const { stdout } = await run('git status --porcelain');
-            if (stdout.trim()) {
-                throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish-tree.');
+            if (requireGitRepo) {
+                throw new Error('Not in a git repository');
+            } else {
+                logger.info('Workspace is not a git repository. Skipping workspace-level git checks (multi-repo workspace detected).');
+                isWorkspaceGitRepo = false;
             }
         }
-    } catch (error) {
-        if (!isDryRun) {
-            throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
-        }
     }
 
-    // Check if we're on a release branch
-    logger.info('Checking current branch...');
-    if (isDryRun) {
-        logger.info('Would verify current branch is a release branch (starts with "release/")');
-    } else {
-        const currentBranch = await GitHub.getCurrentBranchName();
-        if (!currentBranch.startsWith('release/')) {
-            throw new Error(`Current branch '${currentBranch}' is not a release branch. Please switch to a release branch (e.g., release/1.0.0) before running publish-tree.`);
+    // Only perform workspace-level git checks if we're in a git repository
+    if (isWorkspaceGitRepo) {
+        // Check for uncommitted changes at workspace level
+        logger.info('Checking for uncommitted changes...');
+        try {
+            if (isDryRun) {
+                logger.info('Would check git status with: git status --porcelain');
+            } else {
+                const { stdout } = await run('git status --porcelain');
+                if (stdout.trim()) {
+                    throw new Error('Working directory has uncommitted changes. Please commit or stash your changes before running publish-tree.');
+                }
+            }
+        } catch {
+            if (!isDryRun) {
+                throw new Error('Failed to check git status. Please ensure you are in a valid git repository.');
+            }
+        }
+
+        // Check if we're on a release branch
+        logger.info('Checking current branch...');
+        if (isDryRun) {
+            logger.info('Would verify current branch is a release branch (starts with "release/")');
+        } else {
+            const currentBranch = await GitHub.getCurrentBranchName();
+            if (!currentBranch.startsWith('release/')) {
+                throw new Error(`Current branch '${currentBranch}' is not a release branch. Please switch to a release branch (e.g., release/1.0.0) before running publish-tree.`);
+            }
         }
     }
 
@@ -355,7 +366,7 @@ const runPackagePrechecks = async (
             const packageJsonContents = await storage.readFile(packageJsonPath, 'utf-8');
             const parsed = safeJsonParse(packageJsonContents, packageJsonPath);
             packageJson = validatePackageJson(parsed, packageJsonPath);
-        } catch (error) {
+        } catch {
             if (!isDryRun) {
                 throw new Error(`Failed to parse package.json in ${packageDir}. Please ensure it contains valid JSON.`);
             } else {
@@ -432,7 +443,7 @@ const runTreePrechecks = async (
     logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Running prechecks for all ${buildOrder.length} packages...`);
 
     // First run workspace-level prechecks
-    await runWorkspacePrechecks(runConfig);
+    await runWorkspacePrechecks(runConfig, true);
 
     // Then run package-level prechecks for each package
     const failedPackages: { name: string; error: string }[] = [];
