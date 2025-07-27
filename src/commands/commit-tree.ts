@@ -88,10 +88,11 @@ const formatSubprojectError = (packageName: string, error: any): string => {
 const matchesPattern = (filePath: string, pattern: string): boolean => {
     // Convert simple glob patterns to regex
     const regexPattern = pattern
-        .replace(/\*\*/g, '.*')  // ** matches any path segments
-        .replace(/\*/g, '[^/]*') // * matches any characters except path separator
-        .replace(/\?/g, '.')     // ? matches any single character
-        .replace(/\./g, '\\.');  // Escape literal dots
+        .replace(/\\/g, '\\\\')   // Escape backslashes
+        .replace(/\*\*/g, '.*')   // ** matches any path segments
+        .replace(/\*/g, '[^/]*')  // * matches any characters except path separator
+        .replace(/\?/g, '.')      // ? matches any single character
+        .replace(/\./g, '\\.');   // Escape literal dots
 
     const regex = new RegExp(`^${regexPattern}$`);
     return regex.test(filePath) || regex.test(path.basename(filePath));
