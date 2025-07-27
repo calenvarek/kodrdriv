@@ -474,7 +474,7 @@ cache=\${CACHE_DIR}/npm
                 return Promise.resolve({ stdout: '' });
             });
 
-            await expect(Publish.execute(mockConfig)).rejects.toThrow('Not in a git repository. Please run this command from within a git repository.');
+            await expect(Publish.execute(mockConfig)).rejects.toThrow('Not in a git repository or git command failed: Not a git repository. Please run this command from within a git repository.');
         });
 
         it('should throw error when working directory has uncommitted changes', async () => {
@@ -492,7 +492,7 @@ cache=\${CACHE_DIR}/npm
 
             // NOTE: Due to the current implementation's error handling, this throws the generic git status error
             // instead of the specific uncommitted changes error. This might be a bug to fix in the future.
-            await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to check git status. Please ensure you are in a valid git repository.');
+            await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to check git status: Working directory has uncommitted changes. Please commit or stash your changes before running publish.. Please ensure you are in a valid git repository and try again.');
         });
 
         it('should throw error when git status command fails', async () => {
@@ -508,7 +508,7 @@ cache=\${CACHE_DIR}/npm
                 return Promise.resolve({ stdout: '' });
             });
 
-            await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to check git status. Please ensure you are in a valid git repository.');
+            await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to check git status: Git status failed. Please ensure you are in a valid git repository and try again.');
         });
 
         it('should throw error when not on release branch', async () => {
