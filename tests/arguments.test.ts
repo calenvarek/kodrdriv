@@ -331,6 +331,31 @@ describe('Argument Parsing and Configuration', () => {
             expect(transformed).toEqual(expectedConfig);
         });
 
+        it('should handle commit-tree args correctly', () => {
+            const cliArgs: Input = {
+                directory: '/monorepo',
+                excludedPatterns: ['**/test/**', '**/docs/**'],
+                startFrom: 'core-package',
+                parallel: true,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                audioReview: {
+                    directory: '/monorepo',
+                },
+                commitTree: {
+                    directory: '/monorepo',
+                    excludedPatterns: ['**/test/**', '**/docs/**'],
+                    startFrom: 'core-package',
+                    parallel: true,
+                },
+                excludedPatterns: ['**/test/**', '**/docs/**'],
+            };
+
+            const transformed = transformCliArgs(cliArgs, 'commit-tree');
+            expect(transformed).toEqual(expectedConfig);
+        });
+
         it('should handle excludedPaths as alias for excludedPatterns', () => {
             const cliArgs: Input = {
                 excludedPaths: ['*.log', 'temp/*'],
@@ -1138,6 +1163,14 @@ describe('Argument Parsing and Configuration', () => {
                     opts: vi.fn().mockReturnValue({}),
                     args: [],
                 },
+                'commit-tree': {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
                 link: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
@@ -1267,6 +1300,22 @@ describe('Argument Parsing and Configuration', () => {
             const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
 
             expect(commandConfig.commandName).toBe('publish-tree');
+        });
+
+        it('should handle commit-tree command', async () => {
+            mockProgram.args = ['commit-tree'];
+
+            // Mock the commit-tree command options
+            mockCommands['commit-tree'].opts.mockReturnValue({
+                directory: '/workspace',
+                startFrom: 'core-package',
+                parallel: true,
+                excludedPatterns: ['**/test/**'],
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit-tree');
         });
 
         it('should handle unlink command', async () => {
@@ -1693,6 +1742,24 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.publishTree?.cmd).toBe('npm audit --audit-level moderate');
             expect(result.publishTree?.publish).toBe(true);
             expect(result.publishTree?.parallel).toBe(true);
+        });
+
+        it('should handle commitTree options correctly', async () => {
+            const options: Partial<Config> = {
+                commitTree: {
+                    directory: '/workspace',
+                    excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+                    startFrom: 'utils-package',
+                    parallel: true,
+                },
+            };
+
+            const result = await validateAndProcessOptions(options);
+
+            expect(result.commitTree?.directory).toBe('/workspace');
+            expect(result.commitTree?.excludedPatterns).toEqual(['**/node_modules/**', '**/dist/**']);
+            expect(result.commitTree?.startFrom).toBe('utils-package');
+            expect(result.commitTree?.parallel).toBe(true);
         });
 
         it('should handle complete review configuration', async () => {
@@ -2210,6 +2277,887 @@ describe('Argument Parsing and Configuration', () => {
                 const result = transformCliArgs(cliArgs);
                 expect(result.link?.scopeRoots).toEqual(['@test', '@lib']);
             });
+        });
+    });
+
+    describe('Environment variable edge cases', () => {
+        beforeEach(() => {
+            process.env = { ...originalEnv };
+        });
+
+        it('should handle API key with special characters', async () => {
+            process.env.OPENAI_API_KEY = 'sk-test_key-with-special@chars#$%';
+
+            const result = await validateAndProcessSecureOptions();
+            expect(result.openaiApiKey).toBe('sk-test_key-with-special@chars#$%');
+        });
+
+        it('should handle very long API keys', async () => {
+            const longKey = 'sk-' + 'a'.repeat(500);
+            process.env.OPENAI_API_KEY = longKey;
+
+            const result = await validateAndProcessSecureOptions();
+            expect(result.openaiApiKey).toBe(longKey);
+        });
+
+        it('should handle API key with whitespace', async () => {
+            process.env.OPENAI_API_KEY = '  sk-test-key-with-whitespace  ';
+
+            const result = await validateAndProcessSecureOptions();
+            expect(result.openaiApiKey).toBe('  sk-test-key-with-whitespace  ');
+        });
+
+        it('should handle undefined API key separately from empty string', async () => {
+            delete process.env.OPENAI_API_KEY;
+
+            await expect(validateAndProcessSecureOptions()).rejects.toThrow('OpenAI API key is required');
+        });
+
+        it('should handle null-like values in environment', async () => {
+            process.env.OPENAI_API_KEY = 'null';
+
+            const result = await validateAndProcessSecureOptions();
+            expect(result.openaiApiKey).toBe('null');
+        });
+    });
+
+    describe('Advanced configuration merging scenarios', () => {
+        beforeEach(() => {
+            Object.values(mockStorage).forEach(mock => {
+                if (typeof mock === 'function') {
+                    mock.mockReset();
+                }
+            });
+            mockStorage.isDirectoryReadable.mockResolvedValue(true);
+            mockStorage.isFileReadable.mockResolvedValue(false);
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(true);
+        });
+
+        it('should handle deeply nested configuration conflicts', async () => {
+            const complexOptions: Partial<Config> = {
+                commit: {
+                    add: true,
+                    cached: false,
+                    sendit: true,
+                    messageLimit: 25,
+                    context: 'file context',
+                    direction: 'file direction',
+                    skipFileCheck: false,
+                },
+                audioCommit: {
+                    maxRecordingTime: 600,
+                    audioDevice: 'device-1',
+                    file: '/path/from/file.wav',
+                    keepTemp: true,
+                },
+                release: {
+                    from: 'file-branch',
+                    to: 'file-target',
+                    messageLimit: 30,
+                    context: 'file release context',
+                },
+                publish: {
+                    mergeMethod: 'merge',
+                    dependencyUpdatePatterns: ['package*.json', 'yarn.lock'],
+                    requiredEnvVars: ['FILE_VAR1', 'FILE_VAR2'],
+                    linkWorkspacePackages: true,
+                    unlinkWorkspacePackages: false,
+                    sendit: false,
+                },
+                link: {
+                    scopeRoots: { '@file': '../file', '@shared': '../file-shared' },
+                    dryRun: false,
+                },
+            };
+
+            const result = await validateAndProcessOptions(complexOptions);
+
+            expect(result.commit?.add).toBe(true);
+            expect(result.commit?.cached).toBe(false);
+            expect(result.commit?.context).toBe('file context');
+            expect(result.audioCommit?.maxRecordingTime).toBe(600);
+            expect(result.release?.from).toBe('file-branch');
+            expect(result.publish?.mergeMethod).toBe('merge');
+            expect(result.link?.scopeRoots).toEqual({ '@file': '../file', '@shared': '../file-shared' });
+        });
+
+        it('should handle configuration with missing intermediate objects', async () => {
+            const sparseOptions: Partial<Config> = {
+                model: 'gpt-4-turbo',
+                // No commit object, but we should get defaults
+                release: {
+                    from: 'main',
+                    // to is missing, should get default
+                },
+                // Other objects completely missing
+            };
+
+            const result = await validateAndProcessOptions(sparseOptions);
+
+            expect(result.model).toBe('gpt-4-turbo');
+            expect(result.commit).toBeDefined();
+            expect(result.commit?.add).toBe(KODRDRIV_DEFAULTS.commit.add);
+            expect(result.release?.from).toBe('main');
+            expect(result.release?.to).toBe(KODRDRIV_DEFAULTS.release.to);
+            expect(result.audioCommit).toBeDefined();
+            expect(result.publish).toBeDefined();
+            expect(result.link).toBeDefined();
+        });
+
+        it('should handle configuration with all undefined values', async () => {
+            const undefinedOptions: Partial<Config> = {
+                dryRun: undefined,
+                verbose: undefined,
+                debug: undefined,
+                model: undefined,
+                contextDirectories: undefined,
+                commit: {
+                    add: undefined,
+                    cached: undefined,
+                    sendit: undefined,
+                },
+            };
+
+            const result = await validateAndProcessOptions(undefinedOptions);
+
+            expect(result.dryRun).toBe(KODRDRIV_DEFAULTS.dryRun);
+            expect(result.verbose).toBe(KODRDRIV_DEFAULTS.verbose);
+            expect(result.debug).toBe(KODRDRIV_DEFAULTS.debug);
+            expect(result.model).toBe(KODRDRIV_DEFAULTS.model);
+            expect(result.commit?.add).toBe(KODRDRIV_DEFAULTS.commit.add);
+        });
+
+        it('should preserve cardigantime-specific properties', async () => {
+            const cardingantimeOptions: Partial<Config> = {
+                model: 'gpt-4',
+                discoveredConfigDirs: ['/discovered1', '/discovered2'] as any,
+                resolvedConfigDirs: ['/resolved1', '/resolved2'] as any,
+            };
+
+            const result = await validateAndProcessOptions(cardingantimeOptions);
+
+            expect(result.discoveredConfigDirs).toEqual(['/discovered1', '/discovered2']);
+            expect(result.resolvedConfigDirs).toEqual(['/resolved1', '/resolved2']);
+        });
+    });
+
+    describe('Command-specific option validation edge cases', () => {
+        beforeEach(() => {
+            Object.values(mockStorage).forEach(mock => {
+                if (typeof mock === 'function') {
+                    mock.mockReset();
+                }
+            });
+            mockStorage.isDirectoryReadable.mockResolvedValue(true);
+            mockStorage.isFileReadable.mockResolvedValue(false);
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockResolvedValue(true);
+        });
+
+        it('should handle all audio-related limits at maximum values', async () => {
+            const maxAudioOptions: Partial<Config> = {
+                audioReview: {
+                    commitHistoryLimit: 1000,
+                    diffHistoryLimit: 500,
+                    releaseNotesLimit: 100,
+                    githubIssuesLimit: 20, // GitHub API limit
+                    maxRecordingTime: 3600, // 1 hour
+                    includeCommitHistory: true,
+                    includeRecentDiffs: true,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: true,
+                },
+            };
+
+            const result = await validateAndProcessOptions(maxAudioOptions);
+
+            expect(result.audioReview?.commitHistoryLimit).toBe(1000);
+            expect(result.audioReview?.diffHistoryLimit).toBe(500);
+            expect(result.audioReview?.releaseNotesLimit).toBe(100);
+            expect(result.audioReview?.githubIssuesLimit).toBe(20);
+            expect(result.audioReview?.maxRecordingTime).toBe(3600);
+        });
+
+        it('should handle minimal audio configuration', async () => {
+            const minimalAudioOptions: Partial<Config> = {
+                audioReview: {
+                    includeCommitHistory: false,
+                    includeRecentDiffs: false,
+                    includeReleaseNotes: false,
+                    includeGithubIssues: false,
+                },
+            };
+
+            const result = await validateAndProcessOptions(minimalAudioOptions);
+
+            expect(result.audioReview?.includeCommitHistory).toBe(false);
+            expect(result.audioReview?.includeRecentDiffs).toBe(false);
+            expect(result.audioReview?.includeReleaseNotes).toBe(false);
+            expect(result.audioReview?.includeGithubIssues).toBe(false);
+            // Should still get defaults for other properties
+            expect(result.audioReview?.commitHistoryLimit).toBe(KODRDRIV_DEFAULTS.audioReview.commitHistoryLimit);
+        });
+
+        it('should handle publish command with all dependency patterns', async () => {
+            const publishOptions: Partial<Config> = {
+                publish: {
+                    mergeMethod: 'rebase',
+                    dependencyUpdatePatterns: [
+                        'package.json',
+                        'package-lock.json',
+                        'yarn.lock',
+                        'pnpm-lock.yaml',
+                        'composer.json',
+                        'Gemfile.lock',
+                        'requirements.txt',
+                    ],
+                    requiredEnvVars: [
+                        'NODE_ENV',
+                        'API_KEY',
+                        'DATABASE_URL',
+                        'REDIS_URL',
+                    ],
+                    linkWorkspacePackages: true,
+                    unlinkWorkspacePackages: true,
+                    sendit: true,
+                },
+            };
+
+            const result = await validateAndProcessOptions(publishOptions);
+
+            expect(result.publish?.mergeMethod).toBe('rebase');
+            expect(result.publish?.dependencyUpdatePatterns).toHaveLength(7);
+            expect(result.publish?.requiredEnvVars).toHaveLength(4);
+            expect(result.publish?.linkWorkspacePackages).toBe(true);
+            expect(result.publish?.unlinkWorkspacePackages).toBe(true);
+            expect(result.publish?.sendit).toBe(true);
+        });
+
+        it('should handle publishTree and commitTree with complex patterns', async () => {
+            const treeOptions: Partial<Config> = {
+                publishTree: {
+                    directory: '/complex/monorepo',
+                    excludedPatterns: [
+                        '**/node_modules/**',
+                        '**/dist/**',
+                        '**/build/**',
+                        '**/.next/**',
+                        '**/coverage/**',
+                        '**/*.log',
+                        '**/tmp/**',
+                        '**/temp/**',
+                    ],
+                    startFrom: 'critical-package-with-long-name',
+                    script: 'npm ci && npm run lint && npm run test && npm run build',
+                    cmd: 'npm audit --audit-level moderate && npm run security-check',
+                    publish: true,
+                    parallel: true,
+                },
+                commitTree: {
+                    directory: '/complex/monorepo',
+                    excludedPatterns: [
+                        '**/test/**',
+                        '**/spec/**',
+                        '**/__tests__/**',
+                        '**/*.test.*',
+                        '**/*.spec.*',
+                    ],
+                    startFrom: 'foundational-package',
+                    parallel: false,
+                },
+            };
+
+            const result = await validateAndProcessOptions(treeOptions);
+
+            expect(result.publishTree?.excludedPatterns).toHaveLength(8);
+            expect(result.publishTree?.script).toContain('npm ci && npm run lint');
+            expect(result.publishTree?.cmd).toContain('npm audit --audit-level moderate');
+            expect(result.commitTree?.excludedPatterns).toHaveLength(5);
+            expect(result.commitTree?.parallel).toBe(false);
+        });
+    });
+
+    describe('Storage error scenarios', () => {
+        beforeEach(() => {
+            Object.values(mockStorage).forEach(mock => {
+                if (typeof mock === 'function') {
+                    mock.mockReset();
+                }
+            });
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+        });
+
+        it('should handle storage permission errors during directory validation', async () => {
+            mockStorage.isDirectoryReadable
+                .mockResolvedValueOnce(true)  // First directory OK
+                .mockRejectedValueOnce(new Error('EACCES: permission denied'))  // Permission error
+                .mockResolvedValueOnce(false) // Third directory not readable
+                .mockResolvedValueOnce(true); // Fourth directory OK
+
+            const dirs = ['/readable', '/permission-denied', '/not-readable', '/another-readable'];
+            const result = await validateContextDirectories(dirs);
+
+            expect(result).toEqual(['/readable', '/another-readable']);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Error validating directory /permission-denied: EACCES: permission denied')
+            );
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Directory not readable: /not-readable')
+            );
+        });
+
+        it('should handle storage timeout errors', async () => {
+            mockStorage.isDirectoryReadable.mockRejectedValue(new Error('ETIMEDOUT: operation timed out'));
+
+            const dirs = ['/timeout-dir'];
+            const result = await validateContextDirectories(dirs);
+
+            expect(result).toEqual([]);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Error validating directory /timeout-dir: ETIMEDOUT: operation timed out')
+            );
+        });
+
+        it('should handle storage network errors', async () => {
+            mockStorage.isDirectoryReadable.mockRejectedValue(new Error('ENETUNREACH: network unreachable'));
+
+            const dirs = ['/network-dir'];
+            const result = await validateContextDirectories(dirs);
+
+            expect(result).toEqual([]);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Error validating directory /network-dir: ENETUNREACH: network unreachable')
+            );
+        });
+
+        it('should handle storage device errors', async () => {
+            mockStorage.isDirectoryReadable.mockRejectedValue(new Error('EIO: I/O error'));
+
+            const dirs = ['/device-error-dir'];
+            const result = await validateContextDirectories(dirs);
+
+            expect(result).toEqual([]);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Error validating directory /device-error-dir: EIO: I/O error')
+            );
+        });
+
+        it('should handle config directory creation failure', async () => {
+            const configDir = './failing-config';
+            const createError = new Error('ENOSPC: no space left on device');
+
+            mockStorage.exists.mockResolvedValue(false);
+            mockStorage.createDirectory.mockRejectedValue(createError);
+
+            const result = await validateConfigDir(configDir);
+
+            // Should return the path anyway and warn
+            expect(result).toMatch(/failing-config$/);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Config directory does not exist')
+            );
+        });
+
+        it('should handle config directory writable check failure', async () => {
+            const configDir = './write-check-failing';
+            const writeError = new Error('EPERM: operation not permitted');
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+            mockStorage.isDirectoryWritable.mockRejectedValue(writeError);
+
+            await expect(validateConfigDir(configDir)).rejects.toThrow(
+                'Failed to validate config directory'
+            );
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to validate config directory'),
+                writeError
+            );
+        });
+    });
+
+    describe('Complex CLI argument combinations', () => {
+        let mockProgram: Command;
+        let mockCommands: Record<string, any>;
+        const mockReadStdin = vi.mocked(readStdin);
+
+        beforeEach(() => {
+            mockReadStdin.mockResolvedValue(null);
+
+            mockCommands = {
+                commit: {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                'audio-review': {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+                'publish-tree': {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn().mockReturnThis(),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                },
+            };
+
+            Object.values(mockCommands).forEach(cmd => {
+                cmd.option.mockReturnValue(cmd);
+                cmd.description.mockReturnValue(cmd);
+                cmd.argument.mockReturnValue(cmd);
+                cmd.configureHelp.mockReturnValue(cmd);
+            });
+
+            mockProgram = {
+                command: vi.fn().mockImplementation((cmdName: string) => {
+                    return mockCommands[cmdName] || mockCommands.commit;
+                }),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: [],
+            } as unknown as Command;
+        });
+
+        it('should handle audio-review with maximum option complexity', async () => {
+            mockProgram.args = ['audio-review'];
+
+            mockCommands['audio-review'].opts.mockReturnValue({
+                file: '/path/to/complex-session-recording.wav',
+                directory: '/recordings/team-retrospectives',
+                keepTemp: true,
+                includeCommitHistory: false,
+                includeRecentDiffs: true,
+                includeReleaseNotes: true,
+                includeGithubIssues: false,
+                commitHistoryLimit: 100,
+                diffHistoryLimit: 50,
+                releaseNotesLimit: 20,
+                githubIssuesLimit: 15,
+                context: 'Quarterly retrospective with detailed technical analysis',
+                sendit: false,
+                verbose: true,
+                debug: true,
+                dryRun: false,
+                model: 'gpt-4-turbo',
+                contextDirectories: ['src', 'docs', 'tests', 'infrastructure'],
+                excludedPatterns: ['**/node_modules/**', '**/dist/**', '**/.git/**'],
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('audio-review');
+            expect(cliArgs.file).toBe('/path/to/complex-session-recording.wav');
+            expect(cliArgs.directory).toBe('/recordings/team-retrospectives');
+            expect(cliArgs.includeCommitHistory).toBe(false);
+            expect(cliArgs.includeRecentDiffs).toBe(true);
+            expect(cliArgs.commitHistoryLimit).toBe(100);
+            expect(cliArgs.context).toBe('Quarterly retrospective with detailed technical analysis');
+            expect(cliArgs.contextDirectories).toEqual(['src', 'docs', 'tests', 'infrastructure']);
+            expect(cliArgs.excludedPatterns).toEqual(['**/node_modules/**', '**/dist/**', '**/.git/**']);
+        });
+
+        it('should handle publish-tree with enterprise-level complexity', async () => {
+            mockProgram.args = ['publish-tree'];
+
+            mockCommands['publish-tree'].opts.mockReturnValue({
+                directory: '/enterprise/monorepo',
+                startFrom: 'core-infrastructure-package',
+                script: 'npm ci --only=production && npm run security-audit && npm run lint:strict && npm run test:integration && npm run build:production',
+                cmd: 'npm audit --audit-level moderate && npm run dependency-check && git add -A',
+                publish: true,
+                parallel: false, // Sequential for enterprise safety
+                excludedPatterns: [
+                    '**/node_modules/**',
+                    '**/dist/**',
+                    '**/build/**',
+                    '**/coverage/**',
+                    '**/tmp/**',
+                    '**/logs/**',
+                    '**/*.log',
+                    '**/test-results/**',
+                    '**/.nyc_output/**',
+                    '**/cypress/videos/**',
+                    '**/cypress/screenshots/**',
+                ],
+                verbose: true,
+                debug: false,
+                dryRun: true,
+                model: 'gpt-4',
+                configDir: '/enterprise/config/kodrdriv',
+                outputDir: '/enterprise/build-artifacts',
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('publish-tree');
+            expect(cliArgs.directory).toBe('/enterprise/monorepo');
+            expect(cliArgs.startFrom).toBe('core-infrastructure-package');
+            expect(cliArgs.script).toContain('npm ci --only=production');
+            expect(cliArgs.script).toContain('security-audit');
+            expect(cliArgs.cmd).toContain('npm audit --audit-level moderate');
+            expect(cliArgs.parallel).toBe(false);
+            expect(cliArgs.excludedPatterns).toHaveLength(11);
+            expect(cliArgs.dryRun).toBe(true);
+        });
+
+        it('should handle commit with complex context and direction', async () => {
+            mockProgram.args = ['commit'];
+
+            const complexDirection = 'Implement comprehensive error handling for user authentication flow including OAuth2, SAML, and multi-factor authentication with proper logging and monitoring';
+
+            mockCommands.commit.args = [complexDirection];
+            mockCommands.commit.opts.mockReturnValue({
+                context: 'Major security enhancement sprint focusing on authentication resilience and audit compliance',
+                cached: false,
+                add: true,
+                sendit: false,
+                messageLimit: 5,
+                skipFileCheck: false,
+                verbose: true,
+                debug: false,
+                model: 'gpt-4-turbo',
+                contextDirectories: ['src/auth', 'src/security', 'docs/security', 'tests/auth'],
+                excludedPatterns: ['**/node_modules/**', '**/coverage/**', '**/*.test.js'],
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+            expect(cliArgs.direction).toBe(complexDirection);
+            expect(cliArgs.context).toBe('Major security enhancement sprint focusing on authentication resilience and audit compliance');
+            expect(cliArgs.cached).toBe(false);
+            expect(cliArgs.add).toBe(true);
+            expect(cliArgs.messageLimit).toBe(5);
+            expect(cliArgs.contextDirectories).toEqual(['src/auth', 'src/security', 'docs/security', 'tests/auth']);
+        });
+
+        it('should handle conflicting options gracefully', async () => {
+            mockProgram.args = ['commit'];
+
+            mockCommands.commit.opts.mockReturnValue({
+                // Conflicting options that might not make sense together
+                cached: true,  // Use cached changes
+                add: true,     // But also add new changes
+                sendit: true,  // Auto-commit
+                dryRun: true,  // But also do a dry run
+                skipFileCheck: true, // Skip file checks
+                verbose: false, // Not verbose
+                debug: true,   // But debug mode
+            });
+
+            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
+
+            expect(commandConfig.commandName).toBe('commit');
+            // All options should be preserved as specified, even if conflicting
+            expect(cliArgs.cached).toBe(true);
+            expect(cliArgs.add).toBe(true);
+            expect(cliArgs.sendit).toBe(true);
+            expect(cliArgs.dryRun).toBe(true);
+            expect(cliArgs.skipFileCheck).toBe(true);
+            expect(cliArgs.verbose).toBe(false);
+            expect(cliArgs.debug).toBe(true);
+        });
+    });
+
+    describe('Schema validation edge cases', () => {
+        it('should validate InputSchema with boundary values', () => {
+            const boundaryInput = {
+                messageLimit: 0,
+                commitHistoryLimit: 1,
+                diffHistoryLimit: 999999,
+                releaseNotesLimit: 0,
+                githubIssuesLimit: 20,
+                dryRun: false,
+                verbose: false,
+                debug: false,
+                overrides: false,
+                checkConfig: false,
+                initConfig: false,
+                cached: false,
+                add: false,
+                sendit: false,
+                publish: false,
+                parallel: false,
+                skipFileCheck: false,
+                keepTemp: false,
+                includeCommitHistory: false,
+                includeRecentDiffs: false,
+                includeReleaseNotes: false,
+                includeGithubIssues: false,
+            };
+
+            const result = InputSchema.parse(boundaryInput);
+            expect(result).toEqual(boundaryInput);
+        });
+
+        it('should validate InputSchema with all string fields as empty strings', () => {
+            const emptyStringInput = {
+                model: '',
+                configDir: '',
+                outputDir: '',
+                preferencesDir: '',
+                from: '',
+                to: '',
+                context: '',
+                note: '',
+                direction: '',
+                scopeRoots: '',
+                startFrom: '',
+                script: '',
+                cmd: '',
+                file: '',
+                directory: '',
+                contextDirectories: [],
+                excludedPatterns: [],
+                excludedPaths: [],
+            };
+
+            const result = InputSchema.parse(emptyStringInput);
+            expect(result).toEqual(emptyStringInput);
+        });
+
+        it('should validate InputSchema with maximum realistic string lengths', () => {
+            const longStringInput = {
+                model: 'very-long-model-name-that-might-exist-in-future-versions-of-openai'.repeat(5),
+                context: 'Very detailed context description that might include multiple paragraphs of information about the current state of the project, its goals, architectural decisions, and other relevant details that could span several lines and be quite verbose in nature.'.repeat(3),
+                direction: 'Extremely detailed direction for the commit message that provides comprehensive guidance about what should be included, how it should be formatted, what tone to use, what technical details to highlight, and any other specific requirements for the commit message generation process.'.repeat(2),
+                script: 'npm ci && npm run lint:strict && npm run test:unit && npm run test:integration && npm run test:e2e && npm run security-audit && npm run performance-test && npm run build:production',
+                file: '/very/long/path/to/audio/file/in/deeply/nested/directory/structure/that/might/exist/in/enterprise/environments/recording-session-' + Date.now() + '.wav',
+            };
+
+            const result = InputSchema.parse(longStringInput);
+            expect(result.model).toBe(longStringInput.model);
+            expect(result.context).toBe(longStringInput.context);
+            expect(result.direction).toBe(longStringInput.direction);
+        });
+
+        it('should reject InputSchema with invalid types in arrays', () => {
+            const invalidArrayInput = {
+                contextDirectories: ['valid', 123, 'also-valid'], // Number in string array
+            };
+
+            expect(() => InputSchema.parse(invalidArrayInput)).toThrow(ZodError);
+        });
+
+        it('should reject InputSchema with invalid enum values', () => {
+            const invalidEnumInput = {
+                mergeMethod: 'force-push', // Not a valid merge method
+            };
+
+            expect(() => InputSchema.parse(invalidEnumInput)).toThrow(ZodError);
+        });
+
+        it('should handle InputSchema with nested objects (should be rejected)', () => {
+            const nestedObjectInput = {
+                model: {
+                    name: 'gpt-4',
+                    version: '1.0',
+                },
+            };
+
+            expect(() => InputSchema.parse(nestedObjectInput)).toThrow(ZodError);
+        });
+    });
+
+    describe('Command validation comprehensive scenarios', () => {
+        it('should validate all ALLOWED_COMMANDS individually', () => {
+            // This ensures all commands in ALLOWED_COMMANDS are actually valid
+            ALLOWED_COMMANDS.forEach(command => {
+                expect(() => validateCommand(command)).not.toThrow();
+                expect(validateCommand(command)).toBe(command);
+            });
+        });
+
+        it('should handle command names with special characters', () => {
+            const specialCommands = [
+                'commit-tree-special',
+                'audio_commit',
+                'review.extended',
+                'publish@version',
+                'clean#force',
+            ];
+
+            specialCommands.forEach(command => {
+                expect(() => validateCommand(command)).toThrow(
+                    `Invalid command: ${command}, allowed commands: ${ALLOWED_COMMANDS.join(', ')}`
+                );
+            });
+        });
+
+        it('should handle command names with unicode characters', () => {
+            const unicodeCommands = [
+                'cømmit',
+                'releäse',
+                'publïsh',
+                'revïew',
+                'commit树',
+            ];
+
+            unicodeCommands.forEach(command => {
+                expect(() => validateCommand(command)).toThrow();
+            });
+        });
+
+        it('should handle very long command names', () => {
+            const longCommand = 'commit' + 'x'.repeat(1000);
+            expect(() => validateCommand(longCommand)).toThrow();
+        });
+
+        it('should handle null and undefined command names', () => {
+            expect(() => validateCommand(null as any)).toThrow();
+            expect(() => validateCommand(undefined as any)).toThrow();
+        });
+
+        it('should handle numeric command names', () => {
+            expect(() => validateCommand(123 as any)).toThrow();
+            expect(() => validateCommand(0 as any)).toThrow();
+        });
+    });
+
+    describe('Process.argv manipulation edge cases', () => {
+        const originalArgv = process.argv;
+
+        afterEach(() => {
+            process.argv = originalArgv;
+        });
+
+        it('should handle multiple init/check config flags', () => {
+            process.argv = ['node', 'main.js', '--init-config', '--check-config'];
+
+            const isInitConfig = process.argv.includes('--init-config');
+            const isCheckConfig = process.argv.includes('--check-config');
+
+            expect(isInitConfig).toBe(true);
+            expect(isCheckConfig).toBe(true);
+        });
+
+        it('should handle config flags with values', () => {
+            process.argv = ['node', 'main.js', '--init-config=./custom'];
+
+            const hasInitConfig = process.argv.some(arg => arg.startsWith('--init-config'));
+            expect(hasInitConfig).toBe(true);
+        });
+
+        it('should handle config flags at different positions', () => {
+            process.argv = ['node', 'main.js', 'commit', '--verbose', '--init-config', '--debug'];
+
+            const isInitConfig = process.argv.includes('--init-config');
+            expect(isInitConfig).toBe(true);
+        });
+
+        it('should handle malformed argv', () => {
+            process.argv = ['node']; // Missing script name
+
+            const isInitConfig = process.argv.includes('--init-config');
+            expect(isInitConfig).toBe(false);
+        });
+
+        it('should handle argv with special characters', () => {
+            process.argv = ['node', 'main.js', '--init-config', '--verbose="special chars \\n\\t"'];
+
+            const isInitConfig = process.argv.includes('--init-config');
+            expect(isInitConfig).toBe(true);
+        });
+    });
+
+    describe('Comprehensive error propagation tests', () => {
+        beforeEach(() => {
+            Object.values(mockStorage).forEach(mock => {
+                if (typeof mock === 'function') {
+                    mock.mockReset();
+                }
+            });
+            mockLogger.error.mockClear();
+            mockLogger.warn.mockClear();
+        });
+
+        it('should propagate storage errors with full context', async () => {
+            const complexError = new Error('Complex storage failure');
+            complexError.stack = 'Error: Complex storage failure\n    at Storage.operation (/path/to/storage.js:123:45)';
+
+            mockStorage.exists.mockRejectedValue(complexError);
+
+            const configDir = './complex-error-config';
+
+            await expect(validateConfigDir(configDir)).rejects.toThrow(
+                'Failed to validate config directory'
+            );
+
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                expect.stringContaining('Failed to validate config directory'),
+                complexError
+            );
+        });
+
+        it('should handle errors with custom properties', async () => {
+            const customError = new Error('Permission denied') as any;
+            customError.code = 'EACCES';
+            customError.errno = -13;
+            customError.path = '/restricted/path';
+
+            mockStorage.isDirectoryReadable.mockRejectedValue(customError);
+
+            const dirs = ['/restricted/path'];
+            const result = await validateContextDirectories(dirs);
+
+            expect(result).toEqual([]);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Error validating directory /restricted/path: Permission denied')
+            );
+        });
+
+        it('should handle timeout errors during validation', async () => {
+            const timeoutError = new Error('Operation timed out');
+            timeoutError.name = 'TimeoutError';
+
+            mockStorage.isDirectoryWritable.mockImplementation(() => {
+                return new Promise((_, reject) => {
+                    setTimeout(() => reject(timeoutError), 0);
+                });
+            });
+
+            const configDir = './timeout-config';
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.isDirectory.mockResolvedValue(true);
+
+            await expect(validateConfigDir(configDir)).rejects.toThrow(
+                'Failed to validate config directory'
+            );
+        });
+
+        it('should handle nested async errors in directory validation', async () => {
+            let callCount = 0;
+            mockStorage.isDirectoryReadable.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 2) {
+                    throw new Error(`Nested async error ${callCount}`);
+                }
+                return callCount % 2 === 1; // Alternate between true/false
+            });
+
+            const dirs = ['/dir1', '/dir2', '/dir3', '/dir4', '/dir5'];
+            const result = await validateContextDirectories(dirs);
+
+            expect(result.length).toBeLessThan(dirs.length);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                expect.stringContaining('Error validating directory /dir2: Nested async error 2')
+            );
         });
     });
 });

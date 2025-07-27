@@ -45,6 +45,11 @@ const commands: Command[] = [
         category: 'Publishing'
     },
     {
+        name: 'commit-tree',
+        description: 'Run commit operations (git add -A + kodrdriv commit) across workspace packages in dependency order',
+        category: 'Core Git Commands'
+    },
+    {
         name: 'link',
         description: 'Link workspace packages for local development by updating package.json dependencies',
         category: 'Workspace Management'
