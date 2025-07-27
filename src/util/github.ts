@@ -579,14 +579,14 @@ export const waitForReleaseWorkflows = async (
 
     logger.info(`Waiting for workflows triggered by release ${tagName}...`);
 
-    // Wait longer for workflows to start (GitHub can take time to process the release and trigger workflows)
-    logger.debug('Waiting 90 seconds for workflows to start...');
-    await delay(90000);
+    // Wait for workflows to start (GitHub can take time to process the release and trigger workflows)
+    logger.debug('Waiting 20 seconds for workflows to start...');
+    await delay(20000);
 
     const startTime = Date.now();
     let workflowRuns: any[] = [];
     let consecutiveNoWorkflowsCount = 0;
-    const maxConsecutiveNoWorkflows = 6; // 1 minute of checking before asking user
+    const maxConsecutiveNoWorkflows = 20;
 
     while (true) {
         const elapsedTime = Date.now() - startTime;
