@@ -20,6 +20,7 @@ The `publish-tree` command is designed for complex workspace environments where 
 - **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
 - **Resume Capability**: Can resume from a specific package if a previous run failed
 - **Flexible Execution**: Supports custom scripts, shell commands, or the kodrdriv publish command
+- **Parallel Execution**: Execute packages in parallel when dependencies allow, significantly speeding up build times
 - **Pattern Exclusion**: Exclude specific packages or directories from processing
 - **Dry Run Mode**: Preview the build order and execution plan without making changes
 
@@ -30,6 +31,7 @@ The `publish-tree` command is designed for complex workspace environments where 
 - `--script <script>`: Script command to execute in each package directory (e.g., `"npm run build"`)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"git add -A"`)
 - `--publish`: Execute kodrdriv publish command in each package directory
+- `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
 - `--excluded-patterns <patterns>`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
 
 > [!NOTE]
@@ -41,6 +43,32 @@ The `publish-tree` command is designed for complex workspace environments where 
 > 3. `--script` (lowest priority)
 >
 > Higher priority options will override lower priority ones with a warning.
+
+## Parallel Execution
+
+When using the `--parallel` flag, packages are executed in dependency levels rather than strict sequential order:
+
+- **Level 0**: Packages with no local dependencies run first (in parallel with each other)
+- **Level 1**: Packages that only depend on Level 0 packages run next (in parallel with each other)
+- **Level N**: Packages that depend on packages from previous levels
+
+This approach ensures dependency order is respected while maximizing parallelization opportunities.
+
+### Example Parallel Execution
+
+For a workspace with these dependencies:
+- `core` (no dependencies)
+- `utils` (no dependencies)
+- `api` (depends on `core`)
+- `ui` (depends on `core` and `utils`)
+- `app` (depends on `api` and `ui`)
+
+Parallel execution would group them as:
+- **Level 1**: `core` and `utils` (execute in parallel)
+- **Level 2**: `api` and `ui` (execute in parallel, after Level 1 completes)
+- **Level 3**: `app` (execute after Level 2 completes)
+
+This reduces total execution time compared to sequential processing.
 
 ## Usage Examples
 
@@ -57,6 +85,11 @@ kodrdriv publish-tree --script "npm run build"
 **Publish all packages using kodrdriv:**
 ```bash
 kodrdriv publish-tree --publish
+```
+
+**Build packages in parallel for faster execution:**
+```bash
+kodrdriv publish-tree --script "npm run build" --parallel
 ```
 
 **Resume from a specific package after failure:**
