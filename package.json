@@ -38,9 +38,9 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@octokit/rest": "^22.0.0",
-    "@riotprompt/riotprompt": "file:../../StJustReckoning/riotprompt",
-    "@theunwalked/cardigantime": "file:../../SemicolonAmbulance/cardigantime",
-    "@theunwalked/unplayable": "file:../../SemicolonAmbulance/unplayable",
+    "@riotprompt/riotprompt": "^0.0.8",
+    "@theunwalked/cardigantime": "^0.0.16",
+    "@theunwalked/unplayable": "^0.0.21",
     "commander": "^14.0.0",
     "dayjs": "^1.11.13",
     "dotenv": "^17.2.1",
