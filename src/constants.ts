@@ -213,6 +213,7 @@ export const KODRDRIV_DEFAULTS = {
         script: undefined,
         cmd: undefined,
         publish: false,
+        parallel: false,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

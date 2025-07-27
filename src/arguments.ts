@@ -40,6 +40,7 @@ export const InputSchema = z.object({
     script: z.string().optional(),
     cmd: z.string().optional(),
     publish: z.boolean().optional(),
+    parallel: z.boolean().optional(),
     includeCommitHistory: z.boolean().optional(),
     includeRecentDiffs: z.boolean().optional(),
     includeReleaseNotes: z.boolean().optional(),
@@ -180,7 +181,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
 
     // Nested mappings for 'publishTree' options
     const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-    if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined) {
+    if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined || finalCliArgs.parallel !== undefined) {
         transformedCliArgs.publishTree = {};
         if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
         if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
@@ -188,6 +189,7 @@ export const transformCliArgs = (finalCliArgs: Input): Partial<Config> => {
         if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
         if (finalCliArgs.cmd !== undefined) transformedCliArgs.publishTree.cmd = finalCliArgs.cmd;
         if (finalCliArgs.publish !== undefined) transformedCliArgs.publishTree.publish = finalCliArgs.publish;
+        if (finalCliArgs.parallel !== undefined) transformedCliArgs.publishTree.parallel = finalCliArgs.parallel;
     }
 
     // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
@@ -424,6 +426,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--script <script>', 'script command to execute in each package directory (e.g., "npm run build")')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "git add -A")')
         .option('--publish', 'execute kodrdriv publish command in each package directory')
+        .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .description('Analyze package dependencies in workspace and determine publish order');
     addSharedOptions(publishTreeCommand);
@@ -734,6 +737,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             script: options.publishTree?.script ?? KODRDRIV_DEFAULTS.publishTree.script,
             cmd: options.publishTree?.cmd ?? KODRDRIV_DEFAULTS.publishTree.cmd,
             publish: options.publishTree?.publish ?? KODRDRIV_DEFAULTS.publishTree.publish,
+            parallel: options.publishTree?.parallel ?? KODRDRIV_DEFAULTS.publishTree.parallel,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

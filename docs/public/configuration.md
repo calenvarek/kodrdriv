@@ -74,6 +74,13 @@ link:
     "@company": "../"
     "@myorg": "../../org-packages/"
     "@tools": "../shared-tools/"
+publishTree:
+  directory: "./packages"
+  excludedPatterns:
+    - "**/*-demo"
+    - "**/test-packages/**"
+  parallel: true
+  script: "npm run build"
 excludedPatterns:
   - node_modules
   - dist
@@ -339,6 +346,48 @@ link:
     "@company": "../"
     "@myorg": "../../org-packages/"
 ```
+
+### Publish Tree Configuration
+
+```yaml
+publishTree:
+  directory: "./packages"
+  excludedPatterns:
+    - "**/*-demo"
+    - "**/test-packages/**"
+  startFrom: "core-package"
+  script: "npm run build"
+  cmd: "npm test && npm run lint"
+  publish: false
+  parallel: true
+```
+
+The `publishTree` configuration allows you to control how KodrDriv manages multi-package workspaces and monorepos:
+
+- `directory`: Target directory containing multiple packages (defaults to current directory)
+- `excludedPatterns`: Array of glob patterns to exclude packages from processing
+- `startFrom`: Resume build order from this package directory name (useful for restarting failed builds)
+- `script`: Script command to execute in each package directory (e.g., `"npm run build"`)
+- `cmd`: Shell command to execute in each package directory (e.g., `"git add -A"`)
+- `publish`: Whether to execute the kodrdriv publish command in each package directory
+- `parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
+
+**Parallel Execution Benefits:**
+
+When `parallel: true` is enabled, packages are grouped into dependency levels and executed in parallel where possible:
+
+- **Level 0**: Packages with no local dependencies (run simultaneously)
+- **Level 1**: Packages that depend only on Level 0 packages (run simultaneously after Level 0)
+- **Level N**: Continue this pattern through all dependency levels
+
+This can significantly reduce total execution time for large monorepos while maintaining proper dependency order.
+
+**Command Priority:**
+
+If multiple execution options are provided, they follow this priority order:
+1. `publish` (highest priority)
+2. `cmd`
+3. `script` (lowest priority)
 
 ## Basic Options
 
