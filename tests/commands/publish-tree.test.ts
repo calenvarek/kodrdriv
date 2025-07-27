@@ -605,4 +605,273 @@ describe('publish-tree', () => {
             expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('STDOUT:'));
         });
     });
+
+    describe('parallel execution', () => {
+        it('should execute packages in parallel when enabled', async () => {
+            const config = createBaseConfig({
+                publishTree: {
+                    script: 'npm run build',
+                    parallel: true
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'package-a', isDirectory: () => true },
+                { name: 'package-b', isDirectory: () => true },
+                { name: 'package-c', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            // All packages have no dependencies - should run in parallel
+            mockStorage.readFile.mockImplementation((path: string) => {
+                const packageName = path.includes('package-a') ? 'package-a' :
+                                  path.includes('package-b') ? 'package-b' : 'package-c';
+
+                return Promise.resolve(JSON.stringify({
+                    name: packageName,
+                    version: '1.0.0'
+                }));
+            });
+
+            mockRun.mockResolvedValue(undefined);
+
+            const result = await execute(config);
+
+            expect(result).toContain('All 3 packages completed successfully');
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 1: Executing 3 packages in parallel'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('✅ Level 1 completed: all 3 packages finished successfully'));
+            expect(mockRun).toHaveBeenCalledTimes(3);
+        });
+
+        it('should group packages into dependency levels correctly', async () => {
+            const config = createBaseConfig({
+                publishTree: {
+                    script: 'npm run build',
+                    parallel: true
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'utils', isDirectory: () => true },
+                { name: 'core', isDirectory: () => true },
+                { name: 'api', isDirectory: () => true },
+                { name: 'ui', isDirectory: () => true },
+                { name: 'app', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            // Create dependency chain: utils -> core -> api -> ui -> app
+            mockStorage.readFile.mockImplementation((path: string) => {
+                if (path.includes('utils')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'utils',
+                        version: '1.0.0'
+                    }));
+                } else if (path.includes('core')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'core',
+                        version: '1.0.0',
+                        dependencies: { 'utils': '1.0.0' }
+                    }));
+                } else if (path.includes('api')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'api',
+                        version: '1.0.0',
+                        dependencies: { 'core': '1.0.0' }
+                    }));
+                } else if (path.includes('ui')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'ui',
+                        version: '1.0.0',
+                        dependencies: { 'core': '1.0.0', 'utils': '1.0.0' }
+                    }));
+                } else if (path.includes('app')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'app',
+                        version: '1.0.0',
+                        dependencies: { 'api': '1.0.0', 'ui': '1.0.0' }
+                    }));
+                }
+                return Promise.reject(new Error('File not found'));
+            });
+
+            mockRun.mockResolvedValue(undefined);
+
+            const result = await execute(config);
+
+            expect(result).toContain('All 5 packages completed successfully');
+
+            // Verify level grouping log messages
+            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Packages grouped into'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 1: Executing utils'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 2: Executing core'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 3: Executing 2 packages in parallel: api, ui'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 4: Executing app'));
+
+            expect(mockRun).toHaveBeenCalledTimes(5);
+        });
+
+        it('should handle parallel execution failures correctly', async () => {
+            const config = createBaseConfig({
+                publishTree: {
+                    script: 'npm run build',
+                    parallel: true
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'package-a', isDirectory: () => true },
+                { name: 'package-b', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((path: string) => {
+                const packageName = path.includes('package-a') ? 'package-a' : 'package-b';
+                return Promise.resolve(JSON.stringify({
+                    name: packageName,
+                    version: '1.0.0'
+                }));
+            });
+
+            // First package succeeds, second fails
+            mockRun.mockResolvedValueOnce(undefined)
+                   .mockRejectedValueOnce(new Error('Build failed'));
+
+            await expect(execute(config)).rejects.toThrow('Script failed in package package-b');
+
+            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('❌ Script failed in package package-b:'));
+            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('To resume from this package, run:'));
+        });
+
+        it('should execute sequentially when parallel is disabled', async () => {
+            const config = createBaseConfig({
+                publishTree: {
+                    script: 'npm run build',
+                    parallel: false
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'package-a', isDirectory: () => true },
+                { name: 'package-b', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((path: string) => {
+                const packageName = path.includes('package-a') ? 'package-a' : 'package-b';
+                return Promise.resolve(JSON.stringify({
+                    name: packageName,
+                    version: '1.0.0'
+                }));
+            });
+
+            mockRun.mockResolvedValue(undefined);
+
+            const result = await execute(config);
+
+            expect(result).toContain('All 2 packages completed successfully');
+            expect(mockLogger.info).not.toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
+            expect(mockLogger.info).not.toHaveBeenCalledWith(expect.stringContaining('Level 1:'));
+            expect(mockRun).toHaveBeenCalledTimes(2);
+        });
+
+        it('should handle parallel execution in dry run mode', async () => {
+            const config = createBaseConfig({
+                dryRun: true,
+                publishTree: {
+                    script: 'npm run build',
+                    parallel: true
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'package-a', isDirectory: () => true },
+                { name: 'package-b', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((path: string) => {
+                const packageName = path.includes('package-a') ? 'package-a' : 'package-b';
+                return Promise.resolve(JSON.stringify({
+                    name: packageName,
+                    version: '1.0.0'
+                }));
+            });
+
+            const result = await execute(config);
+
+            expect(result).toContain('DRY RUN: All 2 packages completed successfully');
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('DRY RUN:'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 1: Executing 2 packages in parallel'));
+            expect(mockRun).not.toHaveBeenCalled();
+        });
+
+        it('should execute publish command in parallel mode', async () => {
+            const config = createBaseConfig({
+                publishTree: {
+                    publish: true,
+                    parallel: true
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'package-a', isDirectory: () => true },
+                { name: 'package-b', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((path: string) => {
+                const packageName = path.includes('package-a') ? 'package-a' : 'package-b';
+                return Promise.resolve(JSON.stringify({
+                    name: packageName,
+                    version: '1.0.0'
+                }));
+            });
+
+            mockPublishExecute.mockResolvedValue(undefined);
+
+            const result = await execute(config);
+
+            expect(result).toContain('All 2 packages completed successfully');
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Executing publish'));
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
+            expect(mockPublishExecute).toHaveBeenCalledTimes(2);
+            expect(mockRun).not.toHaveBeenCalled();
+        });
+
+        it('should handle promise rejection in parallel execution', async () => {
+            const config = createBaseConfig({
+                publishTree: {
+                    script: 'npm run build',
+                    parallel: true
+                }
+            });
+
+            (fs.readdir as Mock).mockResolvedValue([
+                { name: 'package-a', isDirectory: () => true }
+            ]);
+
+            (fs.access as Mock).mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockResolvedValue(JSON.stringify({
+                name: 'package-a',
+                version: '1.0.0'
+            }));
+
+            // Simulate a promise rejection (not an Error throw)
+            mockRun.mockRejectedValue('Promise rejected');
+
+            await expect(execute(config)).rejects.toThrow('Script failed in package package-a');
+
+            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('❌ Script failed in package package-a:'));
+        });
+    });
 });

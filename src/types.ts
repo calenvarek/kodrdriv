@@ -93,6 +93,7 @@ export const ConfigSchema = z.object({
         script: z.string().optional(),
         cmd: z.string().optional(),
         publish: z.boolean().optional(),
+        parallel: z.boolean().optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
