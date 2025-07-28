@@ -87,21 +87,6 @@ export const ConfigSchema = z.object({
         dryRun: z.boolean().optional(),
         cleanNodeModules: z.boolean().optional(),
     }).optional(),
-    publishTree: z.object({
-        directory: z.string().optional(),
-        excludedPatterns: z.array(z.string()).optional(),
-        startFrom: z.string().optional(),
-        script: z.string().optional(),
-        cmd: z.string().optional(),
-        publish: z.boolean().optional(),
-        parallel: z.boolean().optional(),
-    }).optional(),
-    commitTree: z.object({
-        directory: z.string().optional(),
-        excludedPatterns: z.array(z.string()).optional(),
-        startFrom: z.string().optional(),
-        parallel: z.boolean().optional(),
-    }).optional(),
     tree: z.object({
         directories: z.array(z.string()).optional(),
         excludedPatterns: z.array(z.string()).optional(),

@@ -345,32 +345,6 @@ kodrdriv tree commit
 kodrdriv tree publish
 ```
 
-### Migration from Legacy Commands
-
-The built-in command mode replaces the legacy tree commands:
-
-```bash
-# DEPRECATED: Legacy commands (still work but show warnings)
-kodrdriv commit-tree
-kodrdriv publish-tree
-
-# NEW: Use built-in commands instead
-kodrdriv tree commit
-kodrdriv tree publish
-```
-
-## Comparison with Other Commands
-
-| Command | Purpose | Key Difference |
-|---------|---------|----------------|
-| `tree --cmd` | Execute any command | Generic command execution |
-| `tree commit` | Git commit workflow | Runs `kodrdriv commit` with config isolation |
-| `tree publish` | Publishing workflow | Runs `kodrdriv publish` with config isolation |
-| `tree link` | Workspace linking | Runs `kodrdriv link` with config isolation |
-| `tree unlink` | Workspace unlinking | Runs `kodrdriv unlink` with config isolation |
-| `commit-tree` *(deprecated)* | Git commit workflow | Legacy command, use `tree commit` |
-| `publish-tree` *(deprecated)* | Publishing workflow | Legacy command, use `tree publish` |
-
 The `tree` command is now the central hub for all dependency-aware operations across your workspace.
 
 ## Performance Tips
