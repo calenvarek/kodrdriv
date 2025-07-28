@@ -8,7 +8,7 @@
         // This script takes the current pathname and redirects to the index page
         // with the pathname as a query parameter that the main app can parse
 
-        const pathSegmentsToKeep = 1; // Change this if your site is in a subdirectory
+        const pathSegmentsToKeep = 2; // GitHub Pages repository path (/kodrdriv)
 
         const currentPath = window.location.pathname;
         const basePath = currentPath.split('/').slice(0, pathSegmentsToKeep + 1).join('/');
