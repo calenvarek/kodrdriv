@@ -32,14 +32,19 @@ function GitHubPagesRedirectHandler() {
         const urlParams = new URLSearchParams(location.search)
         const redirectPath = urlParams.get('p')
 
-        if (redirectPath) {
+        if (redirectPath && redirectPath !== '/') {
             // Remove the redirect parameter and navigate to the intended path
             const newUrl = new URL(window.location.href)
             newUrl.searchParams.delete('p')
             window.history.replaceState({}, '', newUrl.pathname + newUrl.search + newUrl.hash)
 
-            // Navigate to the intended path
+            // Navigate to the intended path (only if it's not the home page to prevent loops)
             navigate(redirectPath, { replace: true })
+        } else if (redirectPath === '/') {
+            // If redirecting to home, just clean up the URL without navigating
+            const newUrl = new URL(window.location.href)
+            newUrl.searchParams.delete('p')
+            window.history.replaceState({}, '', newUrl.pathname + newUrl.search + newUrl.hash)
         }
     }, [navigate, location])
 

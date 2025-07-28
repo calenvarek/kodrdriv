@@ -4,19 +4,18 @@
     <meta charset="utf-8">
     <title>KodrDriv</title>
     <script>
-        // GitHub Pages SPA redirect
-        // This script takes the current pathname and redirects to the index page
-        // with the pathname as a query parameter that the main app can parse
-
-        const pathSegmentsToKeep = 2; // GitHub Pages repository path (/kodrdriv)
+        // GitHub Pages SPA redirect for calenvarek.github.io/kodrdriv
+        // Redirect any missing pages to the main app with the path as a parameter
 
         const currentPath = window.location.pathname;
-        const basePath = currentPath.split('/').slice(0, pathSegmentsToKeep + 1).join('/');
-        const redirect = currentPath.slice(basePath.length);
 
-        if (redirect) {
-            // Redirect to index.html with the path as a query parameter
-            window.location.replace(basePath + '/?p=' + encodeURIComponent(redirect) +
+        // Only redirect if we're in the kodrdriv path and not already on the main page
+        if (currentPath.startsWith('/kodrdriv/') && currentPath !== '/kodrdriv/' && currentPath !== '/kodrdriv') {
+            // Extract the page path (everything after /kodrdriv/)
+            const pagePath = currentPath.replace('/kodrdriv/', '/');
+
+            // Redirect to the main app with the page path as a parameter
+            window.location.replace('/kodrdriv/?p=' + encodeURIComponent(pagePath) +
                 (window.location.search ? '&' + window.location.search.slice(1) : '') +
                 window.location.hash
             );
