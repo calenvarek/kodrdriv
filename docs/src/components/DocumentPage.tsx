@@ -12,7 +12,8 @@ function DocumentPage() {
     const [error, setError] = useState<string | null>(null)
 
     // Determine which file to load based on the current path
-    const currentPath = splat ? `/${splat}` : '/'
+    // Use route params if available, otherwise use window location
+    const currentPath = splat ? `/${splat}` : (window.location.pathname.replace('/kodrdriv', '') || '/')
     const currentItem = navigationItems.find(item => item.path === currentPath)
     const fileName = currentItem?.file || 'README.md'
 
@@ -53,4 +54,4 @@ function DocumentPage() {
     return <MarkdownRenderer content={content} />
 }
 
-export default DocumentPage 
+export default DocumentPage
