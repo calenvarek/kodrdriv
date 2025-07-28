@@ -40,14 +40,9 @@ const commands: Command[] = [
         category: 'Publishing'
     },
     {
-        name: 'publish-tree',
-        description: 'Publish multiple packages in a workspace with dependency-aware ordering',
-        category: 'Publishing'
-    },
-    {
-        name: 'commit-tree',
-        description: 'Run commit operations (git add -A + kodrdriv commit) across workspace packages in dependency order',
-        category: 'Core Git Commands'
+        name: 'tree',
+        description: 'Analyze dependency order and execute commands across multiple packages in a workspace',
+        category: 'Workspace Management'
     },
     {
         name: 'link',

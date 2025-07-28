@@ -73,7 +73,6 @@ kodrdriv --check-config
 - **[audio-review](docs/public/commands/audio-review.md)** - Record audio for review analysis
 - **[release](docs/public/commands/release.md)** - Generate comprehensive release notes
 - **[publish](docs/public/commands/publish.md)** - Automate the entire release process
-- **[publish-tree](docs/public/commands/publish-tree.md)** - Manage multi-package workspace publishing
 - **[link](docs/public/commands/link.md)** - Link local packages for development
 - **[unlink](docs/public/commands/unlink.md)** - Remove workspace links
 - **[clean](docs/public/commands/clean.md)** - Clean generated files

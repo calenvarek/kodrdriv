@@ -307,10 +307,10 @@ function LandingPage() {
                                     <div className="code-example-item">
                                         <div className="code-label">Multi-project publishing:</div>
                                         <div className="command-sequence">
-                                            <code className="command-box">kodrdriv publish-tree</code>
+                                            <code className="command-box">kodrdriv tree publish</code>
                                         </div>
                                         <div className="command-links">
-                                            <a href="/kodrdriv/commands/publish-tree" className="command-link">📖 publish-tree docs</a>
+                                            <a href="/kodrdriv/commands/tree-built-in-commands" className="command-link">📖 tree publish docs</a>
                                         </div>
                                     </div>
                                 </div>
