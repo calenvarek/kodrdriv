@@ -10,11 +10,12 @@ import * as Link from './commands/link';
 import * as Publish from './commands/publish';
 import * as PublishTree from './commands/publish-tree';
 import * as CommitTree from './commands/commit-tree';
+import * as Tree from './commands/tree';
 import * as Release from './commands/release';
 import * as Review from './commands/review';
 import * as SelectAudio from './commands/select-audio';
 import * as Unlink from './commands/unlink';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_COMMIT_TREE, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_PUBLISH_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_COMMIT_TREE, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_PUBLISH_TREE, COMMAND_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { Config, ConfigSchema, SecureConfig } from './types';
 import { UserCancellationError } from './error/CommandErrors';
@@ -96,8 +97,20 @@ export async function runApplication(): Promise<void> {
     const command = process.argv[2];
     let commandName = commandConfig.commandName;
 
+    // Handle special case for tree command with built-in command argument
+    if (command === 'tree' && process.argv[3]) {
+        const treeBuiltInCommand = process.argv[3];
+        const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink'];
+        if (supportedBuiltInCommands.includes(treeBuiltInCommand)) {
+            // This is a tree command with built-in command, keep commandName as 'tree'
+            commandName = 'tree';
+        } else {
+            // Unknown tree argument, let it fail naturally in tree.ts
+            commandName = 'tree';
+        }
+    }
     // If we have a specific command argument, use that
-    if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'publish-tree' || command === 'commit-tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio') {
+    else if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'publish-tree' || command === 'commit-tree' || command === 'tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio') {
         commandName = command;
     }
 
@@ -114,7 +127,13 @@ export async function runApplication(): Promise<void> {
         } else if (commandName === COMMAND_PUBLISH) {
             await Publish.execute(runConfig);
         } else if (commandName === COMMAND_PUBLISH_TREE) {
-        // Handle publishTree directory mapping from command-specific arguments
+            // DEPRECATED: publish-tree is now handled by tree command
+            logger.warn('⚠️  DEPRECATION WARNING: publish-tree command is deprecated.');
+            logger.warn('   Please use: kodrdriv tree publish');
+            logger.warn('   This provides the same functionality with improved dependency analysis.');
+            logger.warn('');
+
+            // Handle publishTree directory mapping from command-specific arguments
             if (runConfig.audioReview?.directory && !runConfig.publishTree?.directory) {
                 runConfig.publishTree = runConfig.publishTree || {};
                 runConfig.publishTree.directory = runConfig.audioReview.directory;
@@ -126,6 +145,12 @@ export async function runApplication(): Promise<void> {
             }
             summary = await PublishTree.execute(runConfig);
         } else if (commandName === COMMAND_COMMIT_TREE) {
+            // DEPRECATED: commit-tree is now handled by tree command
+            logger.warn('⚠️  DEPRECATION WARNING: commit-tree command is deprecated.');
+            logger.warn('   Please use: kodrdriv tree commit');
+            logger.warn('   This provides the same functionality with improved dependency analysis.');
+            logger.warn('');
+
             // Handle commitTree directory mapping from command-specific arguments
             if (runConfig.audioReview?.directory && !runConfig.commitTree?.directory) {
                 runConfig.commitTree = runConfig.commitTree || {};
@@ -137,6 +162,18 @@ export async function runApplication(): Promise<void> {
                 runConfig.commitTree.excludedPatterns = runConfig.excludedPatterns;
             }
             summary = await CommitTree.execute(runConfig);
+        } else if (commandName === COMMAND_TREE) {
+            // Handle tree directories mapping from command-specific arguments
+            if (runConfig.audioReview?.directory && !runConfig.tree?.directories) {
+                runConfig.tree = runConfig.tree || {};
+                runConfig.tree.directories = [runConfig.audioReview.directory];
+            }
+            // Handle tree exclusion patterns - use global excludedPatterns for tree
+            if (runConfig.excludedPatterns && !runConfig.tree?.excludedPatterns) {
+                runConfig.tree = runConfig.tree || {};
+                runConfig.tree.excludedPatterns = runConfig.excludedPatterns;
+            }
+            summary = await Tree.execute(runConfig);
         } else if (commandName === COMMAND_LINK) {
             summary = await Link.execute(runConfig);
         } else if (commandName === COMMAND_UNLINK) {

@@ -69,6 +69,10 @@ vi.mock('../src/commands/select-audio', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../src/commands/tree', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../src/constants', () => ({
     COMMAND_AUDIO_COMMIT: 'audio-commit',
     COMMAND_AUDIO_REVIEW: 'audio-review',
@@ -83,6 +87,7 @@ vi.mock('../src/constants', () => ({
     COMMAND_RELEASE: 'release',
     COMMAND_REVIEW: 'review',
     COMMAND_SELECT_AUDIO: 'select-audio',
+    COMMAND_TREE: 'tree',
     COMMAND_UNLINK: 'unlink',
     DEFAULT_CONFIG_DIR: '.kodrdriv'
 }));

@@ -1,1 +1,1 @@
-{"dependencies": {"@myorg/utils": "file:../packages/utils"}}
+{"name": "test-project", "dependencies": {"@myorg/utils": "file:../packages/utils"}}

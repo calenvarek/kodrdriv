@@ -1,5 +1,25 @@
 # Publish Tree Command
 
+> [!WARNING]
+> ### ⚠️ DEPRECATED COMMAND
+>
+> The `publish-tree` command is deprecated and will be removed in a future version.
+>
+> **Please use:** `kodrdriv tree publish`
+>
+> The new tree command provides the same functionality with improved dependency analysis and better error handling.
+>
+> **Migration:**
+> ```bash
+> # OLD (deprecated)
+> kodrdriv publish-tree --parallel --publish
+>
+> # NEW (recommended)
+> kodrdriv tree publish --parallel
+> ```
+>
+> See [Tree Built-in Commands](tree-built-in-commands.md#kodrdriv-tree-publish) for full documentation.
+
 Analyze and manage the build/publish order for multi-package workspaces and monorepos:
 
 ```bash
