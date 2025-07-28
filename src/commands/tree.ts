@@ -164,6 +164,7 @@ const formatSubprojectError = (packageName: string, error: any): string => {
 const matchesPattern = (filePath: string, pattern: string): boolean => {
     // Convert simple glob patterns to regex
     const regexPattern = pattern
+        .replace(/\\/g, '\\\\')  // Escape backslashes
         .replace(/\*\*/g, '.*')  // ** matches any path segments
         .replace(/\*/g, '[^/]*') // * matches any characters except path separator
         .replace(/\?/g, '.')     // ? matches any single character
