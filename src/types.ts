@@ -102,6 +102,14 @@ export const ConfigSchema = z.object({
         startFrom: z.string().optional(),
         parallel: z.boolean().optional(),
     }).optional(),
+    tree: z.object({
+        directories: z.array(z.string()).optional(),
+        excludedPatterns: z.array(z.string()).optional(),
+        startFrom: z.string().optional(),
+        cmd: z.string().optional(),
+        parallel: z.boolean().optional(),
+        builtInCommand: z.string().optional(),
+    }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
 
@@ -191,4 +199,13 @@ export type UnlinkConfig = {
 export type PublishConfig = {
     from?: string;
     to?: string;
+}
+
+export type TreeConfig = {
+    directories?: string[];
+    excludedPatterns?: string[];
+    startFrom?: string;
+    cmd?: string;
+    parallel?: boolean;
+    builtInCommand?: string;
 }

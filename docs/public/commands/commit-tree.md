@@ -1,4 +1,24 @@
-# commit-tree
+# Commit Tree Command
+
+> [!WARNING]
+> ### ⚠️ DEPRECATED COMMAND
+>
+> The `commit-tree` command is deprecated and will be removed in a future version.
+>
+> **Please use:** `kodrdriv tree commit`
+>
+> The new tree command provides the same functionality with improved dependency analysis and better error handling.
+>
+> **Migration:**
+> ```bash
+> # OLD (deprecated)
+> kodrdriv commit-tree --start-from my-package
+>
+> # NEW (recommended)
+> kodrdriv tree commit --start-from my-package
+> ```
+>
+> See [Tree Built-in Commands](tree-built-in-commands.md#kodrdriv-tree-commit) for full documentation.
 
 Analyze package dependencies in workspace and run commit operations (git add -A + kodrdriv commit) in dependency order.
 
