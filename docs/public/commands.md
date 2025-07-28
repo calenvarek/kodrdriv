@@ -583,15 +583,15 @@ kodrdriv tree
 
 For detailed documentation, see [Tree Command](commands/tree.md).
 
-## Publish Tree Command
+## Tree Command
 
-Analyze and manage the build/publish order for multi-package workspaces and monorepos:
+Analyze dependency order and execute commands across multiple packages in a workspace:
 
 ```bash
-kodrdriv publish-tree
+kodrdriv tree --cmd "npm install"
 ```
 
-The `publish-tree` command is designed for complex workspace environments where you have multiple packages with interdependencies. It analyzes your workspace structure, builds a dependency graph, and determines the correct order for building, testing, or publishing packages to ensure dependencies are processed before dependent packages.
+The `tree` command is designed for workspace environments where you have multiple packages with interdependencies. It analyzes your workspace structure, builds a dependency graph, determines the correct order for processing packages, and executes a specified command in each package in the correct dependency order.
 
 ### What It Does
 
@@ -609,15 +609,13 @@ The `publish-tree` command is designed for complex workspace environments where 
 - **Pattern Exclusion**: Exclude specific packages or directories from processing
 - **Dry Run Mode**: Preview the build order and execution plan without making changes
 
-### Publish Tree Command Options
+### Tree Command Options
 
 - `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
-- `--start-from <startFrom>`: Resume build order from this package directory name (useful for restarting failed builds)
-- `--script <script>`: Script command to execute in each package directory (e.g., `"npm run build"`)
-- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"git add -A"`)
-- `--publish`: Execute kodrdriv publish command in each package directory
+- `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
+- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
 - `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
-- `--excluded-paths <patterns>`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
+- `--excluded-patterns [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
 
 > [!NOTE]
 > ### Command Precedence
@@ -631,63 +629,57 @@ The `publish-tree` command is designed for complex workspace environments where 
 
 ### Usage Examples
 
-**Analyze workspace structure (dry run):**
+**Basic command execution:**
 ```bash
-kodrdriv publish-tree
+kodrdriv tree --cmd "npm install"
 ```
 
-**Build all packages in dependency order:**
+**Parallel execution:**
 ```bash
-kodrdriv publish-tree --script "npm run build"
+kodrdriv tree --cmd "npm run build" --parallel
 ```
 
-**Build packages in parallel for faster execution:**
+**Resume from failed package:**
 ```bash
-kodrdriv publish-tree --script "npm run build" --parallel
+kodrdriv tree --cmd "npm run test" --start-from my-package
 ```
 
-**Publish all packages using kodrdriv:**
+**Custom directory with exclusions:**
 ```bash
-kodrdriv publish-tree --publish
+kodrdriv tree --directory ./packages --excluded-patterns "test-*" --cmd "npm run lint"
 ```
 
-**Resume from a specific package after failure:**
+**Display dependency order only:**
 ```bash
-kodrdriv publish-tree --publish --start-from my-failed-package
+kodrdriv tree
 ```
 
-**Execute custom shell commands:**
+**Execute built-in kodrdriv commands:**
 ```bash
-kodrdriv publish-tree --cmd "npm run test && npm run build"
-```
+# Execute kodrdriv commit across all packages
+kodrdriv tree commit
 
-**Process specific workspace directory with exclusions:**
-```bash
-kodrdriv publish-tree --directory ./packages --excluded-paths "**/test-packages/**" --script "npm run build"
-```
+# Execute kodrdriv publish across all packages in dependency order
+kodrdriv tree publish
 
-**Complex workspace with specific scope:**
-```bash
-kodrdriv publish-tree \
-  --directory ./workspace \
-  --excluded-paths "examples/**,**/*-demo" \
-  --script "npm run lint && npm run build" \
-  --start-from core-package
+# Link all workspace packages for development
+kodrdriv tree link
+
+# Unlink all workspace packages
+kodrdriv tree unlink
 ```
 
 ### Configuration
 
-You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
+You can configure tree behavior in your `.kodrdriv/config.json` file:
 
 ```json
 {
-  "publishTree": {
+  "tree": {
     "directory": "./packages",
     "excludedPatterns": ["**/node_modules/**", "**/dist/**", "**/examples/**"],
-    "script": "npm run build",
+    "cmd": "npm run build",
     "startFrom": null,
-    "cmd": null,
-    "publish": false,
     "parallel": true
   }
 }
@@ -696,9 +688,7 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
 **Configuration Options:**
 - `directory`: Default target directory for package scanning
 - `excludedPatterns`: Array of glob patterns to exclude packages
-- `script`: Default script to execute in each package
 - `cmd`: Default shell command to execute in each package
-- `publish`: Whether to run kodrdriv publish by default
 - `parallel`: Execute packages in parallel when dependencies allow
 - `startFrom`: Default package to start from (useful for automated retries)
 
@@ -707,31 +697,31 @@ You can configure publish-tree behavior in your `.kodrdriv/config.json` file:
 **CI/CD Pipeline Build:**
 ```bash
 # Build all packages in correct dependency order
-kodrdriv publish-tree --script "npm run build"
+kodrdriv tree --cmd "npm run build"
 ```
 
 **Fast Parallel Build:**
 ```bash
 # Build packages in parallel for faster CI/CD execution
-kodrdriv publish-tree --script "npm run build" --parallel
+kodrdriv tree --cmd "npm run build" --parallel
 ```
 
 **Incremental Publishing:**
 ```bash
 # Publish packages that have changes
-kodrdriv publish-tree --publish --start-from updated-package
+kodrdriv tree publish --start-from updated-package
 ```
 
 **Quality Assurance:**
 ```bash
 # Run tests across all packages
-kodrdriv publish-tree --script "npm run test"
+kodrdriv tree --cmd "npm run test"
 ```
 
 **Version Management:**
 ```bash
 # Update version numbers across workspace
-kodrdriv publish-tree --cmd "npm version patch"
+kodrdriv tree --cmd "npm version patch"
 ```
 
 ### Error Handling
@@ -751,10 +741,12 @@ To resume from this package, use: --start-from api-client
 
 ### Performance Tips
 
-- Use `--excluded-paths` to skip unnecessary packages (tests, examples, etc.)
+- Use `--excluded-patterns` to skip unnecessary packages (tests, examples, etc.)
 - Consider using `--start-from` for large workspaces when resuming failed builds
 - Use dry run mode first to verify the build order makes sense
-- For parallel-safe operations, consider running commands in parallel per dependency level
+- For parallel-safe operations, use `--parallel` flag for faster execution
+
+For detailed documentation, see [Tree Command](commands/tree.md).
 
 ## Link Command
 
