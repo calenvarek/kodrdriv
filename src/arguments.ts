@@ -125,8 +125,8 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         }
     }
 
-    // Nested mappings for 'audio-review' options
-    if (finalCliArgs.includeCommitHistory !== undefined ||
+    // Nested mappings for 'audio-review' options (only when it's not a tree command)
+    if (commandName !== 'tree' && (finalCliArgs.includeCommitHistory !== undefined ||
         finalCliArgs.includeRecentDiffs !== undefined ||
         finalCliArgs.includeReleaseNotes !== undefined ||
         finalCliArgs.includeGithubIssues !== undefined ||
@@ -136,7 +136,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.githubIssuesLimit !== undefined ||
         finalCliArgs.file !== undefined ||
         finalCliArgs.directories !== undefined ||
-        finalCliArgs.keepTemp !== undefined) {
+        finalCliArgs.keepTemp !== undefined)) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.audioReview.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -180,36 +180,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
     }
 
-    // Nested mappings for 'publishTree' options (add when relevant args present, unless we're specifically doing commit-tree)
-    if (commandName !== 'commit-tree') {
-        const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined || finalCliArgs.parallel !== undefined) {
-            transformedCliArgs.publishTree = {};
-            if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
-            else if (finalCliArgs.directories !== undefined && finalCliArgs.directories.length > 0) transformedCliArgs.publishTree.directory = finalCliArgs.directories[0];
-            if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
-            if (finalCliArgs.startFrom !== undefined) transformedCliArgs.publishTree.startFrom = finalCliArgs.startFrom;
-            if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
-            if (finalCliArgs.cmd !== undefined) transformedCliArgs.publishTree.cmd = finalCliArgs.cmd;
-            if (finalCliArgs.publish !== undefined) transformedCliArgs.publishTree.publish = finalCliArgs.publish;
-            if (finalCliArgs.parallel !== undefined) transformedCliArgs.publishTree.parallel = finalCliArgs.parallel;
-        }
-    }
-
-    // Nested mappings for 'commitTree' options (only when the command is actually commit-tree)
-    if (commandName === 'commit-tree') {
-        const commitTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || commitTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.parallel !== undefined) {
-            transformedCliArgs.commitTree = {};
-            if (finalCliArgs.directory !== undefined) transformedCliArgs.commitTree.directory = finalCliArgs.directory;
-            else if (finalCliArgs.directories !== undefined && finalCliArgs.directories.length > 0) transformedCliArgs.commitTree.directory = finalCliArgs.directories[0];
-            if (commitTreeExcludedPatterns !== undefined) transformedCliArgs.commitTree.excludedPatterns = commitTreeExcludedPatterns;
-            if (finalCliArgs.startFrom !== undefined) transformedCliArgs.commitTree.startFrom = finalCliArgs.startFrom;
-            if (finalCliArgs.parallel !== undefined) transformedCliArgs.commitTree.parallel = finalCliArgs.parallel;
-        }
-    }
-
-    // Nested mappings for 'tree' options (only when the command is actually tree)
+    // Nested mappings for 'tree' options (add when relevant args present)
     if (commandName === 'tree') {
         const treeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
         const builtInCommand = (finalCliArgs as any).builtInCommand;
@@ -452,27 +423,6 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
-    const publishTreeCommand = program
-        .command('publish-tree')
-        .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
-        .option('--start-from <startFrom>', 'resume build order from this package directory name (useful for restarting failed builds)')
-        .option('--script <script>', 'script command to execute in each package directory (e.g., "npm run build")')
-        .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "git add -A")')
-        .option('--publish', 'execute kodrdriv publish command in each package directory')
-        .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
-        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
-        .description('Analyze package dependencies in workspace and determine publish order');
-    addSharedOptions(publishTreeCommand);
-
-    const commitTreeCommand = program
-        .command('commit-tree')
-        .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
-        .option('--start-from <startFrom>', 'resume commit order from this package directory name (useful for restarting failed commits)')
-        .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
-        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
-        .description('Analyze package dependencies in workspace and run commit operations (git add -A + kodrdriv commit) in dependency order');
-    addSharedOptions(commitTreeCommand);
-
     const treeCommand = program
         .command('tree [command]')
         .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
@@ -645,10 +595,6 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             commandOptions = releaseCommand.opts<Partial<Input>>();
         } else if (commandName === 'publish' && publishCommand.opts) {
             commandOptions = publishCommand.opts<Partial<Input>>();
-        } else if (commandName === 'publish-tree' && publishTreeCommand.opts) {
-            commandOptions = publishTreeCommand.opts<Partial<Input>>();
-        } else if (commandName === 'commit-tree' && commitTreeCommand.opts) {
-            commandOptions = commitTreeCommand.opts<Partial<Input>>();
         } else if (commandName === 'tree' && treeCommand.opts) {
             commandOptions = treeCommand.opts<Partial<Input>>();
             // Handle positional argument for built-in command
@@ -792,21 +738,6 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         link: {
             scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
             dryRun: options.link?.dryRun ?? KODRDRIV_DEFAULTS.link.dryRun,
-        },
-        publishTree: {
-            directory: options.publishTree?.directory ?? KODRDRIV_DEFAULTS.publishTree.directory,
-            excludedPatterns: options.publishTree?.excludedPatterns ?? KODRDRIV_DEFAULTS.publishTree.excludedPatterns,
-            startFrom: options.publishTree?.startFrom ?? KODRDRIV_DEFAULTS.publishTree.startFrom,
-            script: options.publishTree?.script ?? KODRDRIV_DEFAULTS.publishTree.script,
-            cmd: options.publishTree?.cmd ?? KODRDRIV_DEFAULTS.publishTree.cmd,
-            publish: options.publishTree?.publish ?? KODRDRIV_DEFAULTS.publishTree.publish,
-            parallel: options.publishTree?.parallel ?? KODRDRIV_DEFAULTS.publishTree.parallel,
-        },
-        commitTree: {
-            directory: options.commitTree?.directory ?? KODRDRIV_DEFAULTS.commitTree.directory,
-            excludedPatterns: options.commitTree?.excludedPatterns ?? KODRDRIV_DEFAULTS.commitTree.excludedPatterns,
-            startFrom: options.commitTree?.startFrom ?? KODRDRIV_DEFAULTS.commitTree.startFrom,
-            parallel: options.commitTree?.parallel ?? KODRDRIV_DEFAULTS.commitTree.parallel,
         },
         tree: {
             directories: options.tree?.directories ?? KODRDRIV_DEFAULTS.tree.directories,

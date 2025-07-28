@@ -14,7 +14,7 @@ function CommandPage() {
 
     const validCommands = [
         'commit', 'audio-commit', 'audio-review', 'select-audio',
-        'link', 'review', 'release', 'publish', 'unlink', 'clean', 'publish-tree', 'commit-tree'
+        'link', 'review', 'release', 'publish', 'unlink', 'clean', 'tree', 'tree-built-in-commands'
     ]
 
     useEffect(() => {

@@ -185,27 +185,27 @@ kodrdriv --check-config
 
 1. **Analyze workspace structure** (dry run to preview):
    ```bash
-   kodrdriv publish-tree --directory ./packages
+   kodrdriv tree --directory ./packages --cmd "npm run build"
    ```
 
 2. **Build all packages in dependency order**:
    ```bash
-   kodrdriv publish-tree --script "npm run build" --excluded-paths "**/test-*/**"
+   kodrdriv tree --cmd "npm run build" --excluded-patterns "**/test-*/**"
    ```
 
 3. **Test packages after build**:
    ```bash
-   kodrdriv publish-tree --script "npm run test"
+   kodrdriv tree --cmd "npm run test"
    ```
 
 4. **Publish all packages with dependency awareness**:
    ```bash
-   kodrdriv publish-tree --publish
+   kodrdriv tree publish
    ```
 
 5. **Resume from failed package** (if publish fails):
    ```bash
-   kodrdriv publish-tree --publish --start-from failed-package-name
+   kodrdriv tree publish --start-from failed-package-name
    ```
 
 ### Complex Workspace Management
@@ -213,30 +213,30 @@ kodrdriv --check-config
 **Multi-step workspace processing**:
 ```bash
 # 1. Clean all packages
-kodrdriv publish-tree --cmd "npm run clean" --directory ./workspace
+kodrdriv tree --cmd "npm run clean" --directory ./workspace
 
 # 2. Install dependencies in correct order
-kodrdriv publish-tree --cmd "npm ci"
+kodrdriv tree --cmd "npm ci"
 
 # 3. Build packages with exclusions
-kodrdriv publish-tree \
-  --script "npm run build" \
-  --excluded-paths "**/examples/**,**/*-demo,**/node_modules/**"
+kodrdriv tree \
+  --cmd "npm run build" \
+  --excluded-patterns "**/examples/**,**/*-demo,**/node_modules/**"
 
 # 4. Run quality checks
-kodrdriv publish-tree --script "npm run lint && npm run test"
+kodrdriv tree --cmd "npm run lint && npm run test"
 
 # 5. Publish packages
-kodrdriv publish-tree --publish --start-from core-lib
+kodrdriv tree publish --start-from core-lib
 ```
 
 **Incremental workspace updates**:
 ```bash
 # Update only packages starting from a specific one
-kodrdriv publish-tree \
+kodrdriv tree \
   --cmd "npm update" \
   --start-from api-client \
-  --excluded-paths "**/legacy-*/**"
+  --excluded-patterns "**/legacy-*/**"
 ```
 
 ## Environment-Specific Examples

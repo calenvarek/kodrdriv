@@ -248,9 +248,6 @@ describe('Argument Parsing and Configuration', () => {
                     context: 'audio review context',
                     sendit: true,
                 },
-                publishTree: {
-                    directory: '/path/to/recordings',
-                },
                 review: {
                     includeCommitHistory: true,
                     includeRecentDiffs: false,
@@ -302,53 +299,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(transformed).toEqual(expectedConfig);
         });
 
-        it('should handle publish-tree args correctly', () => {
-            const cliArgs: Input = {
-                directory: '/workspace',
-                excludedPatterns: ['**/node_modules/**', '**/dist/**'],
-                startFrom: 'package-a',
-                script: 'npm run build',
-                cmd: 'git add -A',
-                publish: true,
-            };
 
-            const expectedConfig: Partial<Config> = {
-                publishTree: {
-                    directory: '/workspace',
-                    excludedPatterns: ['**/node_modules/**', '**/dist/**'],
-                    startFrom: 'package-a',
-                    script: 'npm run build',
-                    cmd: 'git add -A',
-                    publish: true,
-                },
-                excludedPatterns: ['**/node_modules/**', '**/dist/**'],
-            };
-
-            const transformed = transformCliArgs(cliArgs);
-            expect(transformed).toEqual(expectedConfig);
-        });
-
-        it('should handle commit-tree args correctly', () => {
-            const cliArgs: Input = {
-                directory: '/monorepo',
-                excludedPatterns: ['**/test/**', '**/docs/**'],
-                startFrom: 'core-package',
-                parallel: true,
-            };
-
-            const expectedConfig: Partial<Config> = {
-                commitTree: {
-                    directory: '/monorepo',
-                    excludedPatterns: ['**/test/**', '**/docs/**'],
-                    startFrom: 'core-package',
-                    parallel: true,
-                },
-                excludedPatterns: ['**/test/**', '**/docs/**'],
-            };
-
-            const transformed = transformCliArgs(cliArgs, 'commit-tree');
-            expect(transformed).toEqual(expectedConfig);
-        });
 
         it('should handle excludedPaths as alias for excludedPatterns', () => {
             const cliArgs: Input = {
@@ -356,9 +307,6 @@ describe('Argument Parsing and Configuration', () => {
             };
 
             const expectedConfig: Partial<Config> = {
-                publishTree: {
-                    excludedPatterns: ['*.log', 'temp/*'],
-                },
                 excludedPatterns: ['*.log', 'temp/*'],
             };
 
@@ -373,9 +321,70 @@ describe('Argument Parsing and Configuration', () => {
             };
 
             const expectedConfig: Partial<Config> = {
-                publishTree: {
-                    excludedPatterns: ['*.log'],
+                excludedPatterns: ['*.log'],
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle tree args correctly', () => {
+            const cliArgs: Input = {
+                directories: ['/workspace1', '/workspace2'],
+                excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+                startFrom: 'package-a',
+                cmd: 'npm run build',
+                parallel: true,
+            };
+
+            const expectedConfig: Partial<Config> = {
+                tree: {
+                    directories: ['/workspace1', '/workspace2'],
+                    excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+                    startFrom: 'package-a',
+                    cmd: 'npm run build',
+                    parallel: true,
                 },
+                excludedPatterns: ['**/node_modules/**', '**/dist/**'],
+            };
+
+            const transformed = transformCliArgs(cliArgs, 'tree');
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle basic excluded patterns correctly', () => {
+            const cliArgs: Input = {
+                excludedPatterns: ['*.log', 'temp/*'],
+            };
+
+            const expectedConfig: Partial<Config> = {
+                excludedPatterns: ['*.log', 'temp/*'],
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should handle excludedPaths as alias for excludedPatterns', () => {
+            const cliArgs: Input = {
+                excludedPaths: ['*.log', 'temp/*'],
+            };
+
+            const expectedConfig: Partial<Config> = {
+                excludedPatterns: ['*.log', 'temp/*'],
+            };
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed).toEqual(expectedConfig);
+        });
+
+        it('should prioritize excludedPatterns over excludedPaths', () => {
+            const cliArgs: Input = {
+                excludedPatterns: ['*.log'],
+                excludedPaths: ['*.tmp'],
+            };
+
+            const expectedConfig: Partial<Config> = {
                 excludedPatterns: ['*.log'],
             };
 
@@ -427,7 +436,7 @@ describe('Argument Parsing and Configuration', () => {
                 'audio-review': createMockCommand('audio-review'),
                 release: createMockCommand('release'),
                 publish: createMockCommand('publish'),
-                'publish-tree': createMockCommand('publish-tree'),
+
                 link: createMockCommand('link'),
                 unlink: createMockCommand('unlink'),
                 review: createMockCommand('review'),
@@ -888,18 +897,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result).toEqual(audioInput);
         });
 
-        it('should validate publish-tree specific fields', () => {
-            const publishTreeInput = {
-                startFrom: 'package-core',
-                script: 'npm run build',
-                cmd: 'npm test',
-                publish: true,
-                parallel: true,
-            };
 
-            const result = InputSchema.parse(publishTreeInput);
-            expect(result).toEqual(publishTreeInput);
-        });
 
         it('should validate review note field', () => {
             const reviewInput = {
@@ -1149,22 +1147,7 @@ describe('Argument Parsing and Configuration', () => {
                     opts: vi.fn().mockReturnValue({}),
                     args: [],
                 },
-                'publish-tree': {
-                    option: vi.fn().mockReturnThis(),
-                    description: vi.fn().mockReturnThis(),
-                    argument: vi.fn().mockReturnThis(),
-                    configureHelp: vi.fn().mockReturnThis(),
-                    opts: vi.fn().mockReturnValue({}),
-                    args: [],
-                },
-                'commit-tree': {
-                    option: vi.fn().mockReturnThis(),
-                    description: vi.fn().mockReturnThis(),
-                    argument: vi.fn().mockReturnThis(),
-                    configureHelp: vi.fn().mockReturnThis(),
-                    opts: vi.fn().mockReturnValue({}),
-                    args: [],
-                },
+
                 link: {
                     option: vi.fn().mockReturnThis(),
                     description: vi.fn().mockReturnThis(),
@@ -1280,37 +1263,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(commandConfig.commandName).toBe('audio-review');
         });
 
-        it('should handle publish-tree command', async () => {
-            mockProgram.args = ['publish-tree'];
 
-            // Mock the publish-tree command options
-            mockCommands['publish-tree'].opts.mockReturnValue({
-                directory: '/workspace',
-                startFrom: 'core-package',
-                script: 'npm run build',
-                publish: true,
-            });
-
-            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
-
-            expect(commandConfig.commandName).toBe('publish-tree');
-        });
-
-        it('should handle commit-tree command', async () => {
-            mockProgram.args = ['commit-tree'];
-
-            // Mock the commit-tree command options
-            mockCommands['commit-tree'].opts.mockReturnValue({
-                directory: '/workspace',
-                startFrom: 'core-package',
-                parallel: true,
-                excludedPatterns: ['**/test/**'],
-            });
-
-            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
-
-            expect(commandConfig.commandName).toBe('commit-tree');
-        });
 
         it('should handle unlink command', async () => {
             mockProgram.args = ['unlink'];
@@ -1714,47 +1667,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.audioReview?.sendit).toBe(true);
         });
 
-        it('should handle publishTree options correctly', async () => {
-            const options: Partial<Config> = {
-                publishTree: {
-                    directory: '/monorepo',
-                    excludedPatterns: ['**/test/**', '**/docs/**'],
-                    startFrom: 'core-package',
-                    script: 'npm run test && npm run build',
-                    cmd: 'npm audit --audit-level moderate',
-                    publish: true,
-                    parallel: true,
-                },
-            };
 
-            const result = await validateAndProcessOptions(options);
-
-            expect(result.publishTree?.directory).toBe('/monorepo');
-            expect(result.publishTree?.excludedPatterns).toEqual(['**/test/**', '**/docs/**']);
-            expect(result.publishTree?.startFrom).toBe('core-package');
-            expect(result.publishTree?.script).toBe('npm run test && npm run build');
-            expect(result.publishTree?.cmd).toBe('npm audit --audit-level moderate');
-            expect(result.publishTree?.publish).toBe(true);
-            expect(result.publishTree?.parallel).toBe(true);
-        });
-
-        it('should handle commitTree options correctly', async () => {
-            const options: Partial<Config> = {
-                commitTree: {
-                    directory: '/workspace',
-                    excludedPatterns: ['**/node_modules/**', '**/dist/**'],
-                    startFrom: 'utils-package',
-                    parallel: true,
-                },
-            };
-
-            const result = await validateAndProcessOptions(options);
-
-            expect(result.commitTree?.directory).toBe('/workspace');
-            expect(result.commitTree?.excludedPatterns).toEqual(['**/node_modules/**', '**/dist/**']);
-            expect(result.commitTree?.startFrom).toBe('utils-package');
-            expect(result.commitTree?.parallel).toBe(true);
-        });
 
         it('should handle complete review configuration', async () => {
             const options: Partial<Config> = {
@@ -1918,9 +1831,6 @@ describe('Argument Parsing and Configuration', () => {
                 },
                 publish: {
                     mergeMethod: 'rebase',
-                },
-                publishTree: {
-                    excludedPatterns: ['*.log', '*.tmp', 'node_modules/*'],
                 },
                 link: {
                     scopeRoots: { "@core": "../core", "@utils": "../utils" },
@@ -2530,48 +2440,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.publish?.sendit).toBe(true);
         });
 
-        it('should handle publishTree and commitTree with complex patterns', async () => {
-            const treeOptions: Partial<Config> = {
-                publishTree: {
-                    directory: '/complex/monorepo',
-                    excludedPatterns: [
-                        '**/node_modules/**',
-                        '**/dist/**',
-                        '**/build/**',
-                        '**/.next/**',
-                        '**/coverage/**',
-                        '**/*.log',
-                        '**/tmp/**',
-                        '**/temp/**',
-                    ],
-                    startFrom: 'critical-package-with-long-name',
-                    script: 'npm ci && npm run lint && npm run test && npm run build',
-                    cmd: 'npm audit --audit-level moderate && npm run security-check',
-                    publish: true,
-                    parallel: true,
-                },
-                commitTree: {
-                    directory: '/complex/monorepo',
-                    excludedPatterns: [
-                        '**/test/**',
-                        '**/spec/**',
-                        '**/__tests__/**',
-                        '**/*.test.*',
-                        '**/*.spec.*',
-                    ],
-                    startFrom: 'foundational-package',
-                    parallel: false,
-                },
-            };
 
-            const result = await validateAndProcessOptions(treeOptions);
-
-            expect(result.publishTree?.excludedPatterns).toHaveLength(8);
-            expect(result.publishTree?.script).toContain('npm ci && npm run lint');
-            expect(result.publishTree?.cmd).toContain('npm audit --audit-level moderate');
-            expect(result.commitTree?.excludedPatterns).toHaveLength(5);
-            expect(result.commitTree?.parallel).toBe(false);
-        });
     });
 
     describe('Storage error scenarios', () => {
@@ -2699,14 +2568,7 @@ describe('Argument Parsing and Configuration', () => {
                     opts: vi.fn().mockReturnValue({}),
                     args: [],
                 },
-                'publish-tree': {
-                    option: vi.fn().mockReturnThis(),
-                    description: vi.fn().mockReturnThis(),
-                    argument: vi.fn().mockReturnThis(),
-                    configureHelp: vi.fn().mockReturnThis(),
-                    opts: vi.fn().mockReturnValue({}),
-                    args: [],
-                },
+
             };
 
             Object.values(mockCommands).forEach(cmd => {
@@ -2766,49 +2628,7 @@ describe('Argument Parsing and Configuration', () => {
             expect(cliArgs.excludedPatterns).toEqual(['**/node_modules/**', '**/dist/**', '**/.git/**']);
         });
 
-        it('should handle publish-tree with enterprise-level complexity', async () => {
-            mockProgram.args = ['publish-tree'];
 
-            mockCommands['publish-tree'].opts.mockReturnValue({
-                directory: '/enterprise/monorepo',
-                startFrom: 'core-infrastructure-package',
-                script: 'npm ci --only=production && npm run security-audit && npm run lint:strict && npm run test:integration && npm run build:production',
-                cmd: 'npm audit --audit-level moderate && npm run dependency-check && git add -A',
-                publish: true,
-                parallel: false, // Sequential for enterprise safety
-                excludedPatterns: [
-                    '**/node_modules/**',
-                    '**/dist/**',
-                    '**/build/**',
-                    '**/coverage/**',
-                    '**/tmp/**',
-                    '**/logs/**',
-                    '**/*.log',
-                    '**/test-results/**',
-                    '**/.nyc_output/**',
-                    '**/cypress/videos/**',
-                    '**/cypress/screenshots/**',
-                ],
-                verbose: true,
-                debug: false,
-                dryRun: true,
-                model: 'gpt-4',
-                configDir: '/enterprise/config/kodrdriv',
-                outputDir: '/enterprise/build-artifacts',
-            });
-
-            const [cliArgs, commandConfig] = await getCliConfig(mockProgram);
-
-            expect(commandConfig.commandName).toBe('publish-tree');
-            expect(cliArgs.directory).toBe('/enterprise/monorepo');
-            expect(cliArgs.startFrom).toBe('core-infrastructure-package');
-            expect(cliArgs.script).toContain('npm ci --only=production');
-            expect(cliArgs.script).toContain('security-audit');
-            expect(cliArgs.cmd).toContain('npm audit --audit-level moderate');
-            expect(cliArgs.parallel).toBe(false);
-            expect(cliArgs.excludedPatterns).toHaveLength(11);
-            expect(cliArgs.dryRun).toBe(true);
-        });
 
         it('should handle commit with complex context and direction', async () => {
             mockProgram.args = ['commit'];
@@ -2980,7 +2800,6 @@ describe('Argument Parsing and Configuration', () => {
 
         it('should handle command names with special characters', () => {
             const specialCommands = [
-                'commit-tree-special',
                 'audio_commit',
                 'review.extended',
                 'publish@version',

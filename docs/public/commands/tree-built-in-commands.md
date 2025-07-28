@@ -245,28 +245,6 @@ This continues from where the previous execution failed, skipping successfully c
 2. **Package Overrides**: Override specific settings in package-level configurations
 3. **Environment Variables**: Use package-specific environment variables when needed
 
-## Migration from Legacy Commands
-
-### From commit-tree
-
-```bash
-# OLD (deprecated)
-kodrdriv commit-tree --start-from my-package
-
-# NEW (recommended)
-kodrdriv tree commit --start-from my-package
-```
-
-### From publish-tree
-
-```bash
-# OLD (deprecated)
-kodrdriv publish-tree --parallel --publish
-
-# NEW (recommended)
-kodrdriv tree publish --parallel
-```
-
 ## Integration Examples
 
 ### Complete Development Workflow
