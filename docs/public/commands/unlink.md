@@ -20,6 +20,75 @@ The `unlink` command performs comprehensive cleanup of workspace dependencies by
 3. **Automatically rebuilding dependencies** with `npm install`
 4. **Verifying cleanup completion** to ensure no problematic dependencies remain
 
+## Tree Mode Execution
+
+The unlink command can be executed across multiple packages using the tree command:
+
+```bash
+# Execute unlink across all packages in workspace
+kodrdriv tree unlink
+
+# Execute with parallel processing
+kodrdriv tree unlink --parallel
+
+# Dry run to preview what would be unlinked
+kodrdriv tree unlink --dry-run
+
+# Resume from a specific package if one fails
+kodrdriv tree unlink --start-from my-package
+
+# Exclude certain packages from unlinking
+kodrdriv tree unlink --excluded-patterns "build-*" "temp-*"
+```
+
+### Tree Mode Benefits
+
+- **Configuration Isolation**: Each package uses its own workspace and unlinking configuration
+- **Workspace-wide Cleanup**: Automatically discovers and unlinks all workspace dependencies
+- **Consistent Release Environment**: Ensures all packages are properly prepared for CI/CD
+- **Parallel Execution**: Independent packages can be unlinked simultaneously
+- **Error Recovery**: Resume from failed packages without affecting completed ones
+
+### Tree Mode vs Single Package
+
+| Aspect | Single Package | Tree Mode |
+|--------|---------------|-----------|
+| **Scope** | Current package only | All packages in workspace |
+| **Configuration** | Single workspace config | Per-package configuration |
+| **Cleanup** | Limited to current package | Workspace-wide cleanup |
+| **Execution** | Single unlinking operation | Coordinated multi-package unlinking |
+| **Release Prep** | Manual coordination required | Automatic workspace-wide preparation |
+
+### Tree Mode Configuration
+
+Each package can have its own unlinking configuration:
+
+```json
+// .kodrdriv/config.json in each package
+{
+  "unlink": {
+    "scopeRoots": {
+      "@company": "../packages/",
+      "@utils": "../../shared/"
+    },
+    "workspaceFile": "custom-workspace.yaml",
+    "cleanNodeModules": true
+  }
+}
+```
+
+### Tree Mode Workflow
+
+When using `kodrdriv tree unlink`, the following happens for each package:
+
+1. **Package Discovery**: Scans all packages in the workspace
+2. **Individual Unlinking**: Each package runs its own `kodrdriv unlink` process
+3. **Configuration Isolation**: Each package uses its own scope roots and workspace files
+4. **Coordinated Cleanup**: All packages end up properly prepared for CI/CD deployment
+5. **Verification**: Each package is verified to ensure no problematic dependencies remain
+
+For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in-commands.md#kodrdriv-tree-unlink).
+
 ## Command Options
 
 - `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories (same as link command)

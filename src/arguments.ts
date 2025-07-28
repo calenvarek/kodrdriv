@@ -50,7 +50,8 @@ export const InputSchema = z.object({
     releaseNotesLimit: z.number().optional(),
     githubIssuesLimit: z.number().optional(),
     file: z.string().optional(), // Audio file path for audio-commit and audio-review
-    directory: z.string().optional(), // Add directory option at top level
+    directory: z.string().optional(), // Add directory option at top level (for audio commands)
+    directories: z.array(z.string()).optional(), // Add directories option at top level (for tree commands)
     keepTemp: z.boolean().optional(), // Keep temporary recording files
 });
 
@@ -134,7 +135,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.releaseNotesLimit !== undefined ||
         finalCliArgs.githubIssuesLimit !== undefined ||
         finalCliArgs.file !== undefined ||
-        finalCliArgs.directory !== undefined ||
+        finalCliArgs.directories !== undefined ||
         finalCliArgs.keepTemp !== undefined) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
@@ -182,9 +183,10 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     // Nested mappings for 'publishTree' options (add when relevant args present, unless we're specifically doing commit-tree)
     if (commandName !== 'commit-tree') {
         const publishTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-        if (finalCliArgs.directory !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined || finalCliArgs.parallel !== undefined) {
+        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || publishTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.script !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.publish !== undefined || finalCliArgs.parallel !== undefined) {
             transformedCliArgs.publishTree = {};
             if (finalCliArgs.directory !== undefined) transformedCliArgs.publishTree.directory = finalCliArgs.directory;
+            else if (finalCliArgs.directories !== undefined && finalCliArgs.directories.length > 0) transformedCliArgs.publishTree.directory = finalCliArgs.directories[0];
             if (publishTreeExcludedPatterns !== undefined) transformedCliArgs.publishTree.excludedPatterns = publishTreeExcludedPatterns;
             if (finalCliArgs.startFrom !== undefined) transformedCliArgs.publishTree.startFrom = finalCliArgs.startFrom;
             if (finalCliArgs.script !== undefined) transformedCliArgs.publishTree.script = finalCliArgs.script;
@@ -197,12 +199,29 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     // Nested mappings for 'commitTree' options (only when the command is actually commit-tree)
     if (commandName === 'commit-tree') {
         const commitTreeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
-        if (finalCliArgs.directory !== undefined || commitTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.parallel !== undefined) {
+        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || commitTreeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.parallel !== undefined) {
             transformedCliArgs.commitTree = {};
             if (finalCliArgs.directory !== undefined) transformedCliArgs.commitTree.directory = finalCliArgs.directory;
+            else if (finalCliArgs.directories !== undefined && finalCliArgs.directories.length > 0) transformedCliArgs.commitTree.directory = finalCliArgs.directories[0];
             if (commitTreeExcludedPatterns !== undefined) transformedCliArgs.commitTree.excludedPatterns = commitTreeExcludedPatterns;
             if (finalCliArgs.startFrom !== undefined) transformedCliArgs.commitTree.startFrom = finalCliArgs.startFrom;
             if (finalCliArgs.parallel !== undefined) transformedCliArgs.commitTree.parallel = finalCliArgs.parallel;
+        }
+    }
+
+    // Nested mappings for 'tree' options (only when the command is actually tree)
+    if (commandName === 'tree') {
+        const treeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
+        const builtInCommand = (finalCliArgs as any).builtInCommand;
+        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || treeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.parallel !== undefined || builtInCommand !== undefined) {
+            transformedCliArgs.tree = {};
+            if (finalCliArgs.directories !== undefined) transformedCliArgs.tree.directories = finalCliArgs.directories;
+            else if (finalCliArgs.directory !== undefined) transformedCliArgs.tree.directories = [finalCliArgs.directory];
+            if (treeExcludedPatterns !== undefined) transformedCliArgs.tree.excludedPatterns = treeExcludedPatterns;
+            if (finalCliArgs.startFrom !== undefined) transformedCliArgs.tree.startFrom = finalCliArgs.startFrom;
+            if (finalCliArgs.cmd !== undefined) transformedCliArgs.tree.cmd = finalCliArgs.cmd;
+            if (finalCliArgs.parallel !== undefined) transformedCliArgs.tree.parallel = finalCliArgs.parallel;
+            if (builtInCommand !== undefined) transformedCliArgs.tree.builtInCommand = builtInCommand;
         }
     }
 
@@ -454,6 +473,17 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .description('Analyze package dependencies in workspace and run commit operations (git add -A + kodrdriv commit) in dependency order');
     addSharedOptions(commitTreeCommand);
 
+    const treeCommand = program
+        .command('tree [command]')
+        .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
+        .option('--directories [directories...]', 'target directories containing multiple packages (defaults to current directory)')
+        .option('--start-from <startFrom>', 'resume execution from this package directory name (useful for restarting failed builds)')
+        .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
+        .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
+        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
+        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink');
+    addSharedOptions(treeCommand);
+
     const linkCommand = program
         .command('link')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
@@ -619,6 +649,14 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             commandOptions = publishTreeCommand.opts<Partial<Input>>();
         } else if (commandName === 'commit-tree' && commitTreeCommand.opts) {
             commandOptions = commitTreeCommand.opts<Partial<Input>>();
+        } else if (commandName === 'tree' && treeCommand.opts) {
+            commandOptions = treeCommand.opts<Partial<Input>>();
+            // Handle positional argument for built-in command
+            const args = treeCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                // Store the built-in command for later processing
+                (commandOptions as any).builtInCommand = args[0];
+            }
         } else if (commandName === 'link' && linkCommand.opts) {
             commandOptions = linkCommand.opts<Partial<Input>>();
         } else if (commandName === 'unlink' && unlinkCommand.opts) {
@@ -769,6 +807,14 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             excludedPatterns: options.commitTree?.excludedPatterns ?? KODRDRIV_DEFAULTS.commitTree.excludedPatterns,
             startFrom: options.commitTree?.startFrom ?? KODRDRIV_DEFAULTS.commitTree.startFrom,
             parallel: options.commitTree?.parallel ?? KODRDRIV_DEFAULTS.commitTree.parallel,
+        },
+        tree: {
+            directories: options.tree?.directories ?? KODRDRIV_DEFAULTS.tree.directories,
+            excludedPatterns: options.tree?.excludedPatterns ?? KODRDRIV_DEFAULTS.tree.excludedPatterns,
+            startFrom: options.tree?.startFrom ?? KODRDRIV_DEFAULTS.tree.startFrom,
+            cmd: options.tree?.cmd ?? KODRDRIV_DEFAULTS.tree.cmd,
+            parallel: options.tree?.parallel ?? KODRDRIV_DEFAULTS.tree.parallel,
+            builtInCommand: options.tree?.builtInCommand ?? KODRDRIV_DEFAULTS.tree.builtInCommand,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };
