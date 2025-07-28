@@ -8,6 +8,55 @@ kodrdriv commit
 
 The commit command analyzes your changes and generates contextual commit messages using AI. It can work with both staged and unstaged changes.
 
+## Tree Mode Execution
+
+The commit command can be executed across multiple packages using the tree command:
+
+```bash
+# Execute commit across all packages in dependency order
+kodrdriv tree commit
+
+# Execute with parallel processing
+kodrdriv tree commit --parallel
+
+# Resume from a specific package if one fails
+kodrdriv tree commit --start-from my-package
+```
+
+### Tree Mode Benefits
+
+- **Configuration Isolation**: Each package uses its own `.kodrdriv` configuration
+- **Dependency Awareness**: Packages are processed in dependency order
+- **Individual Git Context**: Each package maintains its own git history and context
+- **Parallel Execution**: Independent packages can commit simultaneously when using `--parallel`
+
+### Tree Mode vs Single Package
+
+| Aspect | Single Package | Tree Mode |
+|--------|---------------|-----------|
+| **Scope** | Current directory only | All packages in workspace |
+| **Configuration** | Single `.kodrdriv` config | Per-package configuration |
+| **Git Context** | Single repository context | Individual package git context |
+| **Execution** | Single commit operation | Multiple coordinated commits |
+| **Error Handling** | Single failure point | Per-package error isolation |
+
+### Tree Mode Configuration
+
+Each package can have its own commit configuration:
+
+```json
+// .kodrdriv/config.json in each package
+{
+  "commit": {
+    "messageLimit": 25,
+    "context": "This package handles user authentication",
+    "add": true
+  }
+}
+```
+
+For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in-commands.md#kodrdriv-tree-commit).
+
 ## Providing Direction
 
 You can provide direction for the commit message in two ways:

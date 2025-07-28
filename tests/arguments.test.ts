@@ -313,9 +313,6 @@ describe('Argument Parsing and Configuration', () => {
             };
 
             const expectedConfig: Partial<Config> = {
-                audioReview: {
-                    directory: '/workspace',
-                },
                 publishTree: {
                     directory: '/workspace',
                     excludedPatterns: ['**/node_modules/**', '**/dist/**'],
@@ -340,9 +337,6 @@ describe('Argument Parsing and Configuration', () => {
             };
 
             const expectedConfig: Partial<Config> = {
-                audioReview: {
-                    directory: '/monorepo',
-                },
                 commitTree: {
                     directory: '/monorepo',
                     excludedPatterns: ['**/test/**', '**/docs/**'],

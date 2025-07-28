@@ -47,6 +47,11 @@ const createTransports = (level: string) => {
                     winston.format.colorize(),
                     winston.format.printf(({ level, message, dryRun }): string => {
                         const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
+                        // For info level messages, don't show the level prefix
+                        if (level.includes('info')) {
+                            return `${dryRunPrefix}${String(message)}`;
+                        }
+                        // For warn, error, etc., show the level prefix
                         return `${level}: ${dryRunPrefix}${String(message)}`;
                     })
                 )

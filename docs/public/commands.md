@@ -15,6 +15,38 @@
 
 KodrDriv provides comprehensive commands for automating Git workflows, generating intelligent documentation, and managing audio-driven development workflows.
 
+## Core Workflow Commands
+
+### Tree Command - Central Dependency Analysis
+
+Analyze dependency order and execute commands across multiple packages in a workspace:
+
+```bash
+# Execute custom commands
+kodrdriv tree --cmd "npm install"
+
+# Execute built-in kodrdriv commands with configuration isolation
+kodrdriv tree commit
+kodrdriv tree publish
+kodrdriv tree link
+kodrdriv tree unlink
+```
+
+The tree command provides two execution modes:
+1. **Custom Command Mode**: Execute any shell command across packages
+2. **Built-in Command Mode**: Execute kodrdriv commands with proper configuration isolation
+
+**Key Features:**
+- Dependency-aware execution order
+- Configuration isolation per package
+- Parallel execution support
+- Error recovery and resume capabilities
+- Multi-directory workspace support
+
+**See:**
+- [Tree Command Documentation](commands/tree.md) for complete usage
+- [Tree Built-in Commands](commands/tree-built-in-commands.md) for detailed built-in command documentation
+
 ## Commit Command
 
 Generate intelligent commit messages using AI analysis of your code changes:
@@ -487,6 +519,69 @@ kodrdriv publish --sendit
   }
 }
 ```
+
+## Tree Command
+
+Analyze dependency order and execute commands across multiple packages in a workspace:
+
+```bash
+kodrdriv tree --cmd "npm install"
+```
+
+The `tree` command is designed for workspace environments where you have multiple packages with interdependencies. It analyzes your workspace structure, builds a dependency graph, determines the correct order for processing packages, and executes a specified command in each package in the correct dependency order.
+
+### What It Does
+
+1. **Package Discovery**: Scans the target directory (current directory by default) for all `package.json` files in subdirectories
+2. **Dependency Analysis**: Reads each package's dependencies and identifies local workspace dependencies
+3. **Topological Sorting**: Creates a dependency graph and performs topological sorting to determine the correct build order
+4. **Command Execution**: Executes a specified command in each package directory in the correct dependency order
+
+### Key Features
+
+- **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
+- **Resume Capability**: Can resume from a specific package if a previous run failed
+- **Flexible Command Execution**: Execute any shell command across all packages
+- **Parallel Execution**: Execute packages in parallel when dependencies allow, significantly speeding up operations
+- **Pattern Exclusion**: Exclude specific packages or directories from processing
+- **Dry Run Mode**: Preview the build order and execution plan without making changes
+
+### Tree Command Options
+
+- `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
+- `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
+- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
+- `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
+- `--excluded-patterns [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
+
+### Tree Usage Examples
+
+**Basic command execution:**
+```bash
+kodrdriv tree --cmd "npm install"
+```
+
+**Parallel execution:**
+```bash
+kodrdriv tree --cmd "npm run build" --parallel
+```
+
+**Resume from failed package:**
+```bash
+kodrdriv tree --cmd "npm run test" --start-from my-package
+```
+
+**Custom directory with exclusions:**
+```bash
+kodrdriv tree --directory ./packages --excluded-patterns "test-*" --cmd "npm run lint"
+```
+
+**Display dependency order only:**
+```bash
+kodrdriv tree
+```
+
+For detailed documentation, see [Tree Command](commands/tree.md).
 
 ## Publish Tree Command
 

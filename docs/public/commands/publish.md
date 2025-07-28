@@ -8,6 +8,70 @@ kodrdriv publish
 
 The `publish` command orchestrates a comprehensive release workflow, designed to ensure a safe and consistent release process.
 
+## Tree Mode Execution
+
+The publish command can be executed across multiple packages using the tree command:
+
+```bash
+# Execute publish across all packages in dependency order
+kodrdriv tree publish
+
+# Execute with parallel processing (respects dependencies)
+kodrdriv tree publish --parallel
+
+# Resume from a specific package if one fails
+kodrdriv tree publish --start-from my-package
+
+# Dry run to preview the execution plan
+kodrdriv tree publish --dry-run
+```
+
+### Tree Mode Benefits
+
+- **Configuration Isolation**: Each package uses its own `.kodrdriv` configuration and environment variables
+- **Dependency Order**: Dependencies are always published before packages that depend on them
+- **Individual Release Context**: Each package maintains its own release branch and workflow
+- **Coordinated Publishing**: Ensures the entire workspace is published consistently
+- **Error Recovery**: Resume from failed packages without re-publishing successful ones
+
+### Tree Mode vs Single Package
+
+| Aspect | Single Package | Tree Mode |
+|--------|---------------|-----------|
+| **Scope** | Current package only | All packages in workspace |
+| **Configuration** | Single `.kodrdriv` config | Per-package configuration |
+| **Dependencies** | Manual coordination | Automatic dependency order |
+| **Execution** | Single publish operation | Coordinated multi-package publishing |
+| **Environment** | Single package environment | Per-package environment isolation |
+| **Error Handling** | Single failure point | Per-package error isolation with recovery |
+
+### Tree Mode Configuration
+
+Each package can have its own publish configuration:
+
+```json
+// .kodrdriv/config.json in each package
+{
+  "publish": {
+    "mergeMethod": "squash",
+    "requiredEnvVars": ["PACKAGE_SPECIFIC_TOKEN", "CUSTOM_REGISTRY_URL"],
+    "linkWorkspacePackages": true,
+    "unlinkWorkspacePackages": true
+  }
+}
+```
+
+### Tree Mode Workflow
+
+When using `kodrdriv tree publish`, the following happens for each package:
+
+1. **Dependency Resolution**: Packages are ordered by their interdependencies
+2. **Individual Execution**: Each package runs its own `kodrdriv publish` process
+3. **Configuration Isolation**: Each package uses its own environment and configuration
+4. **Error Isolation**: If one package fails, others continue or can be resumed individually
+
+For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in-commands.md#kodrdriv-tree-publish).
+
 ## Prerequisites
 
 - Must be run from within a git repository
@@ -79,161 +143,4 @@ The publish command intelligently manages GitHub Actions workflows and status ch
 **Scenarios handled:**
 
 - **✅ Repository with workflows**: Waits for all checks, proceeds when green
-- **⚠️ Repository without workflows**: Detects absence after checking multiple times, prompts user (or proceeds automatically if `skipUserConfirmation` is enabled)
-- **⏰ Timeout reached**: Prompts user whether to proceed or abort
-- **❌ Failed checks**: Immediately stops and reports failing check names
-
-### Release Workflows (After Tag Creation)
-
-**When tag is pushed to main branch:**
-1. **Release Trigger Detection**: Auto-detects workflows triggered by release/tag events (or uses configured `releaseWorkflowNames`)
-2. **Initial Wait**: Waits 30 seconds for GitHub to trigger workflows before checking
-3. **Extended Timeout**: Waits up to 10 minutes (configurable) for release workflows to complete
-4. **Workflow Monitoring**: Tracks status of deployment, publishing, or notification workflows
-5. **Smart Detection**: Automatically detects if no release workflows are configured and prompts user or proceeds based on configuration
-
-### Configuration Options for Workflow Management
-
-```json
-{
-  "publish": {
-    "checksTimeout": 300000,              // PR check timeout (5 min default)
-    "skipUserConfirmation": false,        // Auto-proceed when no workflows found
-    "sendit": false,                      // Skip ALL confirmations
-    "waitForReleaseWorkflows": true,      // Wait for release workflows
-    "releaseWorkflowsTimeout": 600000,    // Release workflow timeout (10 min)
-    "releaseWorkflowNames": ["deploy", "publish"] // Specific workflows to wait for
-  }
-}
-```
-
-### User Interaction Scenarios
-
-**Interactive Mode (default):**
-```bash
-kodrdriv publish
-# Prompts when no workflows found:
-# "⚠️ No GitHub Actions workflows found. Proceed anyway? [y/N]"
-```
-
-**Automated Mode:**
-```bash
-kodrdriv publish --sendit
-# Skips all workflow confirmations, proceeds immediately
-```
-
-**Custom Timeout:**
-```json
-{
-  "publish": {
-    "checksTimeout": 600000  // Wait 10 minutes for PR checks
-  }
-}
-```
-
-> [!TIP]
-> ### Workflow Management Best Practices
->
-> - **For repositories with CI/CD**: Use default settings, kodrdriv will wait for your workflows
-> - **For repositories without workflows**: Set `skipUserConfirmation: true` for automation
-> - **For deployment workflows**: Configure `targetWorkflows` to wait for specific release workflows
-> - **For CI environments**: Use `--sendit` flag to skip all interactive prompts
-
-> [!NOTE]
-> ### No Workflows Detected
->
-> If your repository doesn't have GitHub Actions workflows or status checks configured, the publish command will:
-> 1. Check multiple times for workflows/checks to confirm none exist
-> 2. Prompt for user confirmation (unless `skipUserConfirmation` is enabled)
-> 3. Proceed safely without waiting indefinitely
->
-> This ensures the tool works seamlessly with any repository configuration.
-
-## Command Options
-
-- `--merge-method <method>`: Method to merge pull requests during the publish process (default: 'squash')
-  - Available methods: 'merge', 'squash', 'rebase'
-- `--sendit`: Skip all confirmation prompts and proceed automatically (useful for automated workflows)
-
-## Configuration
-
-You can configure the publish command behavior in your `.kodrdriv/config.json` file:
-
-```json
-{
-  "publish": {
-    "mergeMethod": "squash",
-    "dependencyUpdatePatterns": ["@mycompany/*", "@utils/*"],
-    "requiredEnvVars": ["NPM_TOKEN", "GITHUB_TOKEN"],
-    "linkWorkspacePackages": true,
-    "unlinkWorkspacePackages": true,
-    "checksTimeout": 300000,
-    "skipUserConfirmation": false,
-    "sendit": false
-  }
-}
-```
-
-**Configuration Options:**
-- `mergeMethod`: Default merge method for pull requests ('merge', 'squash', 'rebase')
-- `dependencyUpdatePatterns`: Array of patterns to match dependencies for updating (if not specified, all dependencies are updated)
-- `requiredEnvVars`: Array of environment variables that must be set before publishing (additional variables referenced in .npmrc are automatically detected)
-- `linkWorkspacePackages`: Whether to restore linked packages after publishing (default: true)
-- `unlinkWorkspacePackages`: Whether to unlink workspace packages before publishing (default: true)
-- `checksTimeout`: Maximum time in milliseconds to wait for PR checks (default: 300000 = 5 minutes)
-- `skipUserConfirmation`: Skip user confirmation when no checks are configured (default: false, useful for CI/CD environments)
-- `sendit`: Skip all confirmation prompts and proceed automatically (default: false, overrides `skipUserConfirmation` when true)
-- `waitForReleaseWorkflows`: Whether to wait for workflows triggered by release tag creation (default: true)
-- `releaseWorkflowsTimeout`: Maximum time in milliseconds to wait for release workflows (default: 600000 = 10 minutes)
-- `releaseWorkflowNames`: Array of specific workflow names to wait for on release (if not specified, auto-detects workflows triggered by release events)
-
-## Examples
-
-```bash
-# Standard publish workflow
-kodrdriv publish
-
-# Publish with merge instead of squash
-kodrdriv publish --merge-method merge
-
-# Publish with rebase
-kodrdriv publish --merge-method rebase
-
-# Automated publish workflow (skip all confirmations)
-kodrdriv publish --sendit
-
-# Automated publish with custom merge method
-kodrdriv publish --sendit --merge-method merge
-```
-
-### Workflow Management Examples
-
-**Repository with CI/CD workflows:**
-```bash
-# Standard workflow - waits for all checks and release workflows
-kodrdriv publish
-
-# Custom timeout for long-running tests
-kodrdriv publish  # with checksTimeout: 600000 in config
-```
-
-**Repository without workflows:**
-```bash
-# Interactive - will prompt when no workflows detected
-kodrdriv publish
-
-# Automated - skips prompts, proceeds immediately
-kodrdriv publish --sendit
-```
-
-**Advanced workflow configuration:**
-```json
-{
-  "publish": {
-    "checksTimeout": 450000,
-    "releaseWorkflowsTimeout": 900000,
-    "releaseWorkflowNames": ["deploy-production", "notify-slack"],
-    "skipUserConfirmation": true
-  }
-}
-```
+- **⚠️ Repository without workflows**: Detects absence after checking multiple times, prompts user (or proceeds automatically if `skipUserConfirmation`
