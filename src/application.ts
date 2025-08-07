@@ -17,6 +17,7 @@ import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMA
 import { getLogger, setLogLevel } from './logging';
 import { Config, ConfigSchema, SecureConfig } from './types';
 import { UserCancellationError } from './error/CommandErrors';
+import { VERSION } from './constants';
 
 /**
  * Configure early logging based on command line flags.
@@ -76,6 +77,9 @@ export async function runApplication(): Promise<void> {
 
     const logger = getLogger();
     cardigantime.setLogger(logger);
+
+    // Display version information
+    logger.info('🚀 kodrdriv %s', VERSION);
 
     // Handle check-config command first
     if (commandConfig.commandName === COMMAND_CHECK_CONFIG) {

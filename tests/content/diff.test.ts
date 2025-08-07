@@ -370,6 +370,177 @@ describe('diff', () => {
         });
     });
 
+    describe('truncateDiffByFiles', () => {
+        it('should return original diff if within size limit', async () => {
+            const smallDiff = 'diff --git a/file.txt b/file.txt\n+small change';
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(smallDiff, 2048);
+            expect(result).toBe(smallDiff);
+        });
+
+        it('should truncate individual large files', async () => {
+            const largeDiff = `diff --git a/large.txt b/large.txt
+index abc123..def456 100644
+--- a/large.txt
++++ b/large.txt
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++${'x'.repeat(3000)}
+ line 3`;
+
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(largeDiff, 100);
+            expect(result).toContain('CHANGE OMITTED: File too large');
+            expect(result).toContain('diff --git a/large.txt b/large.txt');
+        });
+
+        it('should handle multiple files correctly', async () => {
+            const multiFileDiff = `diff --git a/small.txt b/small.txt
+index abc123..def456 100644
+--- a/small.txt
++++ b/small.txt
+@@ -1 +1 @@
+-old
++new
+
+diff --git a/large.txt b/large.txt
+index abc123..def456 100644
+--- a/large.txt
++++ b/large.txt
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++${'x'.repeat(3000)}
+ line 3`;
+
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(multiFileDiff, 100);
+            expect(result).toContain('diff --git a/small.txt b/small.txt');
+            expect(result).toContain('diff --git a/large.txt b/large.txt');
+            expect(result).toContain('CHANGE OMITTED: File too large');
+        });
+
+        it('should provide summary when files are omitted', async () => {
+            const largeDiff = `diff --git a/large.txt b/large.txt
++${'x'.repeat(3000)}`;
+
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(largeDiff, 100);
+            expect(result).toContain('SUMMARY: 1 files omitted due to size limits');
+        });
+    });
+
+    describe('create with maxDiffBytes', () => {
+        it('should pass maxDiffBytes option correctly', async () => {
+            // This test just verifies the option is passed through correctly
+            // without testing the actual truncation since that's tested separately
+            run.run.mockResolvedValue({ stdout: 'small diff', stderr: '' });
+
+            const diff = await Diff.create({
+                cached: false,
+                excludedPatterns: ['test'],
+                maxDiffBytes: 100
+            });
+            const result = await diff.get();
+
+            expect(result).toBe('small diff');
+            expect(run.run).toHaveBeenCalledWith('git diff -- . \':(exclude)test\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
+        });
+    });
+
+    describe('hasCriticalExcludedChanges', () => {
+        it('should detect critical files with changes', async () => {
+            const gitStatusOutput = `M  package-lock.json
+A  .gitignore
+M  src/index.ts`;
+            run.run.mockResolvedValue({ stdout: gitStatusOutput, stderr: '' });
+
+            const result = await Diff.hasCriticalExcludedChanges();
+
+            expect(run.run).toHaveBeenCalledWith('git status --porcelain');
+            expect(result.hasChanges).toBe(true);
+            expect(result.files).toEqual(['package-lock.json', '.gitignore']);
+        });
+
+        it('should return false when no critical files have changes', async () => {
+            const gitStatusOutput = `M  src/index.ts
+A  README.md`;
+            run.run.mockResolvedValue({ stdout: gitStatusOutput, stderr: '' });
+
+            const result = await Diff.hasCriticalExcludedChanges();
+
+            expect(result.hasChanges).toBe(false);
+            expect(result.files).toEqual([]);
+        });
+
+        it('should handle empty git status output', async () => {
+            run.run.mockResolvedValue({ stdout: '', stderr: '' });
+
+            const result = await Diff.hasCriticalExcludedChanges();
+
+            expect(result.hasChanges).toBe(false);
+            expect(result.files).toEqual([]);
+        });
+
+        it('should handle git errors gracefully', async () => {
+            run.run.mockRejectedValue(new Error('Git error'));
+
+            const result = await Diff.hasCriticalExcludedChanges();
+
+            expect(result.hasChanges).toBe(false);
+            expect(result.files).toEqual([]);
+        });
+
+        it('should detect critical files in subdirectories', async () => {
+            const gitStatusOutput = `M  frontend/package-lock.json
+M  backend/yarn.lock`;
+            run.run.mockResolvedValue({ stdout: gitStatusOutput, stderr: '' });
+
+            const result = await Diff.hasCriticalExcludedChanges();
+
+            expect(result.hasChanges).toBe(true);
+            expect(result.files).toEqual(['frontend/package-lock.json', 'backend/yarn.lock']);
+        });
+    });
+
+    describe('getMinimalExcludedPatterns', () => {
+        it('should filter out critical patterns', () => {
+            const basePatterns = [
+                'node_modules',
+                'package-lock.json',
+                '.gitignore',
+                'dist',
+                'yarn.lock',
+                '*.log'
+            ];
+
+            const result = Diff.getMinimalExcludedPatterns(basePatterns);
+
+            expect(result).toEqual(['node_modules', 'dist', '*.log']);
+            expect(result).not.toContain('package-lock.json');
+            expect(result).not.toContain('.gitignore');
+            expect(result).not.toContain('yarn.lock');
+        });
+
+        it('should handle empty patterns array', () => {
+            const result = Diff.getMinimalExcludedPatterns([]);
+            expect(result).toEqual([]);
+        });
+
+        it('should handle patterns that contain critical file names', () => {
+            const basePatterns = [
+                '**/package-lock.json',
+                'some-package-lock.json-backup',
+                'node_modules'
+            ];
+
+            const result = Diff.getMinimalExcludedPatterns(basePatterns);
+
+            expect(result).toEqual(['node_modules']);
+        });
+    });
+
     describe('getRecentDiffsForReview', () => {
         it('should return empty string when no diffs are available', async () => {
             run.run.mockRejectedValue(new Error('no commits'));

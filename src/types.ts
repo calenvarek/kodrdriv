@@ -14,10 +14,14 @@ export const ConfigSchema = z.object({
         add: z.boolean().optional(),
         cached: z.boolean().optional(),
         sendit: z.boolean().optional(),
+        interactive: z.boolean().optional(),
+        amend: z.boolean().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
         direction: z.string().optional(),
         skipFileCheck: z.boolean().optional(),
+        maxDiffBytes: z.number().optional(),
+        model: z.string().optional(),
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
@@ -30,7 +34,10 @@ export const ConfigSchema = z.object({
         to: z.string().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+        interactive: z.boolean().optional(),
         focus: z.string().optional(),
+        maxDiffBytes: z.number().optional(),
+        model: z.string().optional(),
     }).optional(),
     review: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -46,6 +53,7 @@ export const ConfigSchema = z.object({
         note: z.string().optional(),
         editorTimeout: z.number().optional(),
         maxContextErrors: z.number().optional(),
+        model: z.string().optional(),
     }).optional(),
     audioReview: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -66,6 +74,9 @@ export const ConfigSchema = z.object({
     }).optional(),
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
+        from: z.string().optional(),
+        targetVersion: z.string().optional(),
+        interactive: z.boolean().optional(),
         dependencyUpdatePatterns: z.array(z.string()).optional(),
         requiredEnvVars: z.array(z.string()).optional(),
         linkWorkspacePackages: z.boolean().optional(),
@@ -76,6 +87,7 @@ export const ConfigSchema = z.object({
         waitForReleaseWorkflows: z.boolean().optional(),
         releaseWorkflowsTimeout: z.number().optional(),
         releaseWorkflowNames: z.array(z.string()).optional(),
+        targetBranch: z.string().optional(),
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
@@ -94,6 +106,7 @@ export const ConfigSchema = z.object({
         cmd: z.string().optional(),
         parallel: z.boolean().optional(),
         builtInCommand: z.string().optional(),
+        continue: z.boolean().optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
@@ -129,8 +142,11 @@ export type ReleaseConfig = {
     from?: string;
     to?: string;
     context?: string;
+    interactive?: boolean;
     focus?: string;
     messageLimit?: number;
+    maxDiffBytes?: number;
+    model?: string;
 }
 
 export type ReviewConfig = {
@@ -147,6 +163,7 @@ export type ReviewConfig = {
     note?: string;
     editorTimeout?: number;
     maxContextErrors?: number;
+    model?: string;
 }
 
 export type AudioReviewConfig = {
@@ -167,6 +184,19 @@ export type AudioReviewConfig = {
     keepTemp?: boolean;
 }
 
+export type CommitConfig = {
+    add?: boolean;
+    cached?: boolean;
+    sendit?: boolean;
+    interactive?: boolean;
+    messageLimit?: number;
+    context?: string;
+    direction?: string;
+    skipFileCheck?: boolean;
+    maxDiffBytes?: number;
+    model?: string;
+}
+
 export type AudioCommitConfig = {
     maxRecordingTime?: number;
     audioDevice?: string;
@@ -182,8 +212,21 @@ export type UnlinkConfig = {
 }
 
 export type PublishConfig = {
+    mergeMethod?: 'merge' | 'squash' | 'rebase';
     from?: string;
-    to?: string;
+    targetVersion?: string;
+    interactive?: boolean;
+    dependencyUpdatePatterns?: string[];
+    requiredEnvVars?: string[];
+    linkWorkspacePackages?: boolean;
+    unlinkWorkspacePackages?: boolean;
+    checksTimeout?: number;
+    skipUserConfirmation?: boolean;
+    sendit?: boolean;
+    waitForReleaseWorkflows?: boolean;
+    releaseWorkflowsTimeout?: number;
+    releaseWorkflowNames?: string[];
+    targetBranch?: string;
 }
 
 export type TreeConfig = {
@@ -193,4 +236,5 @@ export type TreeConfig = {
     cmd?: string;
     parallel?: boolean;
     builtInCommand?: string;
+    continue?: boolean; // Continue from previous tree publish execution
 }

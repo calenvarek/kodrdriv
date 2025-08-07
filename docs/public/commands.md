@@ -343,7 +343,7 @@ The `publish` command orchestrates a comprehensive release workflow, designed to
 
 7. **GitHub Release**: After the PR is merged, it checks out the `main` branch, pulls the latest changes, and creates a new GitHub release with the tag and release notes.
 
-8. **New Release Branch**: Finally, it creates and pushes a new release branch for the next version (e.g., `release/0.0.5`).
+8. **Completion**: Switches to the target branch (default: `main`) and completes the process.
 
 This command is designed for repositories that follow a pull-request-based release workflow with or without status checks. It automatically handles repositories that have no CI/CD configured and streamlines the process, reducing manual steps and potential for error.
 
@@ -435,6 +435,19 @@ kodrdriv publish --sendit
 
 - `--merge-method <method>`: Method to merge pull requests during the publish process (default: 'squash')
   - Available methods: 'merge', 'squash', 'rebase'
+- `--from <from>`: Branch or tag to generate release notes from (default: 'main')
+  - Useful when releases fail and you need to generate notes from a specific version back
+  - Accepts any valid Git reference (branch, tag, or commit hash)
+- `--target-version <targetVersion>`: Target version for the release
+  - **Explicit version**: Provide a specific version number (e.g., "4.30.0")
+  - **Semantic bumps**: Use "patch", "minor", or "major" for automatic version increments
+  - **Default**: "patch" (automatically increments patch version)
+  - **Pre-release handling**: Converts versions like "4.23.3-dev.1" to clean releases like "4.23.4" (patch), "4.24.0" (minor), or "5.0.0" (major)
+  - **Tag conflict detection**: Automatically checks if the target version tag already exists and prevents conflicts
+- `--interactive`: Present release notes for interactive review and editing
+  - Allows you to modify the generated release notes before they're used in the GitHub release
+  - Opens an editor where you can refine the content, add context, or restructure the notes
+  - **Version confirmation**: When used with publish, also prompts for version confirmation and allows manual override
 - `--sendit`: Skip all confirmation prompts and proceed automatically (useful for automated workflows)
 
 ### Publish Configuration
@@ -447,11 +460,10 @@ You can configure the publish command behavior in your `.kodrdriv/config.json` f
     "mergeMethod": "squash",
     "dependencyUpdatePatterns": ["@mycompany/*", "@utils/*"],
     "requiredEnvVars": ["NPM_TOKEN", "GITHUB_TOKEN"],
-    "linkWorkspacePackages": true,
-    "unlinkWorkspacePackages": true,
     "checksTimeout": 300000,
     "skipUserConfirmation": false,
-    "sendit": false
+    "sendit": false,
+    "targetBranch": "main"
   }
 }
 ```
@@ -460,12 +472,11 @@ You can configure the publish command behavior in your `.kodrdriv/config.json` f
 - `mergeMethod`: Default merge method for pull requests ('merge', 'squash', 'rebase')
 - `dependencyUpdatePatterns`: Array of patterns to match dependencies for updating (if not specified, all dependencies are updated)
 - `requiredEnvVars`: Array of environment variables that must be set before publishing
-- `linkWorkspacePackages`: Whether to restore linked packages after publishing (default: true)
-- `unlinkWorkspacePackages`: Whether to unlink workspace packages before publishing (default: true)
 - `checksTimeout`: Maximum time in milliseconds to wait for PR checks (default: 300000 = 5 minutes)
 - `skipUserConfirmation`: Skip user confirmation when no checks are configured (default: false, useful for CI/CD environments)
 - `sendit`: Skip all confirmation prompts and proceed automatically (default: false, overrides `skipUserConfirmation` when true)
 - `waitForReleaseWorkflows`: Whether to wait for workflows triggered by release tag creation (default: true)
+- `targetBranch`: Branch to switch to after completion (default: 'main')
 - `releaseWorkflowsTimeout`: Maximum time in milliseconds to wait for release workflows (default: 600000 = 10 minutes)
 - `releaseWorkflowNames`: Array of specific workflow names to wait for on release (if not specified, waits for all workflows)
 
@@ -481,11 +492,34 @@ kodrdriv publish --merge-method merge
 # Publish with rebase
 kodrdriv publish --merge-method rebase
 
+# Generate release notes from a specific version (useful for failed releases)
+kodrdriv publish --from v1.2.0
+
+# Target a specific version (e.g., when jumping from 4.23.3-dev.1 to 4.30.0)
+kodrdriv publish --target-version 4.30.0
+
+# Semantic version bumps
+kodrdriv publish --target-version patch  # Default behavior (4.23.3 -> 4.23.4)
+kodrdriv publish --target-version minor  # Minor bump (4.23.3 -> 4.24.0)
+kodrdriv publish --target-version major  # Major bump (4.23.3 -> 5.0.0)
+
+# Interactive mode for reviewing and editing release notes AND version confirmation
+kodrdriv publish --interactive
+
+# Interactive version selection with custom starting point for release notes
+kodrdriv publish --from v1.2.0 --interactive
+
+# Target specific version with interactive confirmation
+kodrdriv publish --target-version 4.30.0 --interactive
+
 # Automated publish workflow (skip all confirmations)
 kodrdriv publish --sendit
 
 # Automated publish with custom merge method
 kodrdriv publish --sendit --merge-method merge
+
+# Complex scenario: specific version, custom release notes range, and merge method
+kodrdriv publish --target-version 5.0.0 --from v4.0.0 --merge-method merge
 ```
 
 ### Workflow Management Examples

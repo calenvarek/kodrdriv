@@ -24,8 +24,11 @@ export const InputSchema = z.object({
     cached: z.boolean().optional(),
     add: z.boolean().optional(),
     sendit: z.boolean().optional(),
+    interactive: z.boolean().optional(),
+    amend: z.boolean().optional(),
     from: z.string().optional(),
     to: z.string().optional(),
+    targetVersion: z.string().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     excludedPaths: z.array(z.string()).optional(),
     context: z.string().optional(),
@@ -33,6 +36,7 @@ export const InputSchema = z.object({
     direction: z.string().optional(),
     messageLimit: z.number().optional(),
     skipFileCheck: z.boolean().optional(),
+    maxDiffBytes: z.number().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     scopeRoots: z.string().optional(),
 
@@ -41,8 +45,10 @@ export const InputSchema = z.object({
     cmd: z.string().optional(),
     publish: z.boolean().optional(),
     parallel: z.boolean().optional(),
+    continue: z.boolean().optional(),
     includeCommitHistory: z.boolean().optional(),
     includeRecentDiffs: z.boolean().optional(),
+    editorTimeout: z.number().optional(),
     includeReleaseNotes: z.boolean().optional(),
     includeGithubIssues: z.boolean().optional(),
     commitHistoryLimit: z.number().optional(),
@@ -79,15 +85,18 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     if (finalCliArgs.preferencesDir !== undefined) transformedCliArgs.preferencesDirectory = finalCliArgs.preferencesDir;
 
     // Nested mappings for 'commit' options
-    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined || finalCliArgs.skipFileCheck !== undefined) {
+    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined || finalCliArgs.skipFileCheck !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.amend !== undefined) {
         transformedCliArgs.commit = {};
         if (finalCliArgs.add !== undefined) transformedCliArgs.commit.add = finalCliArgs.add;
         if (finalCliArgs.cached !== undefined) transformedCliArgs.commit.cached = finalCliArgs.cached;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.commit.sendit = finalCliArgs.sendit;
+        if (finalCliArgs.interactive !== undefined) transformedCliArgs.commit.interactive = finalCliArgs.interactive;
+        if (finalCliArgs.amend !== undefined) transformedCliArgs.commit.amend = finalCliArgs.amend;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.commit.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.commit.context = finalCliArgs.context;
         if (finalCliArgs.direction !== undefined) transformedCliArgs.commit.direction = finalCliArgs.direction;
         if (finalCliArgs.skipFileCheck !== undefined) transformedCliArgs.commit.skipFileCheck = finalCliArgs.skipFileCheck;
+        if (finalCliArgs.maxDiffBytes !== undefined) transformedCliArgs.commit.maxDiffBytes = finalCliArgs.maxDiffBytes;
     }
 
     // Nested mappings for 'audioCommit' options
@@ -98,18 +107,23 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'release' options
-    if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined) {
+    if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined) {
         transformedCliArgs.release = {};
         if (finalCliArgs.from !== undefined) transformedCliArgs.release.from = finalCliArgs.from;
         if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
         if (finalCliArgs.context !== undefined) transformedCliArgs.release.context = finalCliArgs.context;
+        if (finalCliArgs.interactive !== undefined) transformedCliArgs.release.interactive = finalCliArgs.interactive;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.release.messageLimit = finalCliArgs.messageLimit;
+        if (finalCliArgs.maxDiffBytes !== undefined) transformedCliArgs.release.maxDiffBytes = finalCliArgs.maxDiffBytes;
     }
 
-    // Nested mappings for 'publish' options
-    if (finalCliArgs.mergeMethod !== undefined) {
+    // Nested mappings for 'publish' options (only when it's actually a publish command or has publish-specific options)
+    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.interactive !== undefined))) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
+        if (finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
+        if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.publish.targetVersion = finalCliArgs.targetVersion;
+        if (finalCliArgs.interactive !== undefined) transformedCliArgs.publish.interactive = finalCliArgs.interactive;
     }
 
     // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
@@ -178,13 +192,14 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.githubIssuesLimit !== undefined) transformedCliArgs.review.githubIssuesLimit = finalCliArgs.githubIssuesLimit;
         if (finalCliArgs.context !== undefined) transformedCliArgs.review.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
+        if (finalCliArgs.editorTimeout !== undefined) transformedCliArgs.review.editorTimeout = finalCliArgs.editorTimeout;
     }
 
     // Nested mappings for 'tree' options (add when relevant args present)
     if (commandName === 'tree') {
         const treeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
         const builtInCommand = (finalCliArgs as any).builtInCommand;
-        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || treeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.parallel !== undefined || builtInCommand !== undefined) {
+        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || treeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.parallel !== undefined || builtInCommand !== undefined || finalCliArgs.continue !== undefined) {
             transformedCliArgs.tree = {};
             if (finalCliArgs.directories !== undefined) transformedCliArgs.tree.directories = finalCliArgs.directories;
             else if (finalCliArgs.directory !== undefined) transformedCliArgs.tree.directories = [finalCliArgs.directory];
@@ -193,6 +208,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (finalCliArgs.cmd !== undefined) transformedCliArgs.tree.cmd = finalCliArgs.cmd;
             if (finalCliArgs.parallel !== undefined) transformedCliArgs.tree.parallel = finalCliArgs.parallel;
             if (builtInCommand !== undefined) transformedCliArgs.tree.builtInCommand = builtInCommand;
+            if (finalCliArgs.continue !== undefined) transformedCliArgs.tree.continue = finalCliArgs.continue;
         }
     }
 
@@ -276,18 +292,68 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
     const fileValues: Partial<Config> = await cardigantime.read(transformedCliArgs) as Partial<Config>;
 
     // Merge configurations: Defaults -> File -> CLI
-    // Properly merge the link section to preserve scope roots from config file
+    // Properly merge nested sections to preserve config file values when CLI args are partial
     const mergedLink = {
         ...KODRDRIV_DEFAULTS.link,
         ...fileValues.link,
         ...transformedCliArgs.link,
     };
 
+    const mergedCommit = {
+        ...KODRDRIV_DEFAULTS.commit,
+        ...fileValues.commit,
+        ...transformedCliArgs.commit,
+    };
+
+    const mergedRelease = {
+        ...KODRDRIV_DEFAULTS.release,
+        ...fileValues.release,
+        ...transformedCliArgs.release,
+    };
+
+    const mergedPublish = {
+        ...KODRDRIV_DEFAULTS.publish,
+        ...fileValues.publish,
+        ...transformedCliArgs.publish,
+    };
+
+    const mergedAudioCommit = {
+        ...KODRDRIV_DEFAULTS.audioCommit,
+        ...fileValues.audioCommit,
+        ...transformedCliArgs.audioCommit,
+    };
+
+    const mergedAudioReview = {
+        ...KODRDRIV_DEFAULTS.audioReview,
+        ...fileValues.audioReview,
+        ...transformedCliArgs.audioReview,
+    };
+
+    const mergedReview = {
+        ...KODRDRIV_DEFAULTS.review,
+        ...fileValues.review,
+        ...transformedCliArgs.review,
+    };
+
+    const mergedTree = {
+        ...KODRDRIV_DEFAULTS.tree,
+        ...fileValues.tree,
+        ...transformedCliArgs.tree,
+    };
+
     const partialConfig: Partial<Config> = {
         ...KODRDRIV_DEFAULTS,      // Start with Kodrdriv defaults
         ...fileValues,            // Apply file values (overwrites defaults)
         ...transformedCliArgs,    // Apply CLI args last (highest precedence)
-        link: mergedLink,         // Override with properly merged link section
+        // Override with properly merged nested sections
+        link: mergedLink,
+        commit: mergedCommit,
+        release: mergedRelease,
+        publish: mergedPublish,
+        audioCommit: mergedAudioCommit,
+        audioReview: mergedAudioReview,
+        review: mergedReview,
+        tree: mergedTree,
     } as Partial<Config>; // Cast to Partial<Config> initially
 
     // Specific validation and processing after merge
@@ -347,8 +413,11 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
+        .option('--interactive', 'Present commit message for interactive review and editing')
+        .option('--amend', 'Amend the last commit with the generated message')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
-        .option('--skip-file-check', 'skip check for file: dependencies before committing');
+        .option('--skip-file-check', 'skip check for file: dependencies before committing')
+        .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)');
 
     // Add shared options to commit command
     addSharedOptions(commitCommand);
@@ -366,6 +435,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
                 ['--cached', 'use cached diff'],
                 ['--add', 'add all changes before committing'],
                 ['--sendit', 'Commit with the message generated. No review.'],
+                ['--interactive', 'Present commit message for interactive review and editing'],
+                ['--amend', 'Amend the last commit with the generated message'],
                 ['--message-limit <messageLimit>', 'limit the number of messages to generate']
             ];
 
@@ -413,12 +484,17 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--from <from>', 'branch to generate release notes from')
         .option('--to <to>', 'branch to generate release notes to')
         .option('--context <context>', 'context for the commit message')
+        .option('--interactive', 'Present release notes for interactive review and editing')
+        .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
     const publishCommand = program
         .command('publish')
         .option('--merge-method <method>', 'method to merge PR (merge, squash, rebase)', 'squash')
+        .option('--from <from>', 'branch/tag to generate release notes from (default: main)')
+        .option('--target-version <targetVersion>', 'target version for release (explicit version like "4.30.0" or semantic bump: "patch", "minor", "major")')
+        .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .description('Publish a release');
     addSharedOptions(publishCommand);
@@ -431,6 +507,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
+        .option('--continue', 'continue from previous tree publish execution')
         .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink');
     addSharedOptions(treeCommand);
 
@@ -485,6 +562,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
         .option('--context <context>', 'additional context for the review')
         .option('--sendit', 'Create GitHub issues automatically without confirmation')
+        .option('--editor-timeout <timeout>', 'timeout for editor in milliseconds (default: no timeout)', parseInt)
         .description('Analyze review note for project issues using AI');
     addSharedOptions(reviewCommand);
 
@@ -675,77 +753,38 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         // Cardigantime-specific properties (from fileValues or defaults)
         discoveredConfigDirs: (options as any).discoveredConfigDirs ?? [],
         resolvedConfigDirs: (options as any).resolvedConfigDirs ?? [],
-        // Command-specific options with defaults
+        // Command-specific options - ensure all defaults are present even for partial configs
         commit: {
-            add: options.commit?.add ?? KODRDRIV_DEFAULTS.commit.add,
-            cached: options.commit?.cached ?? KODRDRIV_DEFAULTS.commit.cached, // Might be undefined if not commit command
-            sendit: options.commit?.sendit ?? KODRDRIV_DEFAULTS.commit.sendit,
-            messageLimit: options.commit?.messageLimit ?? KODRDRIV_DEFAULTS.commit.messageLimit,
-            context: options.commit?.context,
-            direction: options.commit?.direction,
-            skipFileCheck: options.commit?.skipFileCheck ?? KODRDRIV_DEFAULTS.commit.skipFileCheck,
+            ...KODRDRIV_DEFAULTS.commit,
+            ...Object.fromEntries(Object.entries(options.commit || {}).filter(([_, v]) => v !== undefined)),
         },
         audioCommit: {
-            maxRecordingTime: options.audioCommit?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioCommit.maxRecordingTime,
-            audioDevice: options.audioCommit?.audioDevice ?? KODRDRIV_DEFAULTS.audioCommit.audioDevice,
-            file: options.audioCommit?.file,
-            keepTemp: options.audioCommit?.keepTemp,
+            ...KODRDRIV_DEFAULTS.audioCommit,
+            ...options.audioCommit,
         },
         release: {
-            from: options.release?.from ?? KODRDRIV_DEFAULTS.release.from,
-            to: options.release?.to ?? KODRDRIV_DEFAULTS.release.to,
-            messageLimit: options.release?.messageLimit ?? KODRDRIV_DEFAULTS.release.messageLimit,
-            context: options.release?.context,
+            ...KODRDRIV_DEFAULTS.release,
+            ...options.release,
         },
         audioReview: {
-            includeCommitHistory: options.audioReview?.includeCommitHistory ?? KODRDRIV_DEFAULTS.audioReview.includeCommitHistory,
-            includeRecentDiffs: options.audioReview?.includeRecentDiffs ?? KODRDRIV_DEFAULTS.audioReview.includeRecentDiffs,
-            includeReleaseNotes: options.audioReview?.includeReleaseNotes ?? KODRDRIV_DEFAULTS.audioReview.includeReleaseNotes,
-            includeGithubIssues: options.audioReview?.includeGithubIssues ?? KODRDRIV_DEFAULTS.audioReview.includeGithubIssues,
-            commitHistoryLimit: options.audioReview?.commitHistoryLimit ?? KODRDRIV_DEFAULTS.audioReview.commitHistoryLimit,
-            diffHistoryLimit: options.audioReview?.diffHistoryLimit ?? KODRDRIV_DEFAULTS.audioReview.diffHistoryLimit,
-            releaseNotesLimit: options.audioReview?.releaseNotesLimit ?? KODRDRIV_DEFAULTS.audioReview.releaseNotesLimit,
-            githubIssuesLimit: options.audioReview?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.audioReview.githubIssuesLimit,
-            context: options.audioReview?.context,
-            sendit: options.audioReview?.sendit ?? KODRDRIV_DEFAULTS.audioReview.sendit,
-            maxRecordingTime: options.audioReview?.maxRecordingTime ?? KODRDRIV_DEFAULTS.audioReview.maxRecordingTime,
-            audioDevice: options.audioReview?.audioDevice ?? KODRDRIV_DEFAULTS.audioReview.audioDevice,
-            file: options.audioReview?.file,
-            directory: options.audioReview?.directory,
-            keepTemp: options.audioReview?.keepTemp,
+            ...KODRDRIV_DEFAULTS.audioReview,
+            ...options.audioReview,
         },
         review: {
-            includeCommitHistory: options.review?.includeCommitHistory ?? KODRDRIV_DEFAULTS.review.includeCommitHistory,
-            includeRecentDiffs: options.review?.includeRecentDiffs ?? KODRDRIV_DEFAULTS.review.includeRecentDiffs,
-            includeReleaseNotes: options.review?.includeReleaseNotes ?? KODRDRIV_DEFAULTS.review.includeReleaseNotes,
-            includeGithubIssues: options.review?.includeGithubIssues ?? KODRDRIV_DEFAULTS.review.includeGithubIssues,
-            commitHistoryLimit: options.review?.commitHistoryLimit ?? KODRDRIV_DEFAULTS.review.commitHistoryLimit,
-            diffHistoryLimit: options.review?.diffHistoryLimit ?? KODRDRIV_DEFAULTS.review.diffHistoryLimit,
-            releaseNotesLimit: options.review?.releaseNotesLimit ?? KODRDRIV_DEFAULTS.review.releaseNotesLimit,
-            githubIssuesLimit: options.review?.githubIssuesLimit ?? KODRDRIV_DEFAULTS.review.githubIssuesLimit,
-            context: options.review?.context,
-            sendit: options.review?.sendit ?? KODRDRIV_DEFAULTS.review.sendit,
-            note: options.review?.note,
+            ...KODRDRIV_DEFAULTS.review,
+            ...options.review,
         },
         publish: {
-            mergeMethod: options.publish?.mergeMethod ?? KODRDRIV_DEFAULTS.publish.mergeMethod,
-            dependencyUpdatePatterns: options.publish?.dependencyUpdatePatterns,
-            requiredEnvVars: options.publish?.requiredEnvVars ?? KODRDRIV_DEFAULTS.publish.requiredEnvVars,
-            linkWorkspacePackages: options.publish?.linkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.linkWorkspacePackages,
-            unlinkWorkspacePackages: options.publish?.unlinkWorkspacePackages ?? KODRDRIV_DEFAULTS.publish.unlinkWorkspacePackages,
-            sendit: options.publish?.sendit ?? KODRDRIV_DEFAULTS.publish.sendit,
+            ...KODRDRIV_DEFAULTS.publish,
+            ...options.publish,
         },
         link: {
-            scopeRoots: options.link?.scopeRoots ?? KODRDRIV_DEFAULTS.link.scopeRoots,
-            dryRun: options.link?.dryRun ?? KODRDRIV_DEFAULTS.link.dryRun,
+            ...KODRDRIV_DEFAULTS.link,
+            ...options.link,
         },
         tree: {
-            directories: options.tree?.directories ?? KODRDRIV_DEFAULTS.tree.directories,
-            excludedPatterns: options.tree?.excludedPatterns ?? KODRDRIV_DEFAULTS.tree.excludedPatterns,
-            startFrom: options.tree?.startFrom ?? KODRDRIV_DEFAULTS.tree.startFrom,
-            cmd: options.tree?.cmd ?? KODRDRIV_DEFAULTS.tree.cmd,
-            parallel: options.tree?.parallel ?? KODRDRIV_DEFAULTS.tree.parallel,
-            builtInCommand: options.tree?.builtInCommand ?? KODRDRIV_DEFAULTS.tree.builtInCommand,
+            ...KODRDRIV_DEFAULTS.tree,
+            ...options.tree,
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };
