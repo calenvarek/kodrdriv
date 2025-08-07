@@ -278,11 +278,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (error.cause) {
                 logger.debug(`Caused by: ${error.cause.message}`);
             }
-            process.exit(1);
+            throw error;
         }
 
         // Unexpected errors
         logger.error(`link encountered unexpected error: ${error.message}`);
-        process.exit(1);
+        throw error;
     }
 };

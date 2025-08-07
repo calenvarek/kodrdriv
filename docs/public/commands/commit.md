@@ -101,6 +101,8 @@ STDIN input is particularly useful for:
 - `--amend`: Amend the last commit with the generated message instead of creating a new commit
 - `--context <context>`: Provide additional context (as a string or file path) to guide the commit message generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the commit.
 - `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the prompt for context (default: 50)
+- `--skip-file-check`: Skip check for file: dependencies before committing (useful in CI/CD environments where local file dependencies are expected)
+- `--max-diff-bytes <maxDiffBytes>`: Maximum bytes per file to include in diff analysis (default: 2048). Larger files will be summarized rather than included in full.
 
 ## Working with Excluded Files
 

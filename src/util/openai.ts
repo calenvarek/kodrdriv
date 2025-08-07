@@ -69,9 +69,10 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         }
 
         // Create the client which we'll close in the finally block.
+        const timeoutMs = parseInt(process.env.OPENAI_TIMEOUT_MS || '300000'); // Default to 5 minutes
         openai = new OpenAI({
             apiKey: apiKey,
-            timeout: 180000, // 180 seconds timeout
+            timeout: timeoutMs,
         });
 
         const modelToUse = options.model || "gpt-4o-mini";
@@ -103,7 +104,8 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         });
 
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new OpenAIError('OpenAI API call timed out after 180 seconds')), 180000);
+            const timeoutMs = parseInt(process.env.OPENAI_TIMEOUT_MS || '300000'); // Default to 5 minutes
+            setTimeout(() => reject(new OpenAIError(`OpenAI API call timed out after ${timeoutMs/1000} seconds`)), timeoutMs);
         });
 
         const completion = await Promise.race([completionPromise, timeoutPromise]);
@@ -153,6 +155,15 @@ export async function createCompletionWithRetry(
         } catch (error: any) {
             if (error instanceof OpenAIError && error.isTokenLimitError && attempt < maxRetries && retryCallback) {
                 logger.warn('Token limit exceeded on attempt %d/%d, retrying with reduced content...', attempt, maxRetries);
+                // Add exponential backoff for token limit errors
+                const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+                continue;
+            } else if (error.message?.includes('rate limit') && attempt < maxRetries) {
+                // Handle rate limiting with exponential backoff
+                const backoffMs = Math.min(5000 * Math.pow(2, attempt - 1), 30000);
+                logger.warn(`Rate limit hit on attempt ${attempt}/${maxRetries}, waiting ${backoffMs}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
                 continue;
             }
             throw error;

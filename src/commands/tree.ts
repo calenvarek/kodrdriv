@@ -60,9 +60,37 @@ interface TreeExecutionContext {
     lastUpdateTime: Date;
 }
 
-// Global state to track published versions during tree execution
+// Global state to track published versions during tree execution - protected by mutex
 let publishedVersions: PublishedVersion[] = [];
 let executionContext: TreeExecutionContext | null = null;
+
+// Simple mutex to prevent race conditions in global state access
+class SimpleMutex {
+    private locked = false;
+    private queue: Array<() => void> = [];
+
+    async lock(): Promise<void> {
+        return new Promise<void>((resolve) => {
+            if (!this.locked) {
+                this.locked = true;
+                resolve();
+            } else {
+                this.queue.push(resolve);
+            }
+        });
+    }
+
+    unlock(): void {
+        this.locked = false;
+        const next = this.queue.shift();
+        if (next) {
+            this.locked = true;
+            next();
+        }
+    }
+}
+
+const globalStateMutex = new SimpleMutex();
 
 // Update inter-project dependencies in package.json based on published versions
 const updateInterProjectDependencies = async (
@@ -662,9 +690,19 @@ const executePackage = async (
     try {
         if (isDryRun) {
             // Handle inter-project dependency updates for publish commands in dry run mode
-            if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
-                packageLogger.info('Would check for inter-project dependency updates before publish...');
-                await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+            await globalStateMutex.lock();
+            try {
+                if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
+                    packageLogger.info('Would check for inter-project dependency updates before publish...');
+                    const versionSnapshot = [...publishedVersions]; // Create safe copy
+                    globalStateMutex.unlock();
+                    await updateInterProjectDependencies(packageDir, versionSnapshot, allPackageNames, packageLogger, isDryRun);
+                } else {
+                    globalStateMutex.unlock();
+                }
+            } catch (error) {
+                globalStateMutex.unlock();
+                throw error;
             }
 
             // Use main logger for the specific message tests expect
@@ -726,8 +764,13 @@ const executePackage = async (
                 if (isBuiltInCommand && commandToRun.includes('publish')) {
                     const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
                     if (publishedVersion) {
-                        publishedVersions.push(publishedVersion);
-                        packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
+                        await globalStateMutex.lock();
+                        try {
+                            publishedVersions.push(publishedVersion);
+                            packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
+                        } finally {
+                            globalStateMutex.unlock();
+                        }
                     }
                 }
 
@@ -769,8 +812,13 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info(`Started: ${savedContext.startTime.toISOString()}`);
             logger.info(`Previously completed: ${savedContext.completedPackages.length}/${savedContext.buildOrder.length} packages`);
 
-            // Restore state
-            publishedVersions = savedContext.publishedVersions;
+            // Restore state safely
+            await globalStateMutex.lock();
+            try {
+                publishedVersions = savedContext.publishedVersions;
+            } finally {
+                globalStateMutex.unlock();
+            }
             executionContext = savedContext;
 
             // Use original config but allow some overrides (like dry run)
