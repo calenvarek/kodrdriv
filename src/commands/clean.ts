@@ -45,11 +45,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
             if (error.cause) {
                 logger.debug(`Caused by: ${error.cause.message}`);
             }
-            process.exit(1);
+            throw error;
         }
 
         // Unexpected errors
         logger.error(`clean encountered unexpected error: ${error.message}`);
-        process.exit(1);
+        throw error;
     }
 };

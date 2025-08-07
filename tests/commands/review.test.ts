@@ -316,7 +316,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Piped input requires --sendit flag for non-interactive operation');
             expect(mockLogger.error).toHaveBeenCalledWith('❌ STDIN is piped but --sendit flag is not enabled');
         });
 
@@ -424,7 +424,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Failed to launch editor \'vi\': Editor not found');
         });
 
         it('should throw error when editor returns empty content', async () => {
@@ -436,7 +436,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
         });
 
         it('should filter out comment lines from editor content', async () => {
@@ -847,7 +847,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Review analysis failed: OpenAI API error');
         });
 
         it('should handle prompt creation errors', async () => {
@@ -861,7 +861,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Prompt creation failed');
         });
 
         it('should handle storage directory creation errors', async () => {
@@ -875,7 +875,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Directory creation failed');
         });
     });
 
@@ -981,7 +981,7 @@ describe('review command', () => {
                 }
             };
 
-            await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Review.execute(runConfig)).rejects.toThrow('Too many context gathering errors (4), aborting review. Consider checking your configuration and network connectivity.');
             expect(mockLogger.error).toHaveBeenCalledWith(
                 expect.stringContaining('Too many context gathering errors (4), aborting review')
             );
@@ -1016,7 +1016,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
             });
 
             it('should handle temp file creation failures', async () => {
@@ -1031,7 +1031,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
             });
         });
 
@@ -1057,7 +1057,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
             });
 
             it('should handle editor SIGTERM signal', async () => {
@@ -1081,7 +1081,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
             });
 
             it('should handle editor non-zero exit code', async () => {
@@ -1105,7 +1105,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
             });
 
             it('should handle editor without timeout when editorTimeout is not specified', async () => {
@@ -1139,7 +1139,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Review analysis failed: Invalid API response: expected object, got object');
                 expect(mockLogger.error).toHaveBeenCalledWith(
                     expect.stringContaining('Invalid API response: expected object, got object')
                 );
@@ -1160,7 +1160,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Review analysis failed: Invalid API response: missing or invalid summary field');
                 expect(mockLogger.error).toHaveBeenCalledWith(
                     expect.stringContaining('Invalid API response: missing or invalid summary field')
                 );
@@ -1181,7 +1181,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Review analysis failed: Invalid API response: missing or invalid totalIssues field');
                 expect(mockLogger.error).toHaveBeenCalledWith(
                     expect.stringContaining('Invalid API response: missing or invalid totalIssues field')
                 );
@@ -1202,7 +1202,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Review analysis failed: Invalid API response: issues field must be an array');
                 expect(mockLogger.error).toHaveBeenCalledWith(
                     expect.stringContaining('Invalid API response: issues field must be an array')
                 );
@@ -1226,7 +1226,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Review analysis failed: Invalid API response: issue 1 missing priority');
                 expect(mockLogger.error).toHaveBeenCalledWith(
                     expect.stringContaining('Invalid API response: issue 1 missing priority')
                 );

@@ -68,7 +68,7 @@ For detailed documentation of built-in commands, see [Tree Built-in Commands](tr
 ## Command Options
 
 - `[command]`: Built-in kodrdriv command to execute (`commit`, `publish`, `link`, `unlink`)
-- `--directories [directories...]`: Target directories containing multiple packages (defaults to current directory). Multiple directories can be specified to analyze dependencies across separate directory trees.
+- `--directories [directories...]`: Target directories containing multiple packages (defaults to current directory). Multiple directories can be specified to analyze dependencies across separate directory trees. This option replaces the previous `--directory` option and enables analysis across multiple directory structures.
 - `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
 - `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)

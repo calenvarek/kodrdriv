@@ -549,7 +549,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         if (error instanceof ValidationError) {
             logger.error(`review failed: ${error.message}`);
-            process.exit(1);
+            throw error;
         }
 
         if (error instanceof FileOperationError) {
@@ -557,7 +557,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (error.cause) {
                 logger.debug(`Caused by: ${error.cause.message}`);
             }
-            process.exit(1);
+            throw error;
         }
 
         if (error instanceof CommandError) {
@@ -565,11 +565,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (error.cause) {
                 logger.debug(`Caused by: ${error.cause.message}`);
             }
-            process.exit(1);
+            throw error;
         }
 
         // Unexpected errors
         logger.error(`review encountered unexpected error: ${error.message}`);
-        process.exit(1);
+        throw error;
     }
 };

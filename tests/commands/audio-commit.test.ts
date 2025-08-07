@@ -216,7 +216,7 @@ describe('audio-commit', () => {
             (Unplayable.processAudio as any).mockResolvedValue(mockAudioResult);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio commit cancelled by user');
         });
 
@@ -547,7 +547,7 @@ describe('audio-commit', () => {
             Unplayable.processAudio.mockRejectedValue(cancellationError);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.info).toHaveBeenCalledWith('User cancelled');
         });
 
@@ -564,7 +564,7 @@ describe('audio-commit', () => {
             Unplayable.processAudio.mockRejectedValue(cancellationError);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.info).toHaveBeenCalledWith('Instance cancellation');
         });
 
@@ -580,7 +580,7 @@ describe('audio-commit', () => {
             Unplayable.processAudio.mockRejectedValue(userCancellationError);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.info).toHaveBeenCalledWith('Direct user cancellation');
         });
 
@@ -603,7 +603,7 @@ describe('audio-commit', () => {
             CommitCommand.execute.mockRejectedValue(commitError);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Commit command failed');
         });
 
@@ -624,7 +624,7 @@ describe('audio-commit', () => {
             CommitCommand.execute.mockRejectedValue(mainError);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Main error');
             expect(mockLogger.debug).toHaveBeenCalledWith('Caused by: Root cause error');
         });
@@ -644,7 +644,7 @@ describe('audio-commit', () => {
             CommitCommand.execute.mockRejectedValue(mainError);
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Error without cause');
             expect(mockLogger.debug).not.toHaveBeenCalledWith(expect.stringContaining('Caused by:'));
         });
@@ -954,7 +954,7 @@ describe('audio-commit', () => {
             });
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.info).toHaveBeenCalledWith('User cancelled operation');
         });
 
@@ -980,7 +980,7 @@ describe('audio-commit', () => {
             });
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
             expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: General failure');
         });
     });

@@ -43,8 +43,23 @@ export async function runApplication(): Promise<void> {
     // Configure logging early, before CardiganTime initialization
     configureEarlyLogging();
 
-    // Cast create to `any` to avoid excessive type instantiation issues in TS compiler
-    const createCardigantime: any = (Cardigantime as unknown as { create: unknown }).create as any;
+    // Use proper typing for CardiganTime create function
+    interface CardigantimeCreateParams {
+        defaults?: any;
+        features?: string[];
+        configShape?: any;
+        logger?: any;
+    }
+
+    interface CardigantimeInstance {
+        read: (args: any) => Promise<any>;
+        checkConfig: () => Promise<void>;
+        generateConfig: (dir: string) => Promise<void>;
+        setLogger: (logger: any) => void;
+    }
+
+    const cardigantimeModule = Cardigantime as any;
+    const createCardigantime = cardigantimeModule.create as (params: CardigantimeCreateParams) => CardigantimeInstance;
 
     const cardigantime = createCardigantime({
         defaults: {

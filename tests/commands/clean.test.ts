@@ -218,7 +218,7 @@ describe('clean command', () => {
             mockStorage.removeDirectory.mockRejectedValue(error);
 
             // Act & Assert
-            await expect(Clean.execute(runConfig)).rejects.toThrow('process.exit called');
+            await expect(Clean.execute(runConfig)).rejects.toThrow();
             expect(mockLogger.error).toHaveBeenCalledWith('Failed to clean output directory: Permission denied');
             expect(mockStorage.removeDirectory).toHaveBeenCalledWith('custom/output');
         });

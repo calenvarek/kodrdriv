@@ -174,11 +174,14 @@ async function editIssueInteractively(issue: Issue): Promise<Issue> {
     // Read the file back and deserialize it
     const editedContent = await fs.readFile(tmpFilePath, 'utf8');
 
-    // Clean up the temporary file (best-effort – ignore errors)
+    // Clean up the temporary file with proper error handling
     try {
         await fs.unlink(tmpFilePath);
-    } catch {
-        /* ignore */
+    } catch (error: any) {
+        // Only log if it's not a "file not found" error
+        if (error.code !== 'ENOENT') {
+            logger.warn(`Failed to cleanup temporary file ${tmpFilePath}: ${error.message}`);
+        }
     }
 
     // Deserialize the edited content back to an Issue object
