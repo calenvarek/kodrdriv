@@ -195,40 +195,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info(`Found existing pull request for branch: ${pr.html_url}`);
     } else {
         logger.info('No open pull request found, starting new release publishing process...');
-        // 1. Prepare for release
-        logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
 
-        logger.verbose('Updating dependencies to latest versions from registry');
-        const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
-        if (updatePatterns && updatePatterns.length > 0) {
-            logger.verbose(`Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
-            const patternsArg = updatePatterns.join(' ');
-            await runWithDryRunSupport(`npm update ${patternsArg}`, isDryRun);
-        } else {
-            logger.verbose('No dependency update patterns specified, updating all dependencies');
-            await runWithDryRunSupport('npm update', isDryRun);
-        }
-
-        logger.verbose('Staging changes for release commit');
-        await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
-
-        logger.info('Running prepublishOnly script...');
-        await runWithDryRunSupport('npm run prepublishOnly', isDryRun, {}, true); // Use inherited stdio
-
-        logger.verbose('Checking for staged changes...');
-        if (isDryRun) {
-            logger.verbose('Assuming staged changes exist for demo purposes');
-            logger.verbose('Would create commit...');
-            await Commit.execute(runConfig);
-        } else {
-            if (await Diff.hasStagedChanges()) {
-                logger.verbose('Staged changes found, creating commit...');
-                await Commit.execute(runConfig);
-            } else {
-                logger.verbose('No changes to commit, skipping commit.');
-            }
-        }
-
+        // STEP 1: Determine and set target version FIRST (before any commits)
         logger.info('Determining target version...');
         let newVersion: string;
 
@@ -268,15 +236,45 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
             logger.info(`Bumping version from ${currentVersion} to ${newVersion}`);
 
-            // Update package.json with the new version
+            // Update package.json with the new version BEFORE any other operations
             packageJson.version = newVersion;
             await storage.writeFile('package.json', JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
             logger.info(`Version updated in package.json: ${newVersion}`);
+        }
 
-            // Stage and commit the version change
-            await run('git add package.json');
-            await run(`git commit -m "chore: bump version to ${newVersion}"`);
-            logger.info(`Version change committed: ${newVersion}`);
+        // STEP 2: Prepare for release (with correct version now in package.json)
+        logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
+
+        logger.verbose('Updating dependencies to latest versions from registry');
+        const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
+        if (updatePatterns && updatePatterns.length > 0) {
+            logger.verbose(`Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
+            const patternsArg = updatePatterns.join(' ');
+            await runWithDryRunSupport(`npm update ${patternsArg}`, isDryRun);
+        } else {
+            logger.verbose('No dependency update patterns specified, updating all dependencies');
+            await runWithDryRunSupport('npm update', isDryRun);
+        }
+
+        logger.info('Running prepublishOnly script...');
+        await runWithDryRunSupport('npm run prepublishOnly', isDryRun, {}, true); // Use inherited stdio
+
+        // STEP 3: Stage all changes (version bump + dependencies + any build artifacts)
+        logger.verbose('Staging all changes for release commit');
+        await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
+
+        logger.verbose('Checking for staged changes...');
+        if (isDryRun) {
+            logger.verbose('Assuming staged changes exist for demo purposes');
+            logger.verbose('Would create commit...');
+            await Commit.execute(runConfig);
+        } else {
+            if (await Diff.hasStagedChanges()) {
+                logger.verbose('Staged changes found, creating commit...');
+                await Commit.execute(runConfig);
+            } else {
+                logger.verbose('No changes to commit, skipping commit.');
+            }
         }
 
         logger.info('Generating release notes...');
@@ -350,7 +348,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info(`Would merge PR #${pr!.number} using ${mergeMethod} method`);
     } else {
         try {
-            await GitHub.mergePullRequest(pr!.number, mergeMethod);
+            await GitHub.mergePullRequest(pr!.number, mergeMethod, false); // Don't delete branch
         } catch (error: any) {
             // Check if this is a merge conflict error
             if (error.message && (
