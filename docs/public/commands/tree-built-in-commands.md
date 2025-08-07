@@ -101,7 +101,8 @@ Each package can have its own publish settings:
   "publish": {
     "mergeMethod": "squash",
     "requiredEnvVars": ["PACKAGE_SPECIFIC_TOKEN"],
-    "linkWorkspacePackages": true
+    "dependencyUpdatePatterns": ["@company/*"],
+    "targetBranch": "main"
   }
 }
 ```

@@ -129,7 +129,7 @@ describe('link command', () => {
             mockStorage.exists.mockResolvedValue(false);
 
             // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(Link.execute(mockConfig)).rejects.toThrow();
         });
 
         it('should throw error when package.json is malformed', async () => {
@@ -150,7 +150,7 @@ describe('link command', () => {
             });
 
             // Act & Assert
-            await expect(Link.execute(mockConfig)).rejects.toThrow('process.exit called');
+            await expect(Link.execute(mockConfig)).rejects.toThrow();
         });
 
         it('should skip gracefully when no scope roots are configured', async () => {

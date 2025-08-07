@@ -79,16 +79,173 @@ export const stringifyJSON = function (obj: any, options: { depth: number } = { 
 };
 
 export const incrementPatchVersion = (version: string): string => {
-    const parts = version.split('.');
-    if (parts.length !== 3) {
+    // Remove 'v' prefix if present
+    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+
+    // Split into major.minor.patch and handle pre-release identifiers
+    const parts = cleanVersion.split('.');
+    if (parts.length < 3) {
         throw new Error(`Invalid version string: ${version}`);
     }
-    const patch = parseInt(parts[2], 10);
-    if (isNaN(patch)) {
-        throw new Error(`Invalid patch version: ${parts[2]}`);
+
+    // Handle pre-release versions like "4.6.24-dev.0"
+    // Split the patch part on '-' to separate patch number from pre-release
+    const patchPart = parts[2];
+    let patchNumber: number;
+
+    if (patchPart.startsWith('-')) {
+        // Handle negative patch numbers like "-1" or "-5"
+        patchNumber = parseInt(patchPart, 10);
+    } else {
+        // Handle normal patch numbers with possible pre-release like "24-dev.0"
+        const patchComponents = patchPart.split('-');
+        patchNumber = parseInt(patchComponents[0], 10);
     }
-    parts[2] = (patch + 1).toString();
-    return parts.join('.');
+
+    if (isNaN(patchNumber)) {
+        throw new Error(`Invalid patch version: ${patchPart}`);
+    }
+
+    // Increment the patch number and rebuild the version
+    const newPatchNumber = patchNumber + 1;
+
+    // For pre-release versions, we'll create a clean release version by dropping the pre-release identifier
+    const newVersion = `${parts[0]}.${parts[1]}.${newPatchNumber}`;
+
+    return newVersion;
+};
+
+export const incrementMinorVersion = (version: string): string => {
+    // Remove 'v' prefix if present
+    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+
+    // Split into major.minor.patch and handle pre-release identifiers
+    const parts = cleanVersion.split('.');
+    if (parts.length < 3) {
+        throw new Error(`Invalid version string: ${version}`);
+    }
+
+    const majorNumber = parseInt(parts[0], 10);
+    const minorPart = parts[1];
+
+    // Handle pre-release versions on minor like "23-dev.0"
+    const minorComponents = minorPart.split('-');
+    const minorNumber = parseInt(minorComponents[0], 10);
+
+    if (isNaN(majorNumber) || isNaN(minorNumber)) {
+        throw new Error(`Invalid version numbers in: ${version}`);
+    }
+
+    // Increment the minor number and reset patch to 0
+    const newMinorNumber = minorNumber + 1;
+    const newVersion = `${majorNumber}.${newMinorNumber}.0`;
+
+    return newVersion;
+};
+
+export const incrementMajorVersion = (version: string): string => {
+    // Remove 'v' prefix if present
+    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+
+    // Split into major.minor.patch and handle pre-release identifiers
+    const parts = cleanVersion.split('.');
+    if (parts.length < 3) {
+        throw new Error(`Invalid version string: ${version}`);
+    }
+
+    const majorPart = parts[0];
+
+    // Handle pre-release versions on major like "4-dev.0"
+    const majorComponents = majorPart.split('-');
+    const majorNumber = parseInt(majorComponents[0], 10);
+
+    if (isNaN(majorNumber)) {
+        throw new Error(`Invalid major version number in: ${version}`);
+    }
+
+    // Increment the major number and reset minor and patch to 0
+    const newMajorNumber = majorNumber + 1;
+    const newVersion = `${newMajorNumber}.0.0`;
+
+    return newVersion;
+};
+
+export const validateVersionString = (version: string): boolean => {
+    // Remove 'v' prefix if present
+    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+
+    // Basic semver regex pattern
+    const semverPattern = /^\d+\.\d+\.\d+$/;
+    return semverPattern.test(cleanVersion);
+};
+
+export const calculateTargetVersion = (currentVersion: string, targetVersion: string): string => {
+    switch (targetVersion.toLowerCase()) {
+        case 'patch':
+            return incrementPatchVersion(currentVersion);
+        case 'minor':
+            return incrementMinorVersion(currentVersion);
+        case 'major':
+            return incrementMajorVersion(currentVersion);
+        default:
+            // Explicit version provided
+            if (!validateVersionString(targetVersion)) {
+                throw new Error(`Invalid version format: ${targetVersion}. Expected format: "x.y.z" or one of: "patch", "minor", "major"`);
+            }
+            return targetVersion.startsWith('v') ? targetVersion.slice(1) : targetVersion;
+    }
+};
+
+export const checkIfTagExists = async (tagName: string): Promise<boolean> => {
+    const { run } = await import('./child');
+    try {
+        const { stdout } = await run(`git tag -l ${tagName}`);
+        return stdout.trim() === tagName;
+    } catch {
+        // If git command fails, assume tag doesn't exist
+        return false;
+    }
+};
+
+export const confirmVersionInteractively = async (currentVersion: string, proposedVersion: string, targetVersionInput?: string): Promise<string> => {
+    const { getUserChoice, getUserTextInput, requireTTY } = await import('./interactive');
+    const { getLogger } = await import('../logging');
+
+    requireTTY('Interactive version confirmation requires a terminal.');
+
+    const logger = getLogger();
+    logger.info(`\n📦 Version Confirmation:`);
+    logger.info(`   Current version: ${currentVersion}`);
+    logger.info(`   Proposed version: ${proposedVersion}`);
+    if (targetVersionInput) {
+        logger.info(`   Target input: ${targetVersionInput}`);
+    }
+
+    const choices = [
+        { key: 'c', label: `Confirm ${proposedVersion}` },
+        { key: 'e', label: 'Enter custom version' },
+        { key: 'a', label: 'Abort publish' }
+    ];
+
+    const choice = await getUserChoice('\n🤔 Confirm the version for this release:', choices);
+
+    switch (choice) {
+        case 'c':
+            return proposedVersion;
+        case 'e': {
+            const customVersion = await getUserTextInput('\n📝 Enter the version number (e.g., "4.30.0"):');
+            if (!validateVersionString(customVersion)) {
+                throw new Error(`Invalid version format: ${customVersion}. Expected format: "x.y.z"`);
+            }
+            const cleanCustomVersion = customVersion.startsWith('v') ? customVersion.slice(1) : customVersion;
+            logger.info(`✅ Using custom version: ${cleanCustomVersion}`);
+            return cleanCustomVersion;
+        }
+        case 'a':
+            throw new Error('Release aborted by user');
+        default:
+            throw new Error(`Unexpected choice: ${choice}`);
+    }
 };
 
 export const getOutputPath = (outputDirectory: string, filename: string): string => {

@@ -10,13 +10,7 @@ vi.mock('../../src/commands/release', () => ({
     execute: vi.fn()
 }));
 
-vi.mock('../../src/commands/link', () => ({
-    execute: vi.fn()
-}));
 
-vi.mock('../../src/commands/unlink', () => ({
-    execute: vi.fn()
-}));
 
 vi.mock('../../src/content/diff', () => ({
     hasStagedChanges: vi.fn()
@@ -68,6 +62,12 @@ vi.mock('../../src/util/storage', () => ({
 
 vi.mock('../../src/util/general', () => ({
     incrementPatchVersion: vi.fn(),
+    incrementMinorVersion: vi.fn(),
+    incrementMajorVersion: vi.fn(),
+    validateVersionString: vi.fn(),
+    calculateTargetVersion: vi.fn(),
+    checkIfTagExists: vi.fn(),
+    confirmVersionInteractively: vi.fn(),
     getOutputPath: vi.fn()
 }));
 
@@ -75,8 +75,7 @@ describe('publish command', () => {
     let Publish: any;
     let Commit: any;
     let Release: any;
-    let Link: any;
-    let Unlink: any;
+
     let Diff: any;
     let Child: any;
     let GitHub: any;
@@ -101,8 +100,6 @@ describe('publish command', () => {
         // Import modules after mocking
         Commit = await import('../../src/commands/commit');
         Release = await import('../../src/commands/release');
-        Link = await import('../../src/commands/link');
-        Unlink = await import('../../src/commands/unlink');
         Diff = await import('../../src/content/diff');
         Child = await import('../../src/util/child');
         GitHub = await import('../../src/util/github');
@@ -134,6 +131,17 @@ describe('publish command', () => {
         General.getOutputPath.mockImplementation((outputDirectory: string, filename: string) => {
             return filename; // For tests, just return the filename
         });
+
+        // Set up default mocks for new version functions
+        General.calculateTargetVersion.mockImplementation((currentVersion: string, targetVersion: string) => {
+            if (targetVersion === 'patch') return '0.0.5';
+            if (targetVersion === 'minor') return '0.1.0';
+            if (targetVersion === 'major') return '1.0.0';
+            return targetVersion; // For explicit versions
+        });
+        General.checkIfTagExists.mockResolvedValue(false); // Default: tag doesn't exist
+        General.confirmVersionInteractively.mockImplementation(async (current: string, proposed: string) => proposed);
+        General.validateVersionString.mockReturnValue(true);
     });
 
     afterEach(() => {
@@ -232,8 +240,7 @@ cache=\${CACHE_DIR}/npm
             // This should pass without throwing because all env vars are set
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
 
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle missing .npmrc file gracefully', async () => {
@@ -289,8 +296,7 @@ cache=\${CACHE_DIR}/npm
             // Should not throw even without .npmrc
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
 
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle unreadable .npmrc file gracefully', async () => {
@@ -349,8 +355,7 @@ cache=\${CACHE_DIR}/npm
             // Should not throw even if .npmrc is unreadable
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
 
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
     });
 
@@ -458,8 +463,7 @@ cache=\${CACHE_DIR}/npm
 
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
 
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
     });
 
@@ -511,7 +515,7 @@ cache=\${CACHE_DIR}/npm
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to check git status: Git status failed. Please ensure you are in a valid git repository and try again.');
         });
 
-        it('should throw error when not on release branch', async () => {
+        it('should throw error when running from target branch', async () => {
             const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' };
 
             Child.run.mockImplementation((command: string) => {
@@ -526,7 +530,31 @@ cache=\${CACHE_DIR}/npm
 
             GitHub.getCurrentBranchName.mockResolvedValue('main');
 
-            await expect(Publish.execute(mockConfig)).rejects.toThrow("Current branch 'main' is not a release branch. Please switch to a release branch (e.g., release/1.0.0) before running publish.");
+            await expect(Publish.execute(mockConfig)).rejects.toThrow("Cannot run publish from the target branch 'main'. Please switch to a different branch before running publish.");
+        });
+
+        it('should throw error when running from custom target branch', async () => {
+            const mockConfig = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                publish: {
+                    targetBranch: 'develop'
+                }
+            };
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') {
+                    return Promise.resolve({ stdout: '.git' });
+                }
+                if (command === 'git status --porcelain') {
+                    return Promise.resolve({ stdout: '' });
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            GitHub.getCurrentBranchName.mockResolvedValue('develop');
+
+            await expect(Publish.execute(mockConfig)).rejects.toThrow("Cannot run publish from the target branch 'develop'. Please switch to a different branch before running publish.");
         });
 
         it('should throw error when package.json is missing', async () => {
@@ -662,14 +690,8 @@ cache=\${CACHE_DIR}/npm
         });
     });
 
-    describe('execute', () => {
-        const mockConfig = {
-            model: 'gpt-4o-mini',
-            configDirectory: '/test/config'
-        };
-
-        // Helper function to set up common precheck mocks
-        const setupPrecheckMocks = () => {
+    // Helper function to set up common precheck mocks
+    const setupPrecheckMocks = () => {
             const mockPackageJson = {
                 name: 'test-package',
                 version: '0.0.4',
@@ -695,6 +717,11 @@ cache=\${CACHE_DIR}/npm
                 return Promise.resolve({ stdout: '' });
             });
 
+            // Mock Child.runWithDryRunSupport for git commands
+            Child.runWithDryRunSupport.mockImplementation(() => {
+                return Promise.resolve({ stdout: '' });
+            });
+
             // Mock package.json existence and content
             mockStorage.exists.mockImplementation((path: string) => {
                 if (path.includes('package.json')) {
@@ -715,6 +742,12 @@ cache=\${CACHE_DIR}/npm
                 }
                 return Promise.resolve('');
             });
+        };
+
+    describe('execute', () => {
+        const mockConfig = {
+            model: 'gpt-4o-mini',
+            configDirectory: '/test/config'
         };
 
         it('should execute complete publish workflow when no existing PR is found', async () => {
@@ -766,13 +799,13 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             // Assert - Verify the complete workflow
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+
             expect(GitHub.getCurrentBranchName).toHaveBeenCalled();
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled();
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', false);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', false, {}, true);
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
 
@@ -785,13 +818,12 @@ cache=\${CACHE_DIR}/npm
                 timeout: 300000,
                 skipUserConfirmation: false
             });
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
-            expect(Child.run).toHaveBeenCalledWith('git checkout release/0.0.5');
-            expect(Child.run).toHaveBeenCalledWith('git push -u origin release/0.0.5');
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
+
         });
 
         it('should handle existing pull request and skip initial setup', async () => {
@@ -831,7 +863,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             // Assert - Verify it skips initial setup but continues with PR workflow
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled(); // Should skip workspace file operations
             expect(Child.run).not.toHaveBeenCalledWith('npm update'); // Should skip dependency updates
@@ -841,9 +873,9 @@ cache=\${CACHE_DIR}/npm
                 timeout: 300000,
                 skipUserConfirmation: false
             });
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash');
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should skip commit when no staged changes are found', async () => {
@@ -912,10 +944,10 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             // Assert
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).not.toHaveBeenCalled();
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should call link even if an error occurs', async () => {
@@ -956,9 +988,9 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Build failed');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
+
             expect(mockStorage.rename).not.toHaveBeenCalled();
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should throw error when PR creation fails', async () => {
@@ -1002,8 +1034,7 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to create pull request.');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle pre-flight checks failure', async () => {
@@ -1048,8 +1079,7 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Tests failed');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle GitHub API errors during PR checks', async () => {
@@ -1068,8 +1098,7 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('GitHub API error');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should pass custom timeout and skipUserConfirmation options to waitForPullRequestChecks', async () => {
@@ -1120,8 +1149,7 @@ cache=\${CACHE_DIR}/npm
                 timeout: 600000,
                 skipUserConfirmation: true
             });
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithChecksOptions);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithChecksOptions);
+
         });
 
         it('should use default timeout and skipUserConfirmation when not specified', async () => {
@@ -1169,8 +1197,7 @@ cache=\${CACHE_DIR}/npm
                 timeout: 300000, // 5 minutes default
                 skipUserConfirmation: false
             });
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutChecksOptions);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutChecksOptions);
+
         });
 
         it('should override skipUserConfirmation when sendit flag is true', async () => {
@@ -1221,8 +1248,7 @@ cache=\${CACHE_DIR}/npm
                 timeout: 300000, // 5 minutes default
                 skipUserConfirmation: true // Should be true because sendit=true overrides skipUserConfirmation=false
             });
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithSendit);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithSendit);
+
         });
 
         it('should handle release creation failure', async () => {
@@ -1259,8 +1285,7 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Release creation failed');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle file operations errors gracefully', async () => {
@@ -1310,8 +1335,7 @@ cache=\${CACHE_DIR}/npm
 
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('File write failed');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should use configured merge method when merging PR', async () => {
@@ -1357,9 +1381,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithMergeMethod);
 
             // Assert - Verify merge method is passed correctly
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithMergeMethod);
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'merge');
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithMergeMethod);
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'merge', false);
         });
 
         it('should use default squash merge method when no merge method is configured', async () => {
@@ -1403,9 +1425,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithoutMergeMethod);
 
             // Assert - Verify default squash method is used
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutMergeMethod);
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutMergeMethod);
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash', false);
         });
 
         it('should use dependency update patterns when provided', async () => {
@@ -1482,9 +1502,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithPatterns);
 
             // Assert - Verify patterns are used in pnpm update command
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update @company/* @myorg/*', false);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithPatterns);
         });
 
         it('should update all dependencies when no patterns are provided', async () => {
@@ -1562,9 +1580,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithoutPatterns);
 
             // Assert - Verify fallback to update all dependencies
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithoutPatterns);
         });
 
         it('should handle empty dependency update patterns array', async () => {
@@ -1641,9 +1657,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithEmptyPatterns);
 
             // Assert - Verify fallback to update all dependencies when empty array
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfigWithEmptyPatterns);
         });
     });
 
@@ -1721,8 +1735,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert
             expect(GitHub.createRelease).toHaveBeenCalledTimes(2);
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should retry GitHub release creation when "not found" error occurs', async () => {
@@ -1744,8 +1757,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert
             expect(GitHub.createRelease).toHaveBeenCalledTimes(2);
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should fail after exhausting all retries for tag not found errors', async () => {
@@ -1759,8 +1771,7 @@ cache=\${CACHE_DIR}/npm
                 'Tag v1.0.0 was not found on GitHub after 3 attempts. This may indicate a problem with tag creation or GitHub synchronization.'
             );
             expect(GitHub.createRelease).toHaveBeenCalledTimes(3);
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should not retry for non-tag-related errors', async () => {
@@ -1772,8 +1783,7 @@ cache=\${CACHE_DIR}/npm
             // Act & Assert
             await expect(Publish.execute(mockConfig)).rejects.toThrow('API rate limit exceeded');
             expect(GitHub.createRelease).toHaveBeenCalledTimes(1); // No retries for non-tag errors
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should succeed on first attempt when no errors occur', async () => {
@@ -1787,8 +1797,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert
             expect(GitHub.createRelease).toHaveBeenCalledTimes(1);
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle tag push detection correctly when tag already exists remotely', async () => {
@@ -1816,8 +1825,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Should succeed without delays since tag wasn't newly pushed
             expect(GitHub.createRelease).toHaveBeenCalledTimes(1);
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
     });
 
@@ -1858,17 +1866,17 @@ cache=\${CACHE_DIR}/npm
 
             await Publish.execute(mockConfig);
 
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
 
             // Verify no actual git commands were executed (non-dry-run commands)
             expect(Child.run).not.toHaveBeenCalledWith('git rev-parse --git-dir');
             // In dry run mode, runWithDryRunSupport should be called but with isDryRun=true
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', true, {}, true);
 
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/1.0.0', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', true);
             expect(GitHub.createPullRequest).not.toHaveBeenCalled();
@@ -1912,8 +1920,7 @@ cache=\${CACHE_DIR}/npm
 
             await Publish.execute(mockConfig);
 
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
 
             // Should not execute actual operations in dry run
             expect(GitHub.waitForPullRequestChecks).not.toHaveBeenCalled();
@@ -1957,194 +1964,8 @@ cache=\${CACHE_DIR}/npm
         });
     });
 
-    describe('workspace package configuration', () => {
-        it('should skip unlink when unlinkWorkspacePackages is false', async () => {
-            const mockConfig = {
-                model: 'gpt-4o-mini',
-                configDirectory: '/test/config',
-                publish: {
-                    unlinkWorkspacePackages: false
-                }
-            };
-
-            const mockBranchName = 'release/1.0.0';
-            const mockPR = {
-                number: 123,
-                html_url: 'https://github.com/owner/repo/pull/123'
-            };
-
-            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
-            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
-
-            mockStorage.exists.mockImplementation((path: string) => {
-                if (path.includes('package.json')) {
-                    return Promise.resolve(true);
-                }
-                return Promise.resolve(false);
-            });
-
-            mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({
-                        name: 'test-package', version: '1.0.0',
-                        scripts: { prepublishOnly: 'npm test' }
-                    }));
-                }
-                if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve('# Release Notes');
-                }
-                if (filename === 'RELEASE_TITLE.md') {
-                    return Promise.resolve('Release Title');
-                }
-                return Promise.resolve('');
-            });
-
-            Child.run.mockImplementation((command: string) => {
-                if (command === 'git rev-parse --git-dir') {
-                    return Promise.resolve({ stdout: '.git' });
-                }
-                if (command === 'git status --porcelain') {
-                    return Promise.resolve({ stdout: '' });
-                }
-                return Promise.resolve({ stdout: '' });
-            });
-
-            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
-            GitHub.mergePullRequest.mockResolvedValue(undefined);
-            GitHub.createRelease.mockResolvedValue(undefined);
-            General.incrementPatchVersion.mockReturnValue('1.0.1');
-
-            await Publish.execute(mockConfig);
-
-            expect(Unlink.execute).not.toHaveBeenCalled();
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
-        });
-
-        it('should skip link when linkWorkspacePackages is false', async () => {
-            const mockConfig = {
-                model: 'gpt-4o-mini',
-                configDirectory: '/test/config',
-                publish: {
-                    linkWorkspacePackages: false
-                }
-            };
-
-            const mockBranchName = 'release/1.0.0';
-            const mockPR = {
-                number: 123,
-                html_url: 'https://github.com/owner/repo/pull/123'
-            };
-
-            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
-            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
-
-            mockStorage.exists.mockImplementation((path: string) => {
-                if (path.includes('package.json')) {
-                    return Promise.resolve(true);
-                }
-                return Promise.resolve(false);
-            });
-
-            mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({
-                        name: 'test-package', version: '1.0.0',
-                        scripts: { prepublishOnly: 'npm test' }
-                    }));
-                }
-                if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve('# Release Notes');
-                }
-                if (filename === 'RELEASE_TITLE.md') {
-                    return Promise.resolve('Release Title');
-                }
-                return Promise.resolve('');
-            });
-
-            Child.run.mockImplementation((command: string) => {
-                if (command === 'git rev-parse --git-dir') {
-                    return Promise.resolve({ stdout: '.git' });
-                }
-                if (command === 'git status --porcelain') {
-                    return Promise.resolve({ stdout: '' });
-                }
-                return Promise.resolve({ stdout: '' });
-            });
-
-            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
-            GitHub.mergePullRequest.mockResolvedValue(undefined);
-            GitHub.createRelease.mockResolvedValue(undefined);
-            General.incrementPatchVersion.mockReturnValue('1.0.1');
-
-            await Publish.execute(mockConfig);
-
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).not.toHaveBeenCalled();
-        });
-
-        it('should handle both workspace package options disabled', async () => {
-            const mockConfig = {
-                model: 'gpt-4o-mini',
-                configDirectory: '/test/config',
-                publish: {
-                    unlinkWorkspacePackages: false,
-                    linkWorkspacePackages: false
-                }
-            };
-
-            const mockBranchName = 'release/1.0.0';
-            const mockPR = {
-                number: 123,
-                html_url: 'https://github.com/owner/repo/pull/123'
-            };
-
-            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
-            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
-
-            mockStorage.exists.mockImplementation((path: string) => {
-                if (path.includes('package.json')) {
-                    return Promise.resolve(true);
-                }
-                return Promise.resolve(false);
-            });
-
-            mockStorage.readFile.mockImplementation((filename: string) => {
-                if (filename && filename.includes('package.json')) {
-                    return Promise.resolve(JSON.stringify({
-                        name: 'test-package', version: '1.0.0',
-                        scripts: { prepublishOnly: 'npm test' }
-                    }));
-                }
-                if (filename === 'RELEASE_NOTES.md') {
-                    return Promise.resolve('# Release Notes');
-                }
-                if (filename === 'RELEASE_TITLE.md') {
-                    return Promise.resolve('Release Title');
-                }
-                return Promise.resolve('');
-            });
-
-            Child.run.mockImplementation((command: string) => {
-                if (command === 'git rev-parse --git-dir') {
-                    return Promise.resolve({ stdout: '.git' });
-                }
-                if (command === 'git status --porcelain') {
-                    return Promise.resolve({ stdout: '' });
-                }
-                return Promise.resolve({ stdout: '' });
-            });
-
-            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
-            GitHub.mergePullRequest.mockResolvedValue(undefined);
-            GitHub.createRelease.mockResolvedValue(undefined);
-            General.incrementPatchVersion.mockReturnValue('1.0.1');
-
-            await Publish.execute(mockConfig);
-
-            expect(Unlink.execute).not.toHaveBeenCalled();
-            expect(Link.execute).not.toHaveBeenCalled();
-        });
-    });
+    // Legacy workspace package configuration tests removed -
+    // link/unlink functionality was removed from publish command
 
     describe('edge cases and error scenarios', () => {
         it('should handle git log failure when creating PR', async () => {
@@ -2193,8 +2014,7 @@ cache=\${CACHE_DIR}/npm
             Release.execute.mockResolvedValue({ title: 'Title', body: 'Body' });
 
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Git log failed');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle release notes file read failure', async () => {
@@ -2246,8 +2066,7 @@ cache=\${CACHE_DIR}/npm
             GitHub.mergePullRequest.mockResolvedValue(undefined);
 
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to read release notes');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle custom output directory', async () => {
@@ -2325,8 +2144,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfig);
 
             expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('/custom/output');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle package.json read failure after version bump', async () => {
@@ -2387,11 +2205,10 @@ cache=\${CACHE_DIR}/npm
             GitHub.mergePullRequest.mockResolvedValue(undefined);
 
             await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to read package.json after version bump');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
-        it('should handle new branch creation failure', async () => {
+        it('should handle target branch checkout failure', async () => {
             const mockConfig = {
                 model: 'gpt-4o-mini',
                 configDirectory: '/test/config'
@@ -2436,27 +2253,31 @@ cache=\${CACHE_DIR}/npm
                 if (command === 'git status --porcelain') {
                     return Promise.resolve({ stdout: '' });
                 }
-                if (command.startsWith('git checkout release/')) {
-                    return Promise.reject(new Error('Failed to create new branch'));
-                }
                 return Promise.resolve({ stdout: '' });
             });
 
-            Child.runWithDryRunSupport.mockImplementation(() => Promise.resolve({ stdout: '' }));
+            Child.runWithDryRunSupport.mockImplementation((command: string) => {
+                if (command === 'git checkout main') {
+                    return Promise.reject(new Error('Failed to checkout target branch'));
+                }
+                return Promise.resolve({ stdout: '' });
+            });
 
             GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
             GitHub.mergePullRequest.mockResolvedValue(undefined);
             GitHub.createRelease.mockResolvedValue(undefined);
             General.incrementPatchVersion.mockReturnValue('1.0.1');
 
-            await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to create new branch');
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+            await expect(Publish.execute(mockConfig)).rejects.toThrow('Failed to checkout target branch');
+
         });
     });
 
     describe('configuration validation', () => {
         it('should handle missing publish configuration gracefully', async () => {
+            // Arrange
+            setupPrecheckMocks();
+
             const mockConfig = {
                 model: 'gpt-4o-mini',
                 configDirectory: '/test/config'
@@ -2511,8 +2332,7 @@ cache=\${CACHE_DIR}/npm
             General.incrementPatchVersion.mockReturnValue('1.0.1');
 
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
-            expect(Unlink.execute).toHaveBeenCalledWith(mockConfig);
-            expect(Link.execute).toHaveBeenCalledWith(mockConfig);
+
         });
 
         it('should handle all merge methods correctly', async () => {
@@ -2523,6 +2343,9 @@ cache=\${CACHE_DIR}/npm
             ];
 
             for (const { method, expected } of mergeMethodTests) {
+                // Arrange
+                setupPrecheckMocks();
+
                 const mockConfig = {
                     model: 'gpt-4o-mini',
                     configDirectory: '/test/config',
@@ -2580,7 +2403,7 @@ cache=\${CACHE_DIR}/npm
 
                 await Publish.execute(mockConfig);
 
-                expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, expected);
+                expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, expected, false);
 
                 // Clear mocks for next iteration
                 vi.clearAllMocks();

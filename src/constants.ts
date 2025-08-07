@@ -45,7 +45,10 @@ export const DEFAULT_TO_COMMIT_ALIAS = 'HEAD';
 export const DEFAULT_ADD = false;
 export const DEFAULT_CACHED = false;
 export const DEFAULT_SENDIT_MODE = false;
+export const DEFAULT_INTERACTIVE_MODE = false;
+export const DEFAULT_AMEND_MODE = false;
 export const DEFAULT_MESSAGE_LIMIT = 50;
+export const DEFAULT_MAX_DIFF_BYTES = 2048; // 2KB default limit per file
 
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 
@@ -158,13 +161,18 @@ export const KODRDRIV_DEFAULTS = {
         add: DEFAULT_ADD,
         cached: DEFAULT_CACHED,
         sendit: DEFAULT_SENDIT_MODE,
+        interactive: DEFAULT_INTERACTIVE_MODE,
+        amend: DEFAULT_AMEND_MODE,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
         skipFileCheck: false,
+        maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
     },
     release: {
         from: DEFAULT_FROM_COMMIT_ALIAS,
         to: DEFAULT_TO_COMMIT_ALIAS,
         messageLimit: DEFAULT_MESSAGE_LIMIT,
+        interactive: DEFAULT_INTERACTIVE_MODE,
+        maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
     },
     audioCommit: {
         maxRecordingTime: 300, // 5 minutes default
@@ -197,14 +205,24 @@ export const KODRDRIV_DEFAULTS = {
     },
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,
+        from: DEFAULT_FROM_COMMIT_ALIAS,
+        targetVersion: 'patch',
+        interactive: DEFAULT_INTERACTIVE_MODE,
         requiredEnvVars: ['GITHUB_TOKEN', 'OPENAI_API_KEY'],
         linkWorkspacePackages: true,
         unlinkWorkspacePackages: true,
         sendit: DEFAULT_SENDIT_MODE,
+        targetBranch: 'main',
     },
     link: {
         scopeRoots: {},
         dryRun: false,
+    },
+    unlink: {
+        scopeRoots: {},
+        workspaceFile: undefined,
+        dryRun: false,
+        cleanNodeModules: false,
     },
     tree: {
         directories: undefined,
@@ -213,6 +231,7 @@ export const KODRDRIV_DEFAULTS = {
         cmd: undefined,
         parallel: false,
         builtInCommand: undefined,
+        continue: false,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

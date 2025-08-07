@@ -58,6 +58,21 @@ describe('ConfigSchema', () => {
         expect(result.success).toBe(true);
     });
 
+    it('should validate commit config with model', () => {
+        const config = {
+            commit: {
+                add: true,
+                model: 'gpt-4o'
+            }
+        };
+
+        const result = ConfigSchema.safeParse(config);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.commit?.model).toBe('gpt-4o');
+        }
+    });
+
     it('should validate audioCommit config', () => {
         const config = {
             audioCommit: {
@@ -87,6 +102,22 @@ describe('ConfigSchema', () => {
         expect(result.success).toBe(true);
     });
 
+    it('should validate release config with model', () => {
+        const config = {
+            release: {
+                from: 'v1.0.0',
+                to: 'v2.0.0',
+                model: 'gpt-4-turbo'
+            }
+        };
+
+        const result = ConfigSchema.safeParse(config);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.release?.model).toBe('gpt-4-turbo');
+        }
+    });
+
     it('should validate review config', () => {
         const config = {
             review: {
@@ -106,6 +137,21 @@ describe('ConfigSchema', () => {
 
         const result = ConfigSchema.safeParse(config);
         expect(result.success).toBe(true);
+    });
+
+    it('should validate review config with model', () => {
+        const config = {
+            review: {
+                includeCommitHistory: true,
+                model: 'gpt-3.5-turbo'
+            }
+        };
+
+        const result = ConfigSchema.safeParse(config);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.review?.model).toBe('gpt-3.5-turbo');
+        }
     });
 
     it('should validate audioReview config', () => {
@@ -139,8 +185,7 @@ describe('ConfigSchema', () => {
                 mergeMethod: 'squash' as MergeMethod,
                 dependencyUpdatePatterns: ['@scope/*', 'react*'],
                 requiredEnvVars: ['NODE_ENV', 'API_KEY'],
-                linkWorkspacePackages: true,
-                unlinkWorkspacePackages: false
+                targetBranch: 'main'
             }
         };
 
@@ -360,12 +405,12 @@ describe('Type definitions', () => {
 
     it('should have correct PublishConfig type structure', () => {
         const config: PublishConfig = {
-            from: 'main',
-            to: 'release'
+            mergeMethod: 'merge',
+            targetBranch: 'main'
         };
 
-        expect(config.from).toBe('main');
-        expect(config.to).toBe('release');
+        expect(config.mergeMethod).toBe('merge');
+        expect(config.targetBranch).toBe('main');
     });
 });
 
