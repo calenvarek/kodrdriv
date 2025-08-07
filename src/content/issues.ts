@@ -1,4 +1,5 @@
 import { getLogger } from '../logging';
+import { getUserChoice as getUserChoiceInteractive } from '../util/interactive';
 import { getOpenIssues, createIssue } from '../util/github';
 import path from 'path';
 import os from 'os';
@@ -44,45 +45,7 @@ export const get = async (options: { limit?: number } = {}): Promise<string> => 
 
 // Helper function to get user choice interactively
 async function getUserChoice(prompt: string, choices: Array<{ key: string, label: string }>): Promise<string> {
-    const logger = getLogger();
-
-    logger.info(prompt);
-    choices.forEach(choice => {
-        logger.info(`   [${choice.key}] ${choice.label}`);
-    });
-    logger.info('');
-
-    // Check if stdin is a TTY (terminal) or piped
-    if (!process.stdin.isTTY) {
-        // STDIN is piped, we can't use interactive prompts
-        // This should not happen anymore due to fail-fast check in review.ts
-        logger.error('⚠️  Unexpected: STDIN is piped in interactive mode');
-        return 's'; // Default to skip
-    }
-
-    return new Promise(resolve => {
-        // Ensure stdin is referenced so the process doesn't exit while waiting for input
-        if (typeof process.stdin.ref === 'function') {
-            process.stdin.ref();
-        }
-
-        process.stdin.setRawMode(true);
-        process.stdin.resume();
-        process.stdin.on('data', (key) => {
-            const keyStr = key.toString().toLowerCase();
-            const choice = choices.find(c => c.key === keyStr);
-            if (choice) {
-                process.stdin.setRawMode(false);
-                process.stdin.pause();
-                // Detach stdin again now that we're done
-                if (typeof process.stdin.unref === 'function') {
-                    process.stdin.unref();
-                }
-                logger.info(`Selected: ${choice.label}\n`);
-                resolve(choice.key);
-            }
-        });
-    });
+    return await getUserChoiceInteractive(prompt, choices);
 }
 
 // Helper function to serialize issue to structured text format
@@ -429,4 +392,4 @@ export const handleIssueCreation = async (
     } else {
         return formatReviewResults(result);
     }
-}; 
+};

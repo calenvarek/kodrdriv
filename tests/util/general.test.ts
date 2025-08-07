@@ -273,9 +273,29 @@ describe('incrementPatchVersion', () => {
         expect(incrementPatchVersion('2.1.9999')).toBe('2.1.10000');
     });
 
+    test('should handle versions with v prefix', () => {
+        expect(incrementPatchVersion('v1.2.3')).toBe('1.2.4');
+        expect(incrementPatchVersion('v0.0.1')).toBe('0.0.2');
+        expect(incrementPatchVersion('v10.5.99')).toBe('10.5.100');
+    });
+
+    test('should handle pre-release versions', () => {
+        expect(incrementPatchVersion('4.6.24-dev.0')).toBe('4.6.25');
+        expect(incrementPatchVersion('v4.6.24-dev.0')).toBe('4.6.25');
+        expect(incrementPatchVersion('1.2.3-alpha.1')).toBe('1.2.4');
+        expect(incrementPatchVersion('1.2.3-beta')).toBe('1.2.4');
+        expect(incrementPatchVersion('1.2.3-rc.1')).toBe('1.2.4');
+        expect(incrementPatchVersion('1.2.3-snapshot')).toBe('1.2.4');
+    });
+
+    test('should handle complex pre-release versions', () => {
+        expect(incrementPatchVersion('2.0.0-alpha.beta.1')).toBe('2.0.1');
+        expect(incrementPatchVersion('v1.0.0-x.7.z.92')).toBe('1.0.1');
+        expect(incrementPatchVersion('1.2.10-20130313144700')).toBe('1.2.11');
+    });
+
     test('should throw error for invalid version string format', () => {
         expect(() => incrementPatchVersion('1.2')).toThrow('Invalid version string: 1.2');
-        expect(() => incrementPatchVersion('1.2.3.4')).toThrow('Invalid version string: 1.2.3.4');
         expect(() => incrementPatchVersion('1')).toThrow('Invalid version string: 1');
         expect(() => incrementPatchVersion('')).toThrow('Invalid version string: ');
     });
@@ -284,31 +304,40 @@ describe('incrementPatchVersion', () => {
         expect(() => incrementPatchVersion('1.2.abc')).toThrow('Invalid patch version: abc');
         expect(() => incrementPatchVersion('1.2.')).toThrow('Invalid patch version: ');
         expect(() => incrementPatchVersion('1.2.v3')).toThrow('Invalid patch version: v3');
-        // Note: '1.2.3a' parses as 3 via parseInt, so it doesn't throw
-        expect(incrementPatchVersion('1.2.3a')).toBe('1.2.4');
+        expect(() => incrementPatchVersion('v1.2.abc-dev.0')).toThrow('Invalid patch version: abc-dev');
     });
 
     test('should handle version strings with leading zeros', () => {
         expect(incrementPatchVersion('1.2.03')).toBe('1.2.4');
         expect(incrementPatchVersion('01.02.00')).toBe('01.02.1');
+        expect(incrementPatchVersion('v1.2.03-dev.0')).toBe('1.2.4');
     });
 
-    test('should throw error for version with non-numeric major or minor parts', () => {
+    test('should handle versions with non-numeric major or minor parts', () => {
         // Note: The function only validates the patch part, so these would pass
         // This documents the current behavior - major/minor validation could be added
-        expect(incrementPatchVersion('v1.2.3')).toBe('v1.2.4');
         expect(incrementPatchVersion('1.v2.3')).toBe('1.v2.4');
+        expect(incrementPatchVersion('major.minor.3')).toBe('major.minor.4');
     });
 
     test('should handle negative numbers in patch', () => {
         // Note: parseInt('-1', 10) returns -1, which is a valid number, so it gets incremented
         expect(incrementPatchVersion('1.2.-1')).toBe('1.2.0');
         expect(incrementPatchVersion('1.2.-5')).toBe('1.2.-4');
+        expect(incrementPatchVersion('v1.2.-1-dev.0')).toBe('1.2.0');
     });
 
-    test('should handle floating point numbers in patch', () => {
-        expect(() => incrementPatchVersion('1.2.3.5')).toThrow('Invalid version string: 1.2.3.5');
-        expect(incrementPatchVersion('1.2.3')).toBe('1.2.4'); // 3.5 would be parsed as 3
+    test('should handle multiple dots in version (more than 3 parts)', () => {
+        // The function now accepts versions with more than 3 parts (like semver with pre-release)
+        expect(incrementPatchVersion('1.2.3.4')).toBe('1.2.4'); // Only uses first 3 parts for version
+        expect(incrementPatchVersion('1.2.3.4.5')).toBe('1.2.4');
+    });
+
+    test('should handle edge cases with pre-release identifiers', () => {
+        // Note: '1.2.3a' parses as 3 via parseInt, so it doesn't throw
+        expect(incrementPatchVersion('1.2.3a')).toBe('1.2.4');
+        expect(incrementPatchVersion('1.2.3-')).toBe('1.2.4');
+        expect(incrementPatchVersion('v1.2.3-')).toBe('1.2.4');
     });
 });
 

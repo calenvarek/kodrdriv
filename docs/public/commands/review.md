@@ -55,7 +55,7 @@ When you run `kodrdriv review` without providing review notes via argument or ST
 > [!NOTE]
 > ### Editor Timeout
 >
-> The editor session has a **5-minute timeout** by default. If you need more time, consider preparing your review notes in advance or using the STDIN input method instead.
+> By default, the editor session has **no timeout** - you can take as much time as you need to craft your review note. If you want to set a timeout for safety, use the `--editor-timeout` option with a value in milliseconds (e.g., `--editor-timeout 300000` for 5 minutes).
 
 ### Configuring Your Editor
 
@@ -138,6 +138,7 @@ Simply type your review notes below the template comments. Lines starting with `
 **Other Options:**
 - `--context <context>`: Additional context for the review
 - `--sendit`: Create GitHub issues automatically without confirmation
+- `--editor-timeout <timeout>`: Timeout for editor in milliseconds (default: no timeout)
 
 ## File Outputs
 

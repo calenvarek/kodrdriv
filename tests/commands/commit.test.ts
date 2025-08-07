@@ -13,7 +13,10 @@ vi.mock('../../src/content/diff', () => ({
     create: vi.fn().mockReturnValue({
         get: vi.fn()
     }),
-    hasStagedChanges: vi.fn()
+    hasStagedChanges: vi.fn(),
+    hasCriticalExcludedChanges: vi.fn(),
+    getMinimalExcludedPatterns: vi.fn(),
+    truncateDiffByFiles: vi.fn()
 }));
 
 vi.mock('../../src/util/child', () => ({
@@ -24,7 +27,9 @@ vi.mock('../../src/util/child', () => ({
 
 vi.mock('../../src/util/openai', () => ({
     // @ts-ignore
-    createCompletion: vi.fn()
+    createCompletion: vi.fn(),
+    createCompletionWithRetry: vi.fn(),
+    getModelForCommand: vi.fn()
 }));
 
 vi.mock('@riotprompt/riotprompt', () => {
@@ -117,9 +122,10 @@ vi.mock('../../src/error/CommandErrors', () => ({
         }
     },
     CommandError: class CommandError extends Error {
-        constructor(message: string) {
+        constructor(message: string, cause?: Error) {
             super(message);
             this.name = 'CommandError';
+            this.cause = cause;
         }
     }
 }));
@@ -152,6 +158,29 @@ vi.mock('../../src/util/general', () => ({
 vi.mock('shell-escape', () => ({
     // @ts-ignore
     default: vi.fn()
+}));
+
+// Mock interactive utilities
+const mockGetUserChoice = vi.fn();
+const mockEditContentInEditor = vi.fn();
+const mockImproveContentWithLLM = vi.fn();
+const mockRequireTTY = vi.fn();
+const mockGetUserTextInput = vi.fn();
+const mockGetLLMFeedbackInEditor = vi.fn();
+
+vi.mock('../../src/util/interactive', () => ({
+    getUserChoice: mockGetUserChoice,
+    editContentInEditor: mockEditContentInEditor,
+    improveContentWithLLM: mockImproveContentWithLLM,
+    requireTTY: mockRequireTTY,
+    getUserTextInput: mockGetUserTextInput,
+    getLLMFeedbackInEditor: mockGetLLMFeedbackInEditor,
+    STANDARD_CHOICES: {
+        CONFIRM: { key: 'c', label: 'Confirm and proceed' },
+        EDIT: { key: 'e', label: 'Edit in editor' },
+        SKIP: { key: 's', label: 'Skip and abort' },
+        IMPROVE: { key: 'i', label: 'Improve with LLM feedback' }
+    }
 }));
 
 // Mock process.exit to prevent actual exit during tests
@@ -195,8 +224,50 @@ describe('commit', () => {
     });
 
     afterEach(() => {
-        vi.clearAllMocks();
+        // Clear only mock call history, not implementations
+        mockLogger.info.mockClear();
+        mockLogger.warn.mockClear();
+        mockLogger.error.mockClear();
+        mockLogger.debug.mockClear();
+        mockLogger.verbose.mockClear();
+        mockLogger.silly.mockClear();
+
+        // Clear mock call history for other mocks
+        // @ts-ignore
+        Diff.create.mockClear?.();
+        // @ts-ignore
+        Diff.hasCriticalExcludedChanges.mockClear?.();
+        // @ts-ignore
+        Diff.getMinimalExcludedPatterns.mockClear?.();
+        // @ts-ignore
+        Diff.hasStagedChanges.mockClear?.();
+        // @ts-ignore
+        OpenAI.createCompletionWithRetry.mockClear?.();
+        // @ts-ignore
+        OpenAI.getModelForCommand.mockClear?.();
+        // @ts-ignore
+        Child.run.mockClear?.();
+        // @ts-ignore
+        Child.runWithDryRunSupport.mockClear?.();
+        // @ts-ignore
+        Storage.create.mockClear?.();
+        // @ts-ignore
+        Safety.checkForFileDependencies.mockClear?.();
+        // @ts-ignore
+        Validation.validateString.mockClear?.();
         mockExit.mockClear();
+
+        // Reset the default mocks for new functions
+        // @ts-ignore
+        Diff.hasCriticalExcludedChanges.mockResolvedValue({ hasChanges: false, files: [] });
+        // @ts-ignore
+        Diff.getMinimalExcludedPatterns.mockReturnValue([]);
+        // @ts-ignore
+        Diff.hasStagedChanges.mockResolvedValue(false);
+        // @ts-ignore
+        OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
+        // @ts-ignore
+        Validation.validateString.mockImplementation((str) => str);
     });
 
     it('should execute commit with cached changes', async () => {
@@ -226,15 +297,15 @@ describe('commit', () => {
             format: vi.fn().mockReturnValue(mockRequest)
         });
         // @ts-ignore
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
+        OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
         // Act
         const result = await Commit.execute(mockConfig);
 
         // Assert
         expect(result).toBe(mockSummary);
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
-        expect(OpenAI.createCompletion).toHaveBeenCalled();
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'], maxDiffBytes: 2048 });
+        expect(OpenAI.createCompletionWithRetry).toHaveBeenCalled();
     });
 
     it('should check for staged changes when cached is undefined', async () => {
@@ -251,14 +322,14 @@ describe('commit', () => {
         Diff.hasStagedChanges.mockResolvedValue(true);
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
 
         // Assert
         expect(Diff.hasStagedChanges).toHaveBeenCalled();
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'], maxDiffBytes: 2048 });
     });
 
     it('should use cached=false when no staged changes and cached is undefined', async () => {
@@ -275,14 +346,14 @@ describe('commit', () => {
         Diff.hasStagedChanges.mockResolvedValue(false);
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
 
         // Assert
         expect(Diff.hasStagedChanges).toHaveBeenCalled();
-        expect(Diff.create).toHaveBeenCalledWith({ cached: false, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: false, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'], maxDiffBytes: 2048 });
     });
 
     it('should commit changes when sendit is true and changes are staged', async () => {
@@ -300,7 +371,7 @@ describe('commit', () => {
 
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
+        OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
         Child.run.mockResolvedValue({ stdout: 'Commit successful' });
         shellescape.mockReturnValue(mockEscapedSummary);
 
@@ -349,7 +420,7 @@ describe('commit', () => {
         Diff.hasStagedChanges.mockResolvedValue(false);
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
+        OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
         // Act
         const result = await Commit.execute(mockConfig);
@@ -373,16 +444,14 @@ describe('commit', () => {
 
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
+        OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
         Child.run.mockRejectedValue(mockError);
         shellescape.mockReturnValue("'test: add new feature'");
 
         // Act & Assert
         await expect(async () => {
             await Commit.execute(mockConfig);
-        }).rejects.toThrow('process.exit called');
-
-        expect(mockExit).toHaveBeenCalledWith(1);
+        }).rejects.toThrow('Failed to create commit');
     });
 
     it('should run "git add -A" and use cached diff when add is true', async () => {
@@ -405,7 +474,7 @@ describe('commit', () => {
             createCommitPrompt: vi.fn().mockResolvedValue('mock prompt'),
             format: vi.fn().mockReturnValue({ messages: [] })
         });
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
         Child.run.mockResolvedValue({ stdout: 'Success' });
 
         // Act
@@ -413,7 +482,7 @@ describe('commit', () => {
 
         // Assert
         expect(Child.run).toHaveBeenCalledWith('git add -A');
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'] });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: ['node_modules', 'package-lock.json', 'yarn.lock', 'bun.lockb', 'composer.lock', 'Cargo.lock', 'Gemfile.lock', 'dist', 'build', 'out', '.next', '.nuxt', 'coverage', '.vscode', '.idea', '.DS_Store', '.git', '.gitignore', 'logs', 'tmp', '.cache', '*.log', '.env', '.env.*', '*.pem', '*.crt', '*.key', '*.sqlite', '*.db', '*.zip', '*.tar', '*.gz', '*.exe', '*.bin'], maxDiffBytes: 2048 });
         expect(Diff.hasStagedChanges).not.toHaveBeenCalled();
     });
 
@@ -444,7 +513,7 @@ describe('commit', () => {
             createCommitPrompt: vi.fn().mockResolvedValue(mockPrompt),
             format: vi.fn().mockReturnValue({ messages: [] })
         });
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
@@ -477,7 +546,7 @@ describe('commit', () => {
         const CommitPromptModule = await import('../../src/prompt/commit');
         const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
 
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
@@ -504,7 +573,7 @@ describe('commit', () => {
 
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
@@ -527,13 +596,13 @@ describe('commit', () => {
 
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue('test commit');
+        OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
         // Act
         await Commit.execute(mockConfig);
 
         // Assert
-        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: customPatterns });
+        expect(Diff.create).toHaveBeenCalledWith({ cached: true, excludedPatterns: customPatterns, maxDiffBytes: 2048 });
     });
 
     it('should handle combination of add and sendit modes', async () => {
@@ -550,7 +619,7 @@ describe('commit', () => {
 
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
+        OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
         Child.run.mockResolvedValue({ stdout: 'Success' });
         shellescape.mockReturnValue("'test: add feature'");
 
@@ -587,7 +656,7 @@ describe('commit', () => {
         Logging.getDryRunLogger.mockReturnValue(mockLogger);
         // @ts-ignore
         Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-        OpenAI.createCompletion.mockResolvedValue(mockSummary);
+        OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
         Child.run.mockResolvedValue({ stdout: 'Success' });
         shellescape.mockReturnValue("'test: add feature'");
 
@@ -595,8 +664,9 @@ describe('commit', () => {
         await Commit.execute(mockConfig);
 
         // Assert
-        expect(mockLogger.verbose).toHaveBeenCalledWith('Adding all changes to the index...');
-        expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode enabled. Committing with message: \n\n%s\n\n', mockSummary);
+        expect(mockLogger.info).toHaveBeenCalledWith('📁 Adding all changes to the index (git add -A)...');
+        expect(mockLogger.info).toHaveBeenCalledWith('✅ Successfully staged all changes');
+        expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode enabled. %s with message: \n\n%s\n\n', 'Committing', mockSummary);
         expect(mockLogger.info).toHaveBeenCalledWith('Commit successful!');
     });
 
@@ -616,7 +686,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue('test commit');
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -641,7 +711,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -664,7 +734,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('') });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -693,7 +763,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Safety.checkForFileDependencies.mockResolvedValue(mockFileDependencies);
 
             // Instead of expecting the process to exit, we need to simulate how the ValidationError
@@ -736,7 +806,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Child.run.mockResolvedValue({ stdout: 'Success' });
             shellescape.mockReturnValue("'test: add feature'");
 
@@ -762,7 +832,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Safety.checkForFileDependencies.mockRejectedValue(new Error('File system error'));
             Child.run.mockResolvedValue({ stdout: 'Success' });
             shellescape.mockReturnValue("'test: add feature'");
@@ -791,7 +861,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -815,7 +885,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -842,7 +912,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Storage.create.mockReturnValue(mockStorage);
 
             // Act
@@ -870,7 +940,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Storage.create.mockReturnValue(mockStorage);
 
             // Act
@@ -898,7 +968,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Validation.validateString.mockReturnValue(mockSummary);
             Child.run.mockResolvedValue({ stdout: 'Success' });
             shellescape.mockReturnValue("'test: add feature'");
@@ -925,22 +995,15 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
             Validation.validateString.mockImplementation(() => {
                 throw new Error('Invalid commit message');
-            });
-
-            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-                throw new Error('process.exit called');
             });
 
             // Act & Assert
             await expect(async () => {
                 await Commit.execute(mockConfig);
-            }).rejects.toThrow('process.exit called');
-
-            expect(processExitSpy).toHaveBeenCalledWith(1);
-            processExitSpy.mockRestore();
+            }).rejects.toThrow('Failed to create commit');
         });
 
         it('should handle unexpected errors', async () => {
@@ -955,17 +1018,10 @@ describe('commit', () => {
                 throw new Error('Unexpected error');
             });
 
-            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-                throw new Error('process.exit called');
-            });
-
             // Act & Assert
             await expect(async () => {
                 await Commit.execute(mockConfig);
-            }).rejects.toThrow('process.exit called');
-
-            expect(processExitSpy).toHaveBeenCalledWith(1);
-            processExitSpy.mockRestore();
+            }).rejects.toThrow('Unexpected error');
         });
     });
 
@@ -983,14 +1039,14 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('') });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
 
             // Assert
             expect(result).toBe(mockSummary);
-            expect(OpenAI.createCompletion).toHaveBeenCalled();
+            expect(OpenAI.createCompletionWithRetry).toHaveBeenCalled();
         });
 
         it('should return early when no changes and sendit is true', async () => {
@@ -1011,7 +1067,7 @@ describe('commit', () => {
 
             // Assert
             expect(result).toBe('No changes to commit.');
-            expect(OpenAI.createCompletion).not.toHaveBeenCalled();
+            expect(OpenAI.createCompletionWithRetry).not.toHaveBeenCalled();
         });
     });
 
@@ -1032,7 +1088,7 @@ describe('commit', () => {
             const CommitPromptModule = await import('../../src/prompt/commit');
             const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
 
-            OpenAI.createCompletion.mockResolvedValue('test commit');
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
             // Act
             await Commit.execute(mockConfig);
@@ -1061,7 +1117,7 @@ describe('commit', () => {
             const CommitPromptModule = await import('../../src/prompt/commit');
             const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
 
-            OpenAI.createCompletion.mockResolvedValue('test commit');
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
             // Act
             await Commit.execute(mockConfig);
@@ -1090,7 +1146,7 @@ describe('commit', () => {
             const CommitPromptModule = await import('../../src/prompt/commit');
             const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
 
-            OpenAI.createCompletion.mockResolvedValue('test commit');
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
             // Act
             await Commit.execute(mockConfig);
@@ -1123,7 +1179,7 @@ describe('commit', () => {
             const CommitPromptModule = await import('../../src/prompt/commit');
             const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
 
-            OpenAI.createCompletion.mockResolvedValue('test commit');
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit');
 
             // Act
             await Commit.execute(mockConfig);
@@ -1176,26 +1232,71 @@ describe('commit', () => {
             // @ts-ignore
             Log.create.mockReturnValue({ get: vi.fn().mockResolvedValue('log content') });
             // @ts-ignore
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Mock git commit failure
             // @ts-ignore
             Child.run.mockRejectedValue(new Error('git commit failed'));
 
-            const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-                throw new Error('process.exit called');
-            });
-
             // Act & Assert
             await expect(async () => {
                 await Commit.execute(mockConfig);
-            }).rejects.toThrow('process.exit called');
-
-            processExitSpy.mockRestore();
+            }).rejects.toThrow('Failed to create commit');
         });
     });
 
     describe('sendIt Mode Edge Cases', () => {
+        beforeEach(() => {
+            // Clear only mock call history, not implementations
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+            mockLogger.verbose.mockClear();
+            mockLogger.silly.mockClear();
+
+            // Re-establish logger mock implementation to ensure it returns our mockLogger
+            // @ts-ignore
+            const { getDryRunLogger } = Logging;
+            getDryRunLogger.mockReturnValue(mockLogger);
+
+            // Clear mock call history for other mocks
+            // @ts-ignore
+            Diff.create.mockClear?.();
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockClear?.();
+            // @ts-ignore
+            Diff.getMinimalExcludedPatterns.mockClear?.();
+            // @ts-ignore
+            Diff.hasStagedChanges.mockClear?.();
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockClear?.();
+            // @ts-ignore
+            OpenAI.getModelForCommand.mockClear?.();
+            // @ts-ignore
+            Child.run.mockClear?.();
+            // @ts-ignore
+            Child.runWithDryRunSupport.mockClear?.();
+            // @ts-ignore
+            Storage.create.mockClear?.();
+            // @ts-ignore
+            Safety.checkForFileDependencies.mockClear?.();
+            // @ts-ignore
+            Validation.validateString.mockClear?.();
+
+            // Reset mock return values to defaults
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({ hasChanges: false, files: [] });
+            // @ts-ignore
+            Diff.getMinimalExcludedPatterns.mockReturnValue([]);
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+            // @ts-ignore
+            OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
+            // @ts-ignore
+            Validation.validateString.mockImplementation((str) => str);
+        });
+
         it('should show message when sendit is enabled but no actual changes to commit', async () => {
             // Arrange
             const mockConfig = {
@@ -1209,14 +1310,19 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('  \n  ') }); // Whitespace only
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: false,
+                files: []
+            });
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
 
             // Assert
             expect(result).toBe('No changes to commit.');
-            expect(OpenAI.createCompletion).not.toHaveBeenCalled();
+            expect(OpenAI.createCompletionWithRetry).not.toHaveBeenCalled();
         });
 
         it('should show generated message when sendit is enabled but changes are not cached', async () => {
@@ -1233,15 +1339,1415 @@ describe('commit', () => {
 
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
-            OpenAI.createCompletion.mockResolvedValue(mockSummary);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
 
             // Act
             const result = await Commit.execute(mockConfig);
 
             // Assert
             expect(result).toBe(mockSummary);
-            expect(OpenAI.createCompletion).toHaveBeenCalled();
+            expect(OpenAI.createCompletionWithRetry).toHaveBeenCalled();
             expect(Child.run).not.toHaveBeenCalled(); // Should not run git commit because cached is false
+        });
+
+        it('should detect and include critical files in sendit mode when no regular changes', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: false,
+                    sendit: true
+                }
+            };
+            const mockDiffContent = 'diff --git a/package-lock.json\n+added dependency';
+            const mockSummary = 'build: update dependencies';
+
+            // First diff call returns empty (no regular changes)
+            const mockEmptyDiff = { get: vi.fn().mockResolvedValue('  \n  ') };
+            // Second diff call with minimal patterns returns actual changes
+            const mockCriticalDiff = { get: vi.fn().mockResolvedValue(mockDiffContent) };
+
+            // @ts-ignore
+            Diff.create.mockReturnValueOnce(mockEmptyDiff).mockReturnValueOnce(mockCriticalDiff);
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['package-lock.json']
+            });
+            // @ts-ignore
+            Diff.getMinimalExcludedPatterns.mockReturnValue(['node_modules', 'dist']);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe(mockSummary);
+            expect(Diff.hasCriticalExcludedChanges).toHaveBeenCalled();
+            expect(Diff.getMinimalExcludedPatterns).toHaveBeenCalled();
+            expect(Diff.create).toHaveBeenCalledTimes(2);
+            expect(OpenAI.createCompletionWithRetry).toHaveBeenCalled();
+        });
+
+        it('should suggest command line options when critical files detected but not in sendit mode', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: false,
+                    sendit: false
+                }
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('  \n  ') });
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['package-lock.json', '.gitignore']
+            });
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('No changes to commit. Use suggestions above to include critical files.');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Consider including these files by using:');
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                '  kodrdriv commit --excluded-paths %s',
+                expect.stringContaining('"node_modules"')
+            );
+            expect(mockLogger.warn).toHaveBeenCalledWith('Or run with --sendit to automatically include critical files.');
+        });
+
+        it('should handle case when no critical files are detected', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: false,
+                    sendit: true
+                }
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('  \n  ') });
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: false,
+                files: []
+            });
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('No changes to commit.');
+            expect(Diff.getMinimalExcludedPatterns).not.toHaveBeenCalled();
+        });
+
+        it('should handle critical files with no actual changes after inclusion', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: false,
+                    sendit: true
+                }
+            };
+
+            // First diff call returns empty (no regular changes)
+            const mockEmptyDiff = { get: vi.fn().mockResolvedValue('  \n  ') };
+            // Second diff call with minimal patterns still returns empty
+            const mockStillEmptyDiff = { get: vi.fn().mockResolvedValue('  \n  ') };
+
+            // @ts-ignore
+            Diff.create.mockReturnValueOnce(mockEmptyDiff).mockReturnValueOnce(mockStillEmptyDiff);
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['package-lock.json']
+            });
+            // @ts-ignore
+            Diff.getMinimalExcludedPatterns.mockReturnValue(['node_modules', 'dist']);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('No changes to commit.');
+            expect(mockLogger.warn).toHaveBeenCalledWith('No changes detected even after including critical files.');
+        });
+
+        it('should handle excluded files in dry-run mode by generating template', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                dryRun: true,
+                commit: {
+                    cached: false,
+                    sendit: false
+                }
+            };
+            const mockSummary = 'test: template message for critical files';
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('  \n  ') });
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['package-lock.json', '.gitignore']
+            });
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe(mockSummary);
+            expect(mockLogger.info).toHaveBeenCalledWith('Generating commit message template for future use...');
+            expect(OpenAI.createCompletionWithRetry).toHaveBeenCalled();
+        });
+
+        it('should include critical files when using --add and sendit mode', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    add: true,
+                    sendit: true
+                }
+            };
+            const mockDiffContent = 'diff --git a/package-lock.json\n+added dependency';
+            const mockSummary = 'build: update dependencies';
+
+            // First diff call returns empty (no regular changes)
+            const mockEmptyDiff = { get: vi.fn().mockResolvedValue('  \n  ') };
+            // Second diff call with minimal patterns returns actual changes
+            const mockCriticalDiff = { get: vi.fn().mockResolvedValue(mockDiffContent) };
+
+            // @ts-ignore
+            Diff.create.mockReturnValueOnce(mockEmptyDiff).mockReturnValueOnce(mockCriticalDiff);
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['package-lock.json']
+            });
+            // @ts-ignore
+            Diff.getMinimalExcludedPatterns.mockReturnValue(['node_modules', 'dist']);
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(true);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
+            Child.run.mockResolvedValue({ stdout: 'Success' });
+            shellescape.mockReturnValue("'build: update dependencies'");
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe(mockSummary);
+            expect(Child.run).toHaveBeenCalledWith('git add -A'); // Should add first
+            expect(Diff.hasCriticalExcludedChanges).toHaveBeenCalled();
+            expect(Diff.getMinimalExcludedPatterns).toHaveBeenCalled();
+            expect(Diff.create).toHaveBeenCalledTimes(2);
+            expect(Child.run).toHaveBeenCalledTimes(2);
+            expect(Child.run).toHaveBeenNthCalledWith(2, "git commit -m 'build: update dependencies'");
+        });
+
+        it('should suggest using --excluded-paths to manually include critical files', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                excludedPatterns: ['node_modules', 'package-lock.json', '.gitignore', 'dist'],
+                commit: {
+                    cached: false,
+                    sendit: false
+                }
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue('') });
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['package-lock.json', '.gitignore']
+            });
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+            OpenAI.createCompletionWithRetry.mockResolvedValue('mock commit message');
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('No changes to commit. Use suggestions above to include critical files.');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Consider including these files by using:');
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                '  kodrdriv commit --excluded-paths %s',
+                expect.stringContaining('"node_modules"')
+            );
+            expect(mockLogger.warn).toHaveBeenCalledWith('Or run with --sendit to automatically include critical files.');
+        });
+
+        it('should detect multiple types of critical files', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: false,
+                    sendit: true
+                }
+            };
+            const mockDiffContent = 'diff --git a/yarn.lock\n+package updates\ndiff --git a/.env.example\n+new env var';
+            const mockSummary = 'chore: update dependencies and environment template';
+
+            // First diff call returns empty (no regular changes)
+            const mockEmptyDiff = { get: vi.fn().mockResolvedValue('  \n  ') };
+            // Second diff call with minimal patterns returns actual changes
+            const mockCriticalDiff = { get: vi.fn().mockResolvedValue(mockDiffContent) };
+
+            // @ts-ignore
+            Diff.create.mockReturnValueOnce(mockEmptyDiff).mockReturnValueOnce(mockCriticalDiff);
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({
+                hasChanges: true,
+                files: ['yarn.lock', '.env.example', 'bun.lockb']
+            });
+            // @ts-ignore
+            Diff.getMinimalExcludedPatterns.mockReturnValue(['node_modules', 'dist']);
+            OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+            Child.run.mockResolvedValue({ stdout: 'Success' });
+            shellescape.mockReturnValue("'chore: update dependencies and environment template'");
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe(mockSummary);
+            expect(mockLogger.info).toHaveBeenCalledWith(
+                'No changes found with current exclusion patterns, but detected changes to critical files: %s',
+                'yarn.lock, .env.example, bun.lockb'
+            );
+            expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode: Including critical files in diff...');
+            expect(mockLogger.info).toHaveBeenCalledWith('Successfully included critical files in diff.');
+        });
+    });
+
+    describe('Amend Mode Tests', () => {
+        beforeEach(() => {
+            // Clear all mocks
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+            mockLogger.verbose.mockClear();
+            mockLogger.silly.mockClear();
+
+            // Reset default mocks
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+            // @ts-ignore
+            Child.run.mockResolvedValue({ stdout: 'Success' });
+            // @ts-ignore
+            shellescape.mockReturnValue("'test commit message'");
+        });
+
+        it('should use amend mode when configured', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    amend: true,
+                    sendit: true
+                }
+            };
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(Child.run).toHaveBeenCalledWith("git commit --amend -m 'test commit message'");
+        });
+
+        it('should validate that commits exist before using amend mode', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    amend: true
+                }
+            };
+
+            // Mock hasCommits to return false (no previous commits)
+            // @ts-ignore
+            Child.run.mockRejectedValueOnce(new Error('No commits found'));
+
+            // Act & Assert
+            await expect(Commit.execute(mockConfig)).rejects.toThrow('Cannot use --amend: no commits found in repository. Create an initial commit first.');
+        });
+
+        it('should use cached changes when amend is enabled', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    amend: true
+                }
+            };
+
+            // Act
+            await Commit.execute(mockConfig);
+
+            // Assert
+            expect(Diff.create).toHaveBeenCalledWith({
+                cached: true,
+                excludedPatterns: expect.any(Array),
+                maxDiffBytes: expect.any(Number)
+            });
+        });
+
+        it('should show amend option in interactive mode', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    amend: true,
+                    interactive: true,
+                    sendit: true
+                }
+            };
+
+            mockGetUserChoice.mockResolvedValue('c');
+
+            // Act
+            await Commit.execute(mockConfig);
+
+            // Assert
+            expect(mockGetUserChoice).toHaveBeenCalledWith(
+                '\nWhat would you like to do with this commit message?',
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        key: 'c',
+                        label: 'Amend last commit with this message (sendit enabled)'
+                    })
+                ]),
+                expect.any(Object)
+            );
+        });
+
+        it('should handle amend mode in dry run', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                dryRun: true,
+                commit: {
+                    amend: true,
+                    sendit: true
+                }
+            };
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith('Would execute: %s', 'git commit --amend -m <generated-message>');
+        });
+    });
+
+    describe('Retry Callback Tests', () => {
+        beforeEach(() => {
+            // Clear all mocks
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+            mockLogger.verbose.mockClear();
+            mockLogger.silly.mockClear();
+        });
+
+        it('should trigger retry callback on token limit errors', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: true,
+                    maxDiffBytes: 4096
+                }
+            };
+            const originalDiff = 'very large diff content that exceeds token limits'.repeat(100);
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue(originalDiff)
+            });
+
+            let retryCount = 0;
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockImplementation(async (messages, options, retryCallback) => {
+                if (retryCallback && retryCount === 0) {
+                    retryCount++;
+                    // Just verify the callback is called - we don't need to test the full retry logic here
+                    await retryCallback(1);
+                }
+                return 'test commit message';
+            });
+
+            // @ts-ignore
+            Diff.truncateDiffByFiles.mockReturnValue('truncated diff content');
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith('Retrying with reduced diff size (attempt %d)', 1);
+        });
+
+        it('should progressively reduce diff size on multiple retries', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: true,
+                    maxDiffBytes: 4096
+                }
+            };
+            const originalDiff = 'large diff content'.repeat(100);
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue(originalDiff)
+            });
+
+            let retryCount = 0;
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockImplementation(async (messages, options, retryCallback) => {
+                if (retryCallback && retryCount < 2) {
+                    retryCount++;
+                    await retryCallback(retryCount);
+                }
+                return 'test commit message';
+            });
+
+            // @ts-ignore
+            Diff.truncateDiffByFiles.mockReturnValue('progressively truncated diff');
+
+            // Act
+            await Commit.execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.debug).toHaveBeenCalledWith('Reducing maxDiffBytes from %d to %d for retry', 4096, expect.any(Number));
+            expect(Diff.truncateDiffByFiles).toHaveBeenCalledTimes(retryCount);
+        });
+
+        it('should ensure minimum diff size is maintained during retries', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: true,
+                    maxDiffBytes: 1024
+                }
+            };
+
+            let actualReducedSize = 0;
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockImplementation(async (messages, options, retryCallback) => {
+                if (retryCallback) {
+                    // Simulate multiple retries to test minimum size
+                    await retryCallback(5); // Should reduce to minimum of 512
+                }
+                return 'test commit message';
+            });
+
+            // @ts-ignore
+            Diff.truncateDiffByFiles.mockImplementation((content, maxBytes) => {
+                actualReducedSize = maxBytes;
+                return content.substring(0, maxBytes);
+            });
+
+            // Act
+            await Commit.execute(mockConfig);
+
+            // Assert
+            expect(actualReducedSize).toBe(512); // Should not go below 512 bytes
+        });
+    });
+
+    describe('Commit Message Saving with Fallback Tests', () => {
+        beforeEach(() => {
+            // Clear all mocks
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+            mockLogger.verbose.mockClear();
+            mockLogger.silly.mockClear();
+        });
+
+        it('should save to primary location successfully', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                outputDirectory: 'custom-output',
+                commit: { cached: true }
+            };
+            const mockStorage = {
+                writeFile: vi.fn().mockResolvedValue(undefined),
+                ensureDirectory: vi.fn().mockResolvedValue(undefined)
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+            // @ts-ignore
+            Storage.create.mockReturnValue(mockStorage);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockStorage.writeFile).toHaveBeenCalledWith(
+                'custom-output/commit-message-test.md',
+                'test commit message',
+                'utf-8'
+            );
+            expect(mockLogger.debug).toHaveBeenCalledWith('Saved timestamped commit message: %s', 'custom-output/commit-message-test.md');
+        });
+
+        it('should fallback to output directory when primary location fails', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                outputDirectory: 'failing-output',
+                commit: { cached: true }
+            };
+            const mockStorage = {
+                writeFile: vi.fn()
+                    .mockRejectedValueOnce(new Error('Primary location failed'))
+                    .mockResolvedValueOnce(undefined), // Fallback succeeds
+                ensureDirectory: vi.fn().mockResolvedValue(undefined)
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+            // @ts-ignore
+            Storage.create.mockReturnValue(mockStorage);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockStorage.writeFile).toHaveBeenCalledTimes(2);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                'Failed to save commit message to primary location (%s): %s',
+                'failing-output/commit-message-test.md',
+                'Primary location failed'
+            );
+            expect(mockLogger.info).toHaveBeenCalledWith(
+                'Saved commit message to output directory fallback: %s',
+                'output/commit-message-test.md'
+            );
+        });
+
+        it('should fallback to current directory as last resort', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: { cached: true }
+            };
+            const mockStorage = {
+                writeFile: vi.fn()
+                    .mockRejectedValueOnce(new Error('Primary location failed'))
+                    .mockRejectedValueOnce(new Error('Output fallback failed'))
+                    .mockResolvedValueOnce(undefined), // Last resort succeeds
+                ensureDirectory: vi.fn().mockResolvedValue(undefined)
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+            // @ts-ignore
+            Storage.create.mockReturnValue(mockStorage);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockStorage.writeFile).toHaveBeenCalledTimes(3);
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                'Failed to save to output directory fallback: %s',
+                'Output fallback failed'
+            );
+            expect(mockLogger.warn).toHaveBeenCalledWith(
+                '⚠️  Saved commit message to current directory as last resort: %s',
+                expect.stringMatching(/commit-message-\d+\.txt/)
+            );
+        });
+
+        it('should handle complete failure to save commit message', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: { cached: true }
+            };
+            const mockStorage = {
+                writeFile: vi.fn().mockRejectedValue(new Error('All save locations failed')),
+                ensureDirectory: vi.fn().mockResolvedValue(undefined)
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+            // @ts-ignore
+            Storage.create.mockReturnValue(mockStorage);
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockStorage.writeFile).toHaveBeenCalledTimes(3);
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                'Failed to save commit message anywhere: %s',
+                'All save locations failed'
+            );
+            expect(mockLogger.error).toHaveBeenCalledWith(
+                'Commit message will only be available in console output'
+            );
+        });
+    });
+
+    describe('Interactive Mode Tests', () => {
+        beforeEach(() => {
+            // Clear all mocks
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+            mockLogger.verbose.mockClear();
+            mockLogger.silly.mockClear();
+            mockGetUserChoice.mockClear();
+            mockEditContentInEditor.mockClear();
+            mockImproveContentWithLLM.mockClear();
+            mockRequireTTY.mockClear();
+            mockGetUserTextInput.mockClear();
+            mockGetLLMFeedbackInEditor.mockClear();
+
+            // Re-establish logger mock implementation
+            // @ts-ignore
+            const { getDryRunLogger } = Logging;
+            getDryRunLogger.mockReturnValue(mockLogger);
+
+            // Clear mock call history for other mocks
+            // @ts-ignore
+            Diff.create.mockClear?.();
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockClear?.();
+            // @ts-ignore
+            Diff.hasStagedChanges.mockClear?.();
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockClear?.();
+            // @ts-ignore
+            OpenAI.getModelForCommand.mockClear?.();
+            // @ts-ignore
+            Child.run.mockClear?.();
+            // @ts-ignore
+            Storage.create.mockClear?.();
+            // @ts-ignore
+            Safety.checkForFileDependencies.mockClear?.();
+            // @ts-ignore
+            Validation.validateString.mockClear?.();
+
+            // Default mocks for interactive tests
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(true);
+            // @ts-ignore
+            Diff.hasCriticalExcludedChanges.mockResolvedValue({ hasChanges: false, files: [] });
+            // @ts-ignore
+            Log.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('log content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+            // @ts-ignore
+            OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
+            // @ts-ignore
+            Validation.validateString.mockImplementation((str) => str);
+            // @ts-ignore
+            shellescape.mockImplementation((args) => args.join(' '));
+
+            // Reset requireTTY mock to not throw by default
+            mockRequireTTY.mockImplementation(() => {
+                // Do nothing by default - let interactive mode proceed
+            });
+
+            // Mock TTY
+            Object.defineProperty(process.stdin, 'isTTY', {
+                writable: true,
+                value: true
+            });
+        });
+
+        it('should handle interactive mode with non-TTY gracefully', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: true,
+                    interactive: true
+                }
+            };
+
+            // Mock non-TTY environment
+            Object.defineProperty(process.stdin, 'isTTY', {
+                writable: true,
+                value: false
+            });
+
+            // Override requireTTY to throw for this specific test
+            mockRequireTTY.mockImplementation(() => {
+                throw new Error('Interactive mode requires a terminal. Use --sendit or --dry-run instead.');
+            });
+
+            // Act & Assert
+            await expect(Commit.execute(mockConfig)).rejects.toThrow(
+                expect.objectContaining({
+                    message: expect.stringContaining('Interactive mode requires a terminal')
+                })
+            );
+
+            expect(mockLogger.error).toHaveBeenCalledWith('commit encountered unexpected error: Interactive mode requires a terminal. Use --sendit or --dry-run instead.');
+        });
+
+        it('should not enter interactive mode when dry-run is enabled', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                dryRun: true,
+                commit: {
+                    cached: true,
+                    interactive: true
+                }
+            };
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith(
+                'Generated commit message: \n\n%s\n\n', 'test commit message'
+            );
+            expect(mockGetUserChoice).not.toHaveBeenCalled();
+        });
+
+        describe('sendit configuration with interactive mode', () => {
+            it('should show commit option when sendit is enabled and has staged changes', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        sendit: true,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice.mockResolvedValue('c');
+                // @ts-ignore
+                Child.run.mockResolvedValue(undefined);
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockGetUserChoice).toHaveBeenCalledWith(
+                    '\nWhat would you like to do with this commit message?',
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            key: 'c',
+                            label: 'Commit changes with this message (sendit enabled)'
+                        })
+                    ]),
+                    expect.any(Object)
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '\n⚙️  SendIt mode is ACTIVE - choosing "Commit" will run git commit automatically'
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '🚀 SendIt enabled: %s with final message: \n\n%s\n\n', 'Committing', 'test commit message'
+                );
+                expect(Child.run).toHaveBeenCalledWith('git commit -m test commit message');
+                expect(result).toBe('test commit message');
+            });
+
+            it('should show accept option when sendit is disabled', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        sendit: false,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice.mockResolvedValue('c');
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockGetUserChoice).toHaveBeenCalledWith(
+                    '\nWhat would you like to do with this commit message?',
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            key: 'c',
+                            label: 'Accept message (you will need to commit manually)'
+                        })
+                    ]),
+                    expect.any(Object)
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '\n⚙️  SendIt mode is NOT active - choosing "Accept" will only save the message'
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '📝 Message accepted (SendIt not enabled). Use this commit message manually: \n\n%s\n\n', 'test commit message'
+                );
+                expect(Child.run).not.toHaveBeenCalled();
+                expect(result).toBe('test commit message');
+            });
+
+            it('should show sendit configured but no staged changes message', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        sendit: true,
+                        cached: false
+                    }
+                };
+
+                // @ts-ignore
+                Diff.hasStagedChanges.mockResolvedValue(false);
+                mockGetUserChoice.mockResolvedValue('c');
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockGetUserChoice).toHaveBeenCalledWith(
+                    '\nWhat would you like to do with this commit message?',
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            key: 'c',
+                            label: 'Accept message (you will need to commit manually)'
+                        })
+                    ]),
+                    expect.any(Object)
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '\n⚙️  SendIt mode is configured but no staged changes available for commit'
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '📝 SendIt enabled but no staged changes available. Final message saved: \n\n%s\n\n', 'test commit message'
+                );
+                expect(Child.run).not.toHaveBeenCalled();
+                expect(result).toBe('test commit message');
+            });
+        });
+
+        describe('add configuration with interactive mode', () => {
+            it('should show improved logging when add is configured', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        add: true,
+                        sendit: true
+                    }
+                };
+
+                mockGetUserChoice.mockResolvedValue('c');
+                // @ts-ignore
+                Child.run.mockResolvedValue(undefined);
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockLogger.info).toHaveBeenCalledWith('📁 Adding all changes to the index (git add -A)...');
+                expect(mockLogger.info).toHaveBeenCalledWith('✅ Successfully staged all changes');
+                expect(Child.run).toHaveBeenCalledWith('git add -A');
+                expect(result).toBe('test commit message');
+            });
+        });
+
+        describe('interactive choice handling', () => {
+            it('should handle skip choice correctly', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        sendit: true,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice.mockResolvedValue('s');
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockLogger.info).toHaveBeenCalledWith('❌ Commit aborted by user');
+                expect(Child.run).not.toHaveBeenCalled();
+                expect(result).toBe('test commit message');
+            });
+
+            it('should handle edit choice correctly', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        sendit: true,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice
+                    .mockResolvedValueOnce('e') // First choice: edit
+                    .mockResolvedValueOnce('c'); // Second choice: commit
+                mockEditContentInEditor.mockResolvedValue({ content: 'edited commit message' });
+                // @ts-ignore
+                Child.run.mockResolvedValue(undefined);
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockEditContentInEditor).toHaveBeenCalledWith(
+                    'test commit message',
+                    expect.any(Array),
+                    '.txt'
+                );
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '🚀 SendIt enabled: %s with final message: \n\n%s\n\n', 'Committing', 'edited commit message'
+                );
+                expect(Child.run).toHaveBeenCalledWith('git commit -m edited commit message');
+                expect(result).toBe('edited commit message');
+            });
+
+            it('should handle improve choice correctly', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        sendit: true,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice
+                    .mockResolvedValueOnce('i') // First choice: improve
+                    .mockResolvedValueOnce('c'); // Second choice: commit
+                mockGetLLMFeedbackInEditor.mockResolvedValue('Please make it more detailed');
+                mockImproveContentWithLLM.mockResolvedValue('improved commit message');
+                // @ts-ignore
+                Child.run.mockResolvedValue(undefined);
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(mockGetLLMFeedbackInEditor).toHaveBeenCalledWith(
+                    'commit message',
+                    expect.any(String)
+                );
+                expect(mockImproveContentWithLLM).toHaveBeenCalled();
+                expect(mockLogger.info).toHaveBeenCalledWith(
+                    '🚀 SendIt enabled: %s with final message: \n\n%s\n\n', 'Committing', 'improved commit message'
+                );
+                expect(Child.run).toHaveBeenCalledWith('git commit -m improved commit message');
+                expect(result).toBe('improved commit message');
+            });
+        });
+
+        it('should handle sendit taking precedence over interactive in dry run', async () => {
+            // Arrange - both interactive and sendit should not be used together
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                dryRun: true, // Use dry run to avoid interactive prompts
+                commit: {
+                    cached: true,
+                    interactive: true,
+                    sendit: true // This should take precedence
+                }
+            };
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert - sendit should take precedence when both are specified
+            expect(result).toBe('test commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith(
+                'Would commit with message: \n\n%s\n\n', 'test commit message'
+            );
+            expect(mockGetUserChoice).not.toHaveBeenCalled();
+        });
+
+        describe('interactive edit and improve error handling', () => {
+            it('should handle edit errors gracefully in interactive mode', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice
+                    .mockResolvedValueOnce('e') // First choice: edit (fails)
+                    .mockResolvedValueOnce('c'); // Second choice: commit
+                mockEditContentInEditor.mockRejectedValueOnce(new Error('Editor failed'));
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(result).toBe('test commit message');
+                expect(mockLogger.error).toHaveBeenCalledWith('Failed to edit commit message: Editor failed');
+                // Should continue and allow user to try again
+                expect(mockGetUserChoice).toHaveBeenCalledTimes(2);
+            });
+
+            it('should handle LLM improvement errors gracefully in interactive mode', async () => {
+                // Arrange
+                const mockConfig = {
+                    model: 'gpt-3.5-turbo',
+                    commit: {
+                        interactive: true,
+                        cached: true
+                    }
+                };
+
+                mockGetUserChoice
+                    .mockResolvedValueOnce('i') // First choice: improve (fails)
+                    .mockResolvedValueOnce('c'); // Second choice: commit
+                mockGetLLMFeedbackInEditor.mockResolvedValue('Make it better');
+                mockImproveContentWithLLM.mockRejectedValueOnce(new Error('LLM improvement failed'));
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(result).toBe('test commit message');
+                expect(mockLogger.error).toHaveBeenCalledWith('Failed to improve commit message: LLM improvement failed');
+                // Should continue and allow user to try again
+                expect(mockGetUserChoice).toHaveBeenCalledTimes(2);
+            });
+        });
+    });
+
+    describe('Advanced Error Handling and Edge Cases', () => {
+        beforeEach(() => {
+            // Clear all mocks
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+            mockLogger.verbose.mockClear();
+            mockLogger.silly.mockClear();
+        });
+
+        it('should handle ValidationError properly', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: { cached: true }
+            };
+
+            const { ValidationError } = await import('../../src/error/CommandErrors');
+            // @ts-ignore
+            Diff.create.mockImplementation(() => {
+                throw new ValidationError('Invalid diff configuration');
+            });
+
+            // Act & Assert
+            await expect(Commit.execute(mockConfig)).rejects.toThrow('Invalid diff configuration');
+            expect(mockLogger.error).toHaveBeenCalledWith('commit failed: Invalid diff configuration');
+        });
+
+        it('should handle ExternalDependencyError properly', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: { cached: true }
+            };
+
+            const { ExternalDependencyError } = await import('../../src/error/CommandErrors');
+            const cause = new Error('Git not found');
+            // @ts-ignore
+            Diff.create.mockImplementation(() => {
+                throw new ExternalDependencyError('Git dependency error', 'git', cause);
+            });
+
+            // Act & Assert
+            await expect(Commit.execute(mockConfig)).rejects.toThrow('Git dependency error');
+            expect(mockLogger.error).toHaveBeenCalledWith('commit failed: Git dependency error');
+            expect(mockLogger.debug).toHaveBeenCalledWith('Caused by: Git not found');
+        });
+
+        it('should handle CommandError properly', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: { cached: true }
+            };
+
+            const { CommandError } = await import('../../src/error/CommandErrors');
+            // @ts-ignore
+            Diff.create.mockImplementation(() => {
+                throw new CommandError('Command execution failed', 'EXECUTION_FAILED', false, new Error('underlying error'));
+            });
+
+            // Act & Assert
+            await expect(Commit.execute(mockConfig)).rejects.toThrow('Command execution failed');
+            expect(mockLogger.error).toHaveBeenCalledWith('commit failed: Command execution failed');
+        });
+
+        it('should handle custom maxDiffBytes configuration', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    cached: true,
+                    maxDiffBytes: 8192
+                }
+            };
+            const mockDiffContent = 'custom diff content';
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue(mockDiffContent)
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+
+            // Act
+            await Commit.execute(mockConfig);
+
+            // Assert
+            expect(Diff.create).toHaveBeenCalledWith({
+                cached: true,
+                excludedPatterns: expect.any(Array),
+                maxDiffBytes: 8192
+            });
+        });
+
+        it('should handle model selection properly', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-4',
+                commit: { cached: true }
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.getModelForCommand.mockReturnValue('gpt-4');
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+
+            // Act
+            await Commit.execute(mockConfig);
+
+            // Assert
+            expect(OpenAI.getModelForCommand).toHaveBeenCalledWith(mockConfig, 'commit');
+        });
+
+        it('should skip user interaction when user explicitly skipped', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    interactive: true,
+                    sendit: true,
+                    cached: true
+                }
+            };
+
+            mockGetUserChoice.mockResolvedValue('s'); // Skip
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith('❌ Commit aborted by user');
+            expect(Child.run).not.toHaveBeenCalled();
+        });
+
+        it('should handle complex sendit validation scenarios', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    sendit: true,
+                    cached: false
+                }
+            };
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('some diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith('SendIt mode enabled, but no changes to commit. Generated message: \n\n%s\n\n', 'test commit message');
+            expect(Child.run).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Helper Function Coverage', () => {
+        beforeEach(() => {
+            mockLogger.info.mockClear();
+            mockLogger.warn.mockClear();
+            mockLogger.error.mockClear();
+            mockLogger.debug.mockClear();
+        });
+
+        it('should handle hasCommits check for repositories with commits', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    amend: true,
+                    sendit: true
+                }
+            };
+
+            // Mock successful rev-parse (commits exist)
+            // @ts-ignore
+            Child.run.mockImplementation((cmd) => {
+                if (cmd === 'git rev-parse HEAD') {
+                    return Promise.resolve({ stdout: 'abc123def456' });
+                }
+                return Promise.resolve({ stdout: 'Success' });
+            });
+
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('diff content')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(Child.run).toHaveBeenCalledWith('git rev-parse HEAD');
+            expect(Child.run).toHaveBeenCalledWith("git commit --amend -m test commit message");
+        });
+
+        it('should validate sendit state and log warnings appropriately', async () => {
+            // Arrange
+            const mockConfig = {
+                model: 'gpt-3.5-turbo',
+                commit: {
+                    sendit: true,
+                    cached: false
+                }
+            };
+
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('')
+            });
+
+            // Act
+            const result = await Commit.execute(mockConfig);
+
+            // Assert
+            expect(result).toBe('No changes to commit.');
+            // The sendit validation should occur and warn about no changes
+            expect(mockLogger.warn).toHaveBeenCalledWith('SendIt mode enabled, but no changes to commit.');
+        });
+
+        it('should handle all standard default configurations', async () => {
+            // Arrange
+            const minimalConfig = {
+                model: 'gpt-3.5-turbo'
+            };
+
+            // @ts-ignore
+            Diff.hasStagedChanges.mockResolvedValue(false);
+            // @ts-ignore
+            Diff.create.mockReturnValue({
+                get: vi.fn().mockResolvedValue('some changes')
+            });
+            // @ts-ignore
+            OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
+
+            // Act
+            const result = await Commit.execute(minimalConfig);
+
+            // Assert
+            expect(result).toBe('test commit message');
+            expect(Diff.create).toHaveBeenCalledWith({
+                cached: false,
+                excludedPatterns: expect.any(Array),
+                maxDiffBytes: 2048
+            });
         });
     });
 });

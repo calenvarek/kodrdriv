@@ -86,7 +86,13 @@ const mockCreateCompletion = vi.fn().mockResolvedValue({
     ]
 });
 vi.mock('../../src/util/openai', () => ({
-    createCompletion: mockCreateCompletion
+    createCompletion: mockCreateCompletion,
+    getModelForCommand: vi.fn().mockImplementation((config, commandName) => {
+        if (commandName === 'review' && config.review?.model) {
+            return config.review.model;
+        }
+        return config.model || 'gpt-4o-mini';
+    })
 }));
 
 const mockLogger = {
@@ -603,8 +609,7 @@ describe('review command', () => {
                 [],
                 expect.objectContaining({
                     model: 'gpt-4',
-                    responseFormat: { type: 'json_object' },
-                    debug: undefined
+                    responseFormat: { type: 'json_object' }
                 })
             );
 
@@ -1101,6 +1106,24 @@ describe('review command', () => {
                 };
 
                 await expect(Review.execute(runConfig)).rejects.toThrow('process.exit called');
+            });
+
+            it('should handle editor without timeout when editorTimeout is not specified', async () => {
+                const runConfig = {
+                    model: 'gpt-4',
+                    review: {
+                        note: 'Test review note without timeout', // Provide note to avoid editor opening
+                        // No editorTimeout specified - should work without timeout
+                        sendit: true,
+                        editorTimeout: undefined
+                    }
+                };
+
+                const result = await Review.execute(runConfig);
+                expect(result).toBe('Issues created successfully');
+
+                // Test that editorTimeout was correctly passed through as undefined
+                expect(runConfig.review.editorTimeout).toBeUndefined();
             });
         });
 

@@ -4,7 +4,7 @@ import { ChatCompletionMessageParam } from 'openai/resources';
 import { ValidationError, FileOperationError, CommandError } from '../error/CommandErrors';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { createCompletion } from '../util/openai';
+import { createCompletion, getModelForCommand } from '../util/openai';
 import * as ReviewPrompt from '../prompt/review';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
@@ -62,35 +62,44 @@ const cleanupTempFile = async (filePath: string): Promise<void> => {
     }
 };
 
-// Editor with timeout and proper error handling
-const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeoutMs = 300000): Promise<void> => {
+// Editor with optional timeout and proper error handling
+const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeoutMs?: number): Promise<void> => {
     const logger = getLogger();
 
     return new Promise((resolve, reject) => {
-        logger.debug(`Opening editor: ${editorCmd} ${filePath} (timeout: ${timeoutMs}ms)`);
+        if (timeoutMs) {
+            logger.debug(`Opening editor: ${editorCmd} ${filePath} (timeout: ${timeoutMs}ms)`);
+        } else {
+            logger.debug(`Opening editor: ${editorCmd} ${filePath} (no timeout)`);
+        }
 
         const child = spawn(editorCmd, [filePath], {
             stdio: 'inherit',
             shell: false // Prevent shell injection
         });
 
-        const timeout = setTimeout(() => {
-            logger.warn(`Editor timed out after ${timeoutMs}ms, terminating...`);
-            child.kill('SIGTERM');
+        let timeout: NodeJS.Timeout | undefined;
+        if (timeoutMs) {
+            timeout = setTimeout(() => {
+                logger.warn(`Editor timed out after ${timeoutMs}ms, terminating...`);
+                child.kill('SIGTERM');
 
-            // Give it a moment to terminate gracefully, then force kill
-            setTimeout(() => {
-                if (!child.killed) {
-                    logger.warn('Editor did not terminate gracefully, force killing...');
-                    child.kill('SIGKILL');
-                }
-            }, 5000);
+                // Give it a moment to terminate gracefully, then force kill
+                setTimeout(() => {
+                    if (!child.killed) {
+                        logger.warn('Editor did not terminate gracefully, force killing...');
+                        child.kill('SIGKILL');
+                    }
+                }, 5000);
 
-            reject(new Error(`Editor '${editorCmd}' timed out after ${timeoutMs}ms. Consider using a different editor or increasing the timeout.`));
-        }, timeoutMs);
+                reject(new Error(`Editor '${editorCmd}' timed out after ${timeoutMs}ms. Consider using a different editor or increasing the timeout.`));
+            }, timeoutMs);
+        }
 
         child.on('exit', (code, signal) => {
-            clearTimeout(timeout);
+            if (timeout) {
+                clearTimeout(timeout);
+            }
             logger.debug(`Editor exited with code ${code}, signal ${signal}`);
 
             if (signal === 'SIGTERM' || signal === 'SIGKILL') {
@@ -103,7 +112,9 @@ const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeou
         });
 
         child.on('error', (error) => {
-            clearTimeout(timeout);
+            if (timeout) {
+                clearTimeout(timeout);
+            }
             logger.error(`Editor error: ${error.message}`);
             reject(new Error(`Failed to launch editor '${editorCmd}': ${error.message}`));
         });
@@ -283,8 +294,8 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
 
             logger.info(`No review note provided – opening ${editor} to capture input...`);
 
-            // Open the editor with timeout protection
-            const editorTimeout = runConfig.review?.editorTimeout || 300000; // 5 minutes default
+            // Open the editor with optional timeout protection
+            const editorTimeout = runConfig.review?.editorTimeout; // No default timeout - let user take their time
             await openEditorWithTimeout(editor, tmpFilePath, editorTimeout);
 
             // Read the file back in, stripping comment lines and whitespace.
@@ -475,12 +486,13 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
         // Don't fail the entire operation for this
     }
 
-    const request: Request = Formatter.create({ logger }).formatPrompt(runConfig.model as Model, prompt);
+    const modelToUse = getModelForCommand(runConfig, 'review');
+    const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
 
     let analysisResult: Issues.ReviewResult;
     try {
         const rawResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
-            model: runConfig.model,
+            model: modelToUse,
             responseFormat: { type: 'json_object' },
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('review-analysis')),

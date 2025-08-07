@@ -42,9 +42,10 @@ kodrdriv audio-commit  # Record audio to generate commit messages
 ## Key Features
 
 - **AI-Powered Analysis** - Uses OpenAI models to understand your code changes
+- **Adaptive Diff Management** - Automatically handles large diffs with intelligent truncation and retry logic to ensure reliable LLM processing
 - **Comprehensive Release Automation** - Handles dependency updates, version bumping, PR creation, and GitHub releases
 - **Audio-Driven Workflows** - Record audio to provide context for commits and reviews
-- **Intelligent Workspace Management** - Automatically discovers and links related packages in monorepos
+- **Intelligent Workspace Management** - Provides tools for linking and managing related packages in monorepos
 - **Flexible Configuration** - Hierarchical configuration with command-line overrides
 
 ## Configuration

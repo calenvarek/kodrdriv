@@ -108,6 +108,59 @@ export const getReviewExcludedPatterns = (basePatterns: string[]): string[] => {
     return combinedPatterns;
 };
 
+// Check if there are changes to critical files that are normally excluded
+export const hasCriticalExcludedChanges = async (): Promise<{ hasChanges: boolean, files: string[] }> => {
+    const logger = getLogger();
+    const criticalPatterns = [
+        'package-lock.json',
+        'yarn.lock',
+        'bun.lockb',
+        '.gitignore',
+        '.env.example'
+    ];
+
+    try {
+        // Check for unstaged changes to critical files
+        const { stdout } = await run('git status --porcelain');
+        const changedFiles = stdout.split('\n')
+            .filter(line => line.trim())
+            .map(line => line.substring(3).trim()); // Remove status prefix
+
+        const criticalFiles = changedFiles.filter(file =>
+            criticalPatterns.some(pattern =>
+                file === pattern || file.endsWith(`/${pattern}`)
+            )
+        );
+
+        logger.debug('Found %d critical excluded files with changes: %s',
+            criticalFiles.length, criticalFiles.join(', '));
+
+        return { hasChanges: criticalFiles.length > 0, files: criticalFiles };
+    } catch (error: any) {
+        logger.debug('Error checking for critical excluded changes: %s', error.message);
+        return { hasChanges: false, files: [] };
+    }
+};
+
+// Get minimal excluded patterns that still includes critical files
+export const getMinimalExcludedPatterns = (basePatterns: string[]): string[] => {
+    const criticalPatterns = [
+        'package-lock.json',
+        'yarn.lock',
+        'bun.lockb',
+        '.gitignore',
+        '.env.example'
+    ];
+
+    // Filter out critical patterns from base patterns
+    return basePatterns.filter(pattern =>
+        !criticalPatterns.some(critical =>
+            pattern === critical ||
+            pattern.includes(critical)
+        )
+    );
+};
+
 // Function to truncate overly large diff content while preserving structure
 export const truncateLargeDiff = (diffContent: string, maxLength: number = 5000): string => {
     if (diffContent.length <= maxLength) {
@@ -136,7 +189,86 @@ export const truncateLargeDiff = (diffContent: string, maxLength: number = 5000)
     return truncatedLines.join('\n');
 };
 
-export const create = async (options: { from?: string, to?: string, cached?: boolean, excludedPatterns: string[] }): Promise<Instance> => {
+// Smart diff truncation that identifies and handles large files individually
+export const truncateDiffByFiles = (diffContent: string, maxDiffBytes: number): string => {
+    if (diffContent.length <= maxDiffBytes) {
+        return diffContent;
+    }
+
+    const lines = diffContent.split('\n');
+    const result: string[] = [];
+    let currentFile: string[] = [];
+    let currentFileHeader = '';
+    let totalSize = 0;
+    let filesOmitted = 0;
+
+    for (const line of lines) {
+        // Check if this is a file header (starts with diff --git)
+        if (line.startsWith('diff --git ')) {
+            // Process the previous file if it exists
+            if (currentFile.length > 0) {
+                const fileContent = currentFile.join('\n');
+                const fileSizeBytes = Buffer.byteLength(fileContent, 'utf8');
+
+                if (fileSizeBytes > maxDiffBytes) {
+                    // This single file is too large, replace with a summary
+                    result.push(currentFileHeader);
+                    result.push(`... [CHANGE OMITTED: File too large (${fileSizeBytes} bytes > ${maxDiffBytes} limit)] ...`);
+                    result.push('');
+                    filesOmitted++;
+                } else if (totalSize + fileSizeBytes > maxDiffBytes * 10) { // Allow total to be up to 10x limit before dropping files
+                    // Adding this file would make total too large
+                    result.push(currentFileHeader);
+                    result.push(`... [CHANGE OMITTED: Would exceed total size limit] ...`);
+                    result.push('');
+                    filesOmitted++;
+                } else {
+                    // File is acceptable size
+                    result.push(...currentFile);
+                    totalSize += fileSizeBytes;
+                }
+            }
+
+            // Start new file
+            currentFileHeader = line;
+            currentFile = [line];
+        } else {
+            // Add line to current file
+            currentFile.push(line);
+        }
+    }
+
+    // Handle the last file
+    if (currentFile.length > 0) {
+        const fileContent = currentFile.join('\n');
+        const fileSizeBytes = Buffer.byteLength(fileContent, 'utf8');
+
+        if (fileSizeBytes > maxDiffBytes) {
+            result.push(currentFileHeader);
+            result.push(`... [CHANGE OMITTED: File too large (${fileSizeBytes} bytes > ${maxDiffBytes} limit)] ...`);
+            result.push('');
+            filesOmitted++;
+        } else if (totalSize + fileSizeBytes > maxDiffBytes * 10) {
+            result.push(currentFileHeader);
+            result.push(`... [CHANGE OMITTED: Would exceed total size limit] ...`);
+            result.push('');
+            filesOmitted++;
+        } else {
+            result.push(...currentFile);
+            totalSize += fileSizeBytes;
+        }
+    }
+
+    const finalResult = result.join('\n');
+
+    if (filesOmitted > 0) {
+        return finalResult + `\n\n[SUMMARY: ${filesOmitted} files omitted due to size limits. Original diff: ${diffContent.length} bytes, processed diff: ${finalResult.length} bytes]`;
+    }
+
+    return finalResult;
+};
+
+export const create = async (options: { from?: string, to?: string, cached?: boolean, excludedPatterns: string[], maxDiffBytes?: number }): Promise<Instance> => {
     const logger = getLogger();
 
     async function get(): Promise<string> {
@@ -165,6 +297,21 @@ export const create = async (options: { from?: string, to?: string, cached?: boo
                     logger.warn('Git diff produced stderr: %s', stderr);
                 }
                 logger.debug('Git diff output: %s', stdout);
+
+                // Apply intelligent diff truncation if maxDiffBytes is specified
+                if (options.maxDiffBytes && stdout.length > 0) {
+                    const originalSize = Buffer.byteLength(stdout, 'utf8');
+                    const truncatedDiff = truncateDiffByFiles(stdout, options.maxDiffBytes);
+                    const newSize = Buffer.byteLength(truncatedDiff, 'utf8');
+
+                    if (originalSize !== newSize) {
+                        logger.info('Applied diff truncation: %d bytes -> %d bytes (limit: %d bytes)',
+                            originalSize, newSize, options.maxDiffBytes);
+                    }
+
+                    return truncatedDiff;
+                }
+
                 return stdout;
             } catch (error: any) {
                 logger.error('Failed to execute git diff: %s', error.message);

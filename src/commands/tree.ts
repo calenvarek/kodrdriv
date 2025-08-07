@@ -38,6 +38,202 @@ import { getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
+import { getOutputPath } from '../util/general';
+import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import * as Commit from './commit';
+
+// Track published versions during tree publish
+interface PublishedVersion {
+    packageName: string;
+    version: string;
+    publishTime: Date;
+}
+
+// Tree execution context for persistence
+interface TreeExecutionContext {
+    command: string;
+    originalConfig: Config;
+    publishedVersions: PublishedVersion[];
+    completedPackages: string[];
+    buildOrder: string[];
+    startTime: Date;
+    lastUpdateTime: Date;
+}
+
+// Global state to track published versions during tree execution
+let publishedVersions: PublishedVersion[] = [];
+let executionContext: TreeExecutionContext | null = null;
+
+// Update inter-project dependencies in package.json based on published versions
+const updateInterProjectDependencies = async (
+    packageDir: string,
+    publishedVersions: PublishedVersion[],
+    allPackageNames: Set<string>,
+    packageLogger: any,
+    isDryRun: boolean
+): Promise<boolean> => {
+    const storage = createStorage({ log: packageLogger.info });
+    const packageJsonPath = path.join(packageDir, 'package.json');
+
+    if (!await storage.exists(packageJsonPath)) {
+        packageLogger.verbose('No package.json found, skipping dependency updates');
+        return false;
+    }
+
+    let hasChanges = false;
+
+    try {
+        const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+        const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+        const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+        const sectionsToUpdate = ['dependencies', 'devDependencies', 'peerDependencies'];
+
+        for (const publishedVersion of publishedVersions) {
+            const { packageName, version } = publishedVersion;
+
+            // Only update if this is an inter-project dependency (exists in our build tree)
+            if (!allPackageNames.has(packageName)) {
+                continue;
+            }
+
+            // Update the dependency in all relevant sections
+            for (const section of sectionsToUpdate) {
+                const deps = packageJson[section];
+                if (deps && deps[packageName]) {
+                    const oldVersion = deps[packageName];
+                    const newVersion = `^${version}`;
+
+                    if (oldVersion !== newVersion) {
+                        if (isDryRun) {
+                            packageLogger.info(`Would update ${section}.${packageName}: ${oldVersion} → ${newVersion}`);
+                        } else {
+                            packageLogger.info(`Updating ${section}.${packageName}: ${oldVersion} → ${newVersion}`);
+                            deps[packageName] = newVersion;
+                        }
+                        hasChanges = true;
+                    }
+                }
+            }
+        }
+
+        if (hasChanges && !isDryRun) {
+            // Write updated package.json
+            await storage.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
+            packageLogger.info('Inter-project dependencies updated successfully');
+        }
+
+    } catch (error: any) {
+        packageLogger.warn(`Failed to update inter-project dependencies: ${error.message}`);
+        return false;
+    }
+
+    return hasChanges;
+};
+
+// Get the context file path
+const getContextFilePath = (outputDirectory?: string): string => {
+    const outputDir = outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+    return getOutputPath(outputDir, '.kodrdriv-context');
+};
+
+// Save execution context to file
+const saveExecutionContext = async (context: TreeExecutionContext, outputDirectory?: string): Promise<void> => {
+    const storage = createStorage({ log: () => {} }); // Silent storage for context operations
+    const contextFilePath = getContextFilePath(outputDirectory);
+
+    try {
+        // Ensure output directory exists
+        await storage.ensureDirectory(path.dirname(contextFilePath));
+
+        // Save context with JSON serialization that handles dates
+        const contextData = {
+            ...context,
+            startTime: context.startTime.toISOString(),
+            lastUpdateTime: context.lastUpdateTime.toISOString(),
+            publishedVersions: context.publishedVersions.map(v => ({
+                ...v,
+                publishTime: v.publishTime.toISOString()
+            }))
+        };
+
+        await storage.writeFile(contextFilePath, JSON.stringify(contextData, null, 2), 'utf-8');
+    } catch (error: any) {
+        // Don't fail the entire operation if context saving fails
+        const logger = getLogger();
+        logger.warn(`Warning: Failed to save execution context: ${error.message}`);
+    }
+};
+
+// Load execution context from file
+const loadExecutionContext = async (outputDirectory?: string): Promise<TreeExecutionContext | null> => {
+    const storage = createStorage({ log: () => {} }); // Silent storage for context operations
+    const contextFilePath = getContextFilePath(outputDirectory);
+
+    try {
+        if (!await storage.exists(contextFilePath)) {
+            return null;
+        }
+
+        const contextContent = await storage.readFile(contextFilePath, 'utf-8');
+        const contextData = JSON.parse(contextContent);
+
+        // Restore dates from ISO strings
+        return {
+            ...contextData,
+            startTime: new Date(contextData.startTime),
+            lastUpdateTime: new Date(contextData.lastUpdateTime),
+            publishedVersions: contextData.publishedVersions.map((v: any) => ({
+                ...v,
+                publishTime: new Date(v.publishTime)
+            }))
+        };
+    } catch (error: any) {
+        const logger = getLogger();
+        logger.warn(`Warning: Failed to load execution context: ${error.message}`);
+        return null;
+    }
+};
+
+// Clean up context file
+const cleanupContext = async (outputDirectory?: string): Promise<void> => {
+    const storage = createStorage({ log: () => {} }); // Silent storage for context operations
+    const contextFilePath = getContextFilePath(outputDirectory);
+
+    try {
+        if (await storage.exists(contextFilePath)) {
+            await storage.deleteFile(contextFilePath);
+        }
+    } catch (error: any) {
+        // Don't fail if cleanup fails
+        const logger = getLogger();
+        logger.warn(`Warning: Failed to cleanup execution context: ${error.message}`);
+    }
+};
+
+// Extract published version from package.json after successful publish
+const extractPublishedVersion = async (
+    packageDir: string,
+    packageLogger: any
+): Promise<PublishedVersion | null> => {
+    const storage = createStorage({ log: packageLogger.info });
+    const packageJsonPath = path.join(packageDir, 'package.json');
+
+    try {
+        const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+        const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+        const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+        return {
+            packageName: packageJson.name,
+            version: packageJson.version,
+            publishTime: new Date()
+        };
+    } catch (error: any) {
+        packageLogger.warn(`Failed to extract published version: ${error.message}`);
+        return null;
+    }
+};
 
 // Enhanced run function that can show output based on log level
 const runWithLogging = async (
@@ -437,6 +633,7 @@ const executePackage = async (
     isDryRun: boolean,
     index: number,
     total: number,
+    allPackageNames: Set<string>,
     isBuiltInCommand: boolean = false
 ): Promise<{ success: boolean; error?: any }> => {
     const packageLogger = createPackageLogger(packageName, index + 1, total, isDryRun);
@@ -464,6 +661,12 @@ const executePackage = async (
 
     try {
         if (isDryRun) {
+            // Handle inter-project dependency updates for publish commands in dry run mode
+            if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
+                packageLogger.info('Would check for inter-project dependency updates before publish...');
+                await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+            }
+
             // Use main logger for the specific message tests expect
             logger.info(`DRY RUN: Would execute: ${commandToRun}`);
             if (runConfig.debug || runConfig.verbose) {
@@ -476,6 +679,24 @@ const executePackage = async (
                 process.chdir(packageDir);
                 if (runConfig.debug) {
                     packageLogger.debug(`Changed to directory: ${packageDir}`);
+                }
+
+                // Handle inter-project dependency updates for publish commands before executing
+                if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
+                    packageLogger.info('Updating inter-project dependencies based on previously published packages...');
+                    const hasUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+
+                    if (hasUpdates) {
+                        // Commit the dependency updates using kodrdriv commit
+                        packageLogger.info('Committing inter-project dependency updates...');
+                        try {
+                            await Commit.execute({...runConfig, dryRun: false});
+                            packageLogger.info('Inter-project dependency updates committed successfully');
+                        } catch (commitError: any) {
+                            packageLogger.warn(`Failed to commit inter-project dependency updates: ${commitError.message}`);
+                            // Continue with publish anyway - the updates are still in place
+                        }
+                    }
                 }
 
                 if (runConfig.debug || runConfig.verbose) {
@@ -499,6 +720,15 @@ const executePackage = async (
                 } else {
                     // For custom commands, use the existing logic
                     await runWithLogging(commandToRun, packageLogger, {}, showOutput);
+                }
+
+                // Track published version after successful publish
+                if (isBuiltInCommand && commandToRun.includes('publish')) {
+                    const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
+                    if (publishedVersion) {
+                        publishedVersions.push(publishedVersion);
+                        packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
+                    }
                 }
 
                 if (runConfig.debug || runConfig.verbose) {
@@ -528,6 +758,35 @@ const executePackage = async (
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
+    const isContinue = runConfig.tree?.continue || false;
+
+    // Handle continue mode
+    if (isContinue) {
+        const savedContext = await loadExecutionContext(runConfig.outputDirectory);
+        if (savedContext) {
+            logger.info('Continuing previous tree execution...');
+            logger.info(`Original command: ${savedContext.command}`);
+            logger.info(`Started: ${savedContext.startTime.toISOString()}`);
+            logger.info(`Previously completed: ${savedContext.completedPackages.length}/${savedContext.buildOrder.length} packages`);
+
+            // Restore state
+            publishedVersions = savedContext.publishedVersions;
+            executionContext = savedContext;
+
+            // Use original config but allow some overrides (like dry run)
+            runConfig = {
+                ...savedContext.originalConfig,
+                dryRun: runConfig.dryRun, // Allow dry run override
+                outputDirectory: runConfig.outputDirectory || savedContext.originalConfig.outputDirectory
+            };
+        } else {
+            logger.warn('No previous execution context found. Starting new execution...');
+        }
+    } else {
+        // Reset published versions tracking for new tree execution
+        publishedVersions = [];
+        executionContext = null;
+    }
 
     // Check if we're in built-in command mode (tree command with second argument)
     const builtInCommand = runConfig.tree?.builtInCommand;
@@ -707,14 +966,43 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
 
         if (commandToRun) {
+            // Create set of all package names for inter-project dependency detection
+            const allPackageNames = new Set(Array.from(dependencyGraph.packages.keys()));
+
+            // Initialize execution context if not continuing
+            if (!executionContext) {
+                executionContext = {
+                    command: commandToRun,
+                    originalConfig: runConfig,
+                    publishedVersions: [],
+                    completedPackages: [],
+                    buildOrder: buildOrder,
+                    startTime: new Date(),
+                    lastUpdateTime: new Date()
+                };
+
+                // Save initial context
+                if (isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                    await saveExecutionContext(executionContext, runConfig.outputDirectory);
+                }
+            }
+
             // Add spacing before command execution
             logger.info('');
             const executionDescription = isBuiltInCommand ? `built-in command "${builtInCommand}"` : `"${commandToRun}"`;
             const parallelInfo = useParallel ? ' (with parallel execution)' : '';
             logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${executionDescription} in ${buildOrder.length} packages${parallelInfo}...`);
 
+            // Show info for publish commands
+            if (isBuiltInCommand && builtInCommand === 'publish') {
+                logger.info('Inter-project dependencies will be automatically updated before each publish.');
+            }
+
             let successCount = 0;
             let failedPackage: string | null = null;
+
+            // If continuing, start from where we left off
+            const startIndex = isContinue && executionContext ? executionContext.completedPackages.length : 0;
 
             if (useParallel) {
                 // Parallel execution: group packages by dependency levels
@@ -768,6 +1056,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                             isDryRun,
                             globalIndex,
                             buildOrder.length,
+                            allPackageNames,
                             isBuiltInCommand
                         );
                     });
@@ -869,8 +1158,15 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             } else {
                 // Sequential execution
-                for (let i = 0; i < buildOrder.length; i++) {
+                for (let i = startIndex; i < buildOrder.length; i++) {
                     const packageName = buildOrder[i];
+
+                    // Skip if already completed (in continue mode)
+                    if (executionContext && executionContext.completedPackages.includes(packageName)) {
+                        successCount++;
+                        continue;
+                    }
+
                     const packageInfo = dependencyGraph.packages.get(packageName)!;
                     const packageLogger = createPackageLogger(packageName, i + 1, buildOrder.length, isDryRun);
 
@@ -882,11 +1178,21 @@ export const execute = async (runConfig: Config): Promise<string> => {
                         isDryRun,
                         i,
                         buildOrder.length,
+                        allPackageNames,
                         isBuiltInCommand
                     );
 
                     if (result.success) {
                         successCount++;
+
+                        // Update context
+                        if (executionContext && isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                            executionContext.completedPackages.push(packageName);
+                            executionContext.publishedVersions = publishedVersions;
+                            executionContext.lastUpdateTime = new Date();
+                            await saveExecutionContext(executionContext, runConfig.outputDirectory);
+                        }
+
                         // Add spacing between packages (except after the last one)
                         if (i < buildOrder.length - 1) {
                             logger.info('');
@@ -901,13 +1207,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
                             logger.error(formattedError);
                             logger.error(`Failed after ${successCount} successful packages.`);
 
-                            const packageDir = packageInfo.path;
-                            const packageDirName = path.basename(packageDir);
-                            logger.error(`To resume from this package, run:`);
+                            logger.error(`To resume from this point, run:`);
                             if (isBuiltInCommand) {
-                                logger.error(`    kodrdriv tree ${builtInCommand} --start-from ${packageDirName}`);
+                                logger.error(`    kodrdriv tree ${builtInCommand} --continue`);
                             } else {
-                                logger.error(`    kodrdriv tree --start-from ${packageDirName} --cmd "${commandToRun}"`);
+                                logger.error(`    kodrdriv tree --continue --cmd "${commandToRun}"`);
                             }
 
                             throw new Error(`Command failed in package ${packageName}`);
@@ -920,6 +1224,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (!failedPackage) {
                 const summary = `${isDryRun ? 'DRY RUN: ' : ''}All ${buildOrder.length} packages completed successfully! 🎉`;
                 logger.info(summary);
+
+                // Clean up context on successful completion
+                if (isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                    await cleanupContext(runConfig.outputDirectory);
+                }
+
                 return returnOutput; // Don't duplicate the summary in return string
             }
         }

@@ -63,6 +63,160 @@ describe('openai', () => {
         vi.clearAllMocks();
     });
 
+    describe('getModelForCommand', () => {
+        it('should return command-specific model when available', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                model: 'gpt-4o-mini',
+                commit: { model: 'gpt-4o' },
+                release: { model: 'gpt-4-turbo' },
+                review: { model: 'gpt-3.5-turbo' },
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getModelForCommand(config, 'commit')).toBe('gpt-4o');
+            expect(openaiModule.getModelForCommand(config, 'audio-commit')).toBe('gpt-4o');
+            expect(openaiModule.getModelForCommand(config, 'release')).toBe('gpt-4-turbo');
+            expect(openaiModule.getModelForCommand(config, 'review')).toBe('gpt-3.5-turbo');
+            expect(openaiModule.getModelForCommand(config, 'audio-review')).toBe('gpt-3.5-turbo');
+        });
+
+        it('should fallback to global model when command-specific model not available', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getModelForCommand(config, 'commit')).toBe('gpt-4o-mini');
+            expect(openaiModule.getModelForCommand(config, 'release')).toBe('gpt-4o-mini');
+            expect(openaiModule.getModelForCommand(config, 'review')).toBe('gpt-4o-mini');
+        });
+
+        it('should fallback to default model when no models specified', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getModelForCommand(config, 'commit')).toBe('gpt-4o-mini');
+            expect(openaiModule.getModelForCommand(config, 'release')).toBe('gpt-4o-mini');
+            expect(openaiModule.getModelForCommand(config, 'review')).toBe('gpt-4o-mini');
+        });
+
+        it('should use global model for unknown commands', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                model: 'gpt-4o',
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getModelForCommand(config, 'unknown-command')).toBe('gpt-4o');
+        });
+    });
+
+    describe('isTokenLimitError', () => {
+        it('should detect token limit errors', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            expect(openaiModule.isTokenLimitError({ message: 'maximum context length' })).toBe(true);
+            expect(openaiModule.isTokenLimitError({ message: 'context_length_exceeded' })).toBe(true);
+            expect(openaiModule.isTokenLimitError({ message: 'token limit' })).toBe(true);
+            expect(openaiModule.isTokenLimitError({ message: 'too many tokens' })).toBe(true);
+            expect(openaiModule.isTokenLimitError({ message: 'reduce the length' })).toBe(true);
+            expect(openaiModule.isTokenLimitError({ message: 'some other error' })).toBe(false);
+            expect(openaiModule.isTokenLimitError({})).toBe(false);
+            expect(openaiModule.isTokenLimitError(null)).toBe(false);
+        });
+    });
+
+    describe('createCompletionWithRetry', () => {
+        it('should succeed on first attempt when no error', async () => {
+            const mockResponse = 'test response';
+            mockChatCreate.mockResolvedValue({
+                choices: [{ message: { content: mockResponse } }]
+            });
+
+            const openaiModule = await import('../../src/util/openai');
+            const result = await openaiModule.createCompletionWithRetry([{ role: 'user', content: 'test' }]);
+
+            expect(result).toBe(mockResponse);
+            expect(mockChatCreate).toHaveBeenCalledTimes(1);
+        });
+
+        it('should retry on token limit error with callback', async () => {
+            const mockResponse = 'test response';
+            const tokenLimitError = new Error('maximum context length is 4097 tokens');
+
+            mockChatCreate
+                .mockRejectedValueOnce(tokenLimitError)
+                .mockResolvedValue({
+                    choices: [{ message: { content: mockResponse } }]
+                });
+
+            const openaiModule = await import('../../src/util/openai');
+            const retryCallback = vi.fn().mockResolvedValue([{ role: 'user', content: 'shorter test' }]);
+
+            const result = await openaiModule.createCompletionWithRetry(
+                [{ role: 'user', content: 'very long test content' }],
+                {},
+                retryCallback
+            );
+
+            expect(result).toBe(mockResponse);
+            expect(retryCallback).toHaveBeenCalledWith(2);
+            expect(mockChatCreate).toHaveBeenCalledTimes(2);
+        });
+
+        it('should fail after max retries', async () => {
+            const tokenLimitError = new Error('maximum context length is 4097 tokens');
+
+            mockChatCreate.mockRejectedValue(tokenLimitError);
+
+            const openaiModule = await import('../../src/util/openai');
+            const retryCallback = vi.fn().mockResolvedValue([{ role: 'user', content: 'test' }]);
+
+            await expect(openaiModule.createCompletionWithRetry(
+                [{ role: 'user', content: 'test' }],
+                {},
+                retryCallback
+            )).rejects.toThrow('Failed to create completion');
+
+            expect(retryCallback).toHaveBeenCalledTimes(2); // attempts 2 and 3
+            expect(mockChatCreate).toHaveBeenCalledTimes(3);
+        });
+
+        it('should not retry on non-token-limit errors', async () => {
+            const otherError = new Error('some other error');
+
+            mockChatCreate.mockRejectedValue(otherError);
+
+            const openaiModule = await import('../../src/util/openai');
+            const retryCallback = vi.fn();
+
+            await expect(openaiModule.createCompletionWithRetry(
+                [{ role: 'user', content: 'test' }],
+                {},
+                retryCallback
+            )).rejects.toThrow('Failed to create completion');
+
+            expect(retryCallback).not.toHaveBeenCalled();
+            expect(mockChatCreate).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('createCompletion', () => {
         it('should create completion successfully', async () => {
             const mockResponse = {
