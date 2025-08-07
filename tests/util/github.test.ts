@@ -605,6 +605,61 @@ describe('GitHub Utilities', () => {
             mockOctokit.git.deleteRef.mockRejectedValue(error);
             await expect(GitHub.mergePullRequest(123)).rejects.toThrow('Reference does not exist');
         });
+
+        it('should preserve branch when deleteBranch is false', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { ref: 'feature-branch' } } });
+            await GitHub.mergePullRequest(123, 'squash', false);
+
+            expect(mockOctokit.pulls.merge).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                pull_number: 123,
+                merge_method: 'squash',
+            });
+
+            // Should NOT delete the branch
+            expect(mockOctokit.git.deleteRef).not.toHaveBeenCalled();
+        });
+
+        it('should delete branch when deleteBranch is true (explicit)', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { ref: 'feature-branch' } } });
+            mockOctokit.pulls.merge.mockResolvedValue({});
+            mockOctokit.git.deleteRef.mockResolvedValue({}); // Reset mock to success
+            await GitHub.mergePullRequest(123, 'squash', true);
+
+            expect(mockOctokit.pulls.merge).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                pull_number: 123,
+                merge_method: 'squash',
+            });
+
+            expect(mockOctokit.git.deleteRef).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                ref: 'heads/feature-branch',
+            });
+        });
+
+        it('should delete branch by default when deleteBranch parameter is omitted', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({ data: { head: { ref: 'feature-branch' } } });
+            mockOctokit.pulls.merge.mockResolvedValue({});
+            mockOctokit.git.deleteRef.mockResolvedValue({}); // Reset mock to success
+            await GitHub.mergePullRequest(123, 'squash'); // No deleteBranch parameter
+
+            expect(mockOctokit.pulls.merge).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                pull_number: 123,
+                merge_method: 'squash',
+            });
+
+            expect(mockOctokit.git.deleteRef).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                ref: 'heads/feature-branch',
+            });
+        });
     });
 
     describe('createRelease', () => {

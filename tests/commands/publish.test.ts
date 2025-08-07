@@ -818,7 +818,7 @@ cache=\${CACHE_DIR}/npm
                 timeout: 300000,
                 skipUserConfirmation: false
             });
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
@@ -873,7 +873,7 @@ cache=\${CACHE_DIR}/npm
                 timeout: 300000,
                 skipUserConfirmation: false
             });
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash');
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
 
         });
@@ -1381,7 +1381,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithMergeMethod);
 
             // Assert - Verify merge method is passed correctly
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'merge');
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'merge', false);
         });
 
         it('should use default squash merge method when no merge method is configured', async () => {
@@ -1425,7 +1425,7 @@ cache=\${CACHE_DIR}/npm
             await Publish.execute(mockConfigWithoutMergeMethod);
 
             // Assert - Verify default squash method is used
-            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash');
+            expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash', false);
         });
 
         it('should use dependency update patterns when provided', async () => {
@@ -2403,7 +2403,7 @@ cache=\${CACHE_DIR}/npm
 
                 await Publish.execute(mockConfig);
 
-                expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, expected);
+                expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, expected, false);
 
                 // Clear mocks for next iteration
                 vi.clearAllMocks();

@@ -310,7 +310,11 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
     }
 };
 
-export const mergePullRequest = async (prNumber: number, mergeMethod: MergeMethod = 'squash'): Promise<void> => {
+export const mergePullRequest = async (
+    prNumber: number,
+    mergeMethod: MergeMethod = 'squash',
+    deleteBranch: boolean = true
+): Promise<void> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
     const logger = getLogger();
@@ -331,13 +335,17 @@ export const mergePullRequest = async (prNumber: number, mergeMethod: MergeMetho
     });
     logger.info(`PR #${prNumber} merged using ${mergeMethod} method.`);
 
-    logger.info(`Deleting branch ${headBranch}...`);
-    await octokit.git.deleteRef({
-        owner,
-        repo,
-        ref: `heads/${headBranch}`,
-    });
-    logger.info(`Branch ${headBranch} deleted.`);
+    if (deleteBranch) {
+        logger.info(`Deleting branch ${headBranch}...`);
+        await octokit.git.deleteRef({
+            owner,
+            repo,
+            ref: `heads/${headBranch}`,
+        });
+        logger.info(`Branch ${headBranch} deleted.`);
+    } else {
+        logger.info(`Preserving branch ${headBranch} (deletion skipped).`);
+    }
 };
 
 export const createRelease = async (tagName: string, title: string, notes: string): Promise<void> => {
