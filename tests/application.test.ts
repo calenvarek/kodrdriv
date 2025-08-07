@@ -61,6 +61,10 @@ vi.mock('../src/commands/select-audio', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../src/commands/tree', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../src/constants', () => ({
     COMMAND_AUDIO_COMMIT: 'audio-commit',
     COMMAND_AUDIO_REVIEW: 'audio-review',
@@ -77,12 +81,22 @@ vi.mock('../src/constants', () => ({
     COMMAND_SELECT_AUDIO: 'select-audio',
     COMMAND_TREE: 'tree',
     COMMAND_UNLINK: 'unlink',
-    DEFAULT_CONFIG_DIR: '.kodrdriv'
+    DEFAULT_CONFIG_DIR: '.kodrdriv',
+    VERSION: '0.0.52-test'
 }));
 
 vi.mock('../src/types', () => ({
     ConfigSchema: {
         shape: {}
+    }
+}));
+
+vi.mock('../src/error/CommandErrors', () => ({
+    UserCancellationError: class UserCancellationError extends Error {
+        constructor(message = 'Operation cancelled by user') {
+            super(message);
+            this.name = 'UserCancellationError';
+        }
     }
 }));
 
@@ -121,6 +135,7 @@ describe('Application module', () => {
             Clean: await import('../src/commands/clean'),
             Review: await import('../src/commands/review'),
             SelectAudio: await import('../src/commands/select-audio'),
+            Tree: await import('../src/commands/tree'),
         };
         Application = await import('../src/application');
 
@@ -460,5 +475,353 @@ describe('Application module', () => {
             expect(Commands.Commit.execute).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nCommit from argv\n\n');
         });
+
+        it('should execute tree command', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nTree completed successfully\n\n');
+        });
+
+        it('should handle tree command with built-in commit command', async () => {
+            process.argv = ['node', 'main.js', 'tree', 'commit'];
+            Commands.Tree.execute.mockResolvedValue('Tree commit completed successfully');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nTree commit completed successfully\n\n');
+        });
+
+        it('should handle tree command with built-in publish command', async () => {
+            process.argv = ['node', 'main.js', 'tree', 'publish'];
+            Commands.Tree.execute.mockResolvedValue('Tree publish completed successfully');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nTree publish completed successfully\n\n');
+        });
+
+        it('should handle tree command with built-in link command', async () => {
+            process.argv = ['node', 'main.js', 'tree', 'link'];
+            Commands.Tree.execute.mockResolvedValue('Tree link completed successfully');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nTree link completed successfully\n\n');
+        });
+
+        it('should handle tree command with built-in unlink command', async () => {
+            process.argv = ['node', 'main.js', 'tree', 'unlink'];
+            Commands.Tree.execute.mockResolvedValue('Tree unlink completed successfully');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nTree unlink completed successfully\n\n');
+        });
+
+        it('should handle tree command with unknown built-in command', async () => {
+            process.argv = ['node', 'main.js', 'tree', 'unknown-command'];
+            Commands.Tree.execute.mockResolvedValue('Tree with unknown command handled');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nTree with unknown command handled\n\n');
+        });
+
+        it('should map audioReview.directory to tree.directories when tree directories not set', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                audioReview: { directory: '/test/audio/dir' }
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree?.directories).toEqual(['/test/audio/dir']);
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should not override existing tree.directories when already set', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                audioReview: { directory: '/test/audio/dir' },
+                tree: { directories: ['/existing/dir'] }
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree.directories).toEqual(['/existing/dir']);
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should map excludedPatterns to tree.excludedPatterns when tree excludedPatterns not set', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                excludedPatterns: ['*.test.ts', '*.spec.ts']
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree?.excludedPatterns).toEqual(['*.test.ts', '*.spec.ts']);
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should not override existing tree.excludedPatterns when already set', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                excludedPatterns: ['*.test.ts', '*.spec.ts'],
+                tree: { excludedPatterns: ['*.existing.ts'] }
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree.excludedPatterns).toEqual(['*.existing.ts']);
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should handle both verbose and debug flags with debug taking precedence', async () => {
+            Arguments.configure.mockResolvedValue([
+                { verbose: true, debug: true },
+                {},
+                { commandName: 'commit' }
+            ]);
+
+            await Application.runApplication();
+
+            // Debug should be called last, taking precedence
+            expect(Logging.setLogLevel).toHaveBeenCalledWith('debug');
+        });
+
+        it('should display version information', async () => {
+            await Application.runApplication();
+
+            expect(mockLogger.info).toHaveBeenCalledWith('🚀 kodrdriv %s', '0.0.52-test');
+        });
+
+        it('should handle command execution errors that are not UserCancellationError', async () => {
+            const execError = new Error('Command execution failed');
+            Commands.Commit.execute.mockRejectedValue(execError);
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'commit' }
+            ]);
+
+            await expect(Application.runApplication()).rejects.toThrow('Command execution failed');
+        });
+
+        it('should handle tree command without audio-review directory configuration', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false
+                // No audioReview.directory set
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree?.directories).toBeUndefined();
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should handle tree command without excludedPatterns configuration', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false
+                // No excludedPatterns set
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree?.excludedPatterns).toBeUndefined();
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should handle tree command and create tree config object when needed for directory mapping', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                audioReview: { directory: '/test/dir' }
+                // No tree config initially
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree).toBeDefined();
+            expect(runConfig.tree.directories).toEqual(['/test/dir']);
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should handle tree command and create tree config object when needed for excludedPatterns mapping', async () => {
+            process.argv = ['node', 'main.js', 'tree'];
+            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+
+            const runConfig: any = {
+                verbose: false,
+                debug: false,
+                excludedPatterns: ['*.test.ts']
+                // No tree config initially
+            };
+
+            Arguments.configure.mockResolvedValue([
+                runConfig,
+                {},
+                { commandName: 'tree' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(runConfig.tree).toBeDefined();
+            expect(runConfig.tree.excludedPatterns).toEqual(['*.test.ts']);
+            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+        });
+
+        it('should call configureEarlyLogging before CardiganTime initialization', async () => {
+            process.argv = ['node', 'main.js', '--debug'];
+
+            // Reset the commit execute mock to not throw error
+            Commands.Commit.execute.mockResolvedValue('Commit success');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: true },
+                {},
+                { commandName: 'commit' }
+            ]);
+
+            await Application.runApplication();
+
+            // Verify early logging was called before any CardiganTime setup
+            expect(Logging.setLogLevel).toHaveBeenCalledWith('debug');
+            expect(Cardigantime.create).toHaveBeenCalled();
+        });
+
+        it('should set cardigantime logger after getting the configured logger', async () => {
+            // Reset the commit execute mock to not throw error
+            Commands.Commit.execute.mockResolvedValue('Commit success');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'commit' }
+            ]);
+
+            await Application.runApplication();
+
+            // Verify logger is set on cardigantime instance after getting logger
+            expect(Logging.getLogger).toHaveBeenCalled();
+            expect(mockCardigantime.setLogger).toHaveBeenCalledWith(mockLogger);
+        });
+
+
     });
 });

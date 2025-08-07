@@ -170,9 +170,39 @@ KodrDriv requires OpenAI API credentials for AI-powered features:
 
 - `OPENAI_API_KEY`: OpenAI API key (required)
 
-You can also set the model via command line:
+You can also set the model via command line or configuration file:
 
 - `--model <model>`: OpenAI model to use (default: 'gpt-4o-mini')
+
+### Model Configuration
+
+KodrDriv supports both global and command-specific model settings:
+
+**Global Model Configuration:**
+```yaml
+model: gpt-4o  # Used by all commands unless overridden
+```
+
+**Command-Specific Model Configuration:**
+```yaml
+model: gpt-4o-mini  # Global default
+
+commit:
+  model: gpt-4o     # Use GPT-4 for commit messages
+
+release:
+  model: gpt-4o     # Use GPT-4 for release notes
+
+review:
+  model: gpt-4o-mini  # Use cheaper model for reviews
+```
+
+**Model Selection Hierarchy (highest to lowest priority):**
+1. Command-specific model setting (e.g., `commit.model`)
+2. Global model setting (`model`)
+3. Default model (`gpt-4o-mini`)
+
+This allows you to use different models for different tasks - for example, using a more powerful model for important release notes while using a faster, cheaper model for routine commit messages.
 
 > [!NOTE]
 > ### Security Considerations
@@ -189,7 +219,7 @@ For publish command functionality:
 
 ### Editor Configuration
 
-For interactive workflows like review and issue editing:
+For interactive workflows like review, commit interactive mode, release interactive mode, and issue editing:
 
 - `EDITOR`: Your preferred text editor (optional, defaults to `vi`)
 - `VISUAL`: Alternative editor variable (used as fallback if `EDITOR` is not set)
@@ -264,25 +294,134 @@ excludedPatterns:
   - "*.lock"
 ```
 
+## Diff Size Management
+
+KodrDriv automatically manages large diffs to prevent LLM token limit issues and ensure reliable generation for both commit messages and release notes.
+
+### How It Works
+
+KodrDriv applies intelligent file-by-file diff truncation:
+
+1. **Per-file limits**: Each file's diff is limited to `maxDiffBytes` (default: 2048 bytes)
+2. **Smart truncation**: Large files show summary messages instead of full diff content
+3. **Total size protection**: Prevents the combined diff from becoming excessively large
+4. **Structure preservation**: Maintains diff headers and essential context
+
+### Adaptive Retry System
+
+When LLM requests fail due to size limits, KodrDriv automatically:
+
+1. **Progressive reduction**: Cuts the `maxDiffBytes` limit by 50% per retry attempt
+2. **Regenerates prompts**: Creates new prompts with smaller diffs
+3. **Preserves context**: Maintains commit history and user-provided context
+4. **Safety threshold**: Never reduces below 512 bytes to ensure meaningful analysis
+
+### Configuration
+
+The `maxDiffBytes` setting can be configured globally or per-command:
+
+```yaml
+# Global setting (applies to all commands)
+maxDiffBytes: 4096
+
+# Command-specific settings (override global)
+commit:
+  maxDiffBytes: 2048    # Smaller for focused commit messages
+
+release:
+  maxDiffBytes: 8192    # Larger for comprehensive release notes
+```
+
+### Use Cases
+
+**Small Projects or Focused Changes:**
+```yaml
+commit:
+  maxDiffBytes: 1024    # Quick, focused analysis
+```
+
+**Large Codebases:**
+```yaml
+commit:
+  maxDiffBytes: 4096    # More context for complex changes
+release:
+  maxDiffBytes: 16384   # Comprehensive release analysis
+```
+
+**Performance-Sensitive Environments:**
+```yaml
+commit:
+  maxDiffBytes: 512     # Fastest processing
+release:
+  maxDiffBytes: 1024    # Balanced speed and detail
+```
+
+### Logging Output
+
+When truncation occurs, KodrDriv provides clear feedback:
+
+```
+Applied diff truncation: 25430 bytes -> 8192 bytes (limit: 2048 bytes)
+[SUMMARY: 5 files omitted due to size limits. Original diff: 25430 bytes, processed diff: 8192 bytes]
+```
+
+Individual large files show:
+```
+... [CHANGE OMITTED: File too large (7832 bytes > 2048 limit)] ...
+```
+
+This ensures reliable operation regardless of changeset size while providing transparency about what content was analyzed.
+
 ## Command-Specific Configuration
 
 ### Commit Configuration
 
 ```yaml
 commit:
-  add: true
-  messageLimit: 5
-  cached: false
-  sendit: false
+  add: true                    # Automatically stage all changes before committing
+  messageLimit: 5              # Maximum number of commit messages to generate
+  cached: false                # Only analyze staged changes
+  sendit: false                # Skip interactive confirmation
+  interactive: false           # Enable interactive editing of commit messages
+  context: "feature work"      # Additional context for AI
+  direction: "forward"         # Commit direction context
+  skipFileCheck: false         # Skip file dependency validation
+  maxDiffBytes: 2048           # Maximum bytes per file in diff analysis (default: 2048)
+  model: "gpt-4o"             # Model to use for commit message generation
 ```
 
 ### Release Configuration
 
 ```yaml
 release:
-  from: main
-  to: HEAD
-  messageLimit: 10
+  from: main                   # Starting point for release diff
+  to: HEAD                     # End point for release diff
+  messageLimit: 10             # Maximum number of commit messages to include
+  interactive: false           # Enable interactive editing of release notes
+  context: "quarterly release" # Additional context for AI
+  focus: "breaking changes"    # Focus area for release notes
+  maxDiffBytes: 2048           # Maximum bytes per file in diff analysis (default: 2048)
+  model: "gpt-4o"             # Model to use for release note generation
+```
+
+### Review Configuration
+
+```yaml
+review:
+  includeCommitHistory: true   # Include commit history in analysis
+  includeRecentDiffs: true     # Include recent diffs in analysis
+  includeReleaseNotes: false   # Include release notes in analysis
+  includeGithubIssues: true    # Include GitHub issues in analysis
+  commitHistoryLimit: 10       # Maximum number of commits to analyze
+  diffHistoryLimit: 5          # Maximum number of recent diffs to analyze
+  releaseNotesLimit: 3         # Maximum number of release notes to analyze
+  githubIssuesLimit: 20        # Maximum number of GitHub issues to analyze
+  context: "code review"       # Additional context for AI
+  sendit: false                # Skip interactive confirmation
+  note: "weekly review"        # Additional notes for the review
+  editorTimeout: null          # No timeout by default; set to milliseconds if desired (e.g., 300000 for 5 minutes)
+  maxContextErrors: 5          # Maximum context errors to tolerate
+  model: "gpt-4o-mini"        # Model to use for review generation
 ```
 
 ### Publish Configuration
@@ -290,6 +429,9 @@ release:
 ```yaml
 publish:
   mergeMethod: squash
+  from: main                    # Default branch/tag to generate release notes from
+  targetVersion: patch          # Default version bump strategy ("patch", "minor", "major", or explicit version)
+  interactive: false            # Whether to enable interactive release notes editing by default
   dependencyUpdatePatterns:
     - "@company/*"
   requiredEnvVars:
@@ -302,6 +444,50 @@ publish:
     - "Release to NPM"
     - "Deploy to Production"
 ```
+
+#### Publish Configuration Options
+
+- **`mergeMethod`**: Method to merge pull requests during the publish process
+  - Options: `merge`, `squash`, `rebase`
+  - Default: `squash`
+
+- **`from`**: Default branch or tag to generate release notes from
+  - Accepts any valid Git reference (branch, tag, or commit hash)
+  - Default: `main`
+  - **Use Case**: Configure a default starting point for release notes, useful for repos with non-standard main branches
+
+- **`targetVersion`**: Default version bump strategy for releases
+  - Options: `"patch"`, `"minor"`, `"major"`, or explicit version like `"4.30.0"`
+  - Default: `"patch"`
+  - **Use Case**: Configure default release behavior for your project (e.g., always do minor bumps for feature releases)
+
+- **`interactive`**: Whether to enable interactive release notes editing by default
+  - Options: `true`, `false`
+  - Default: `false`
+  - **Use Case**: Enable for projects where release notes often need manual refinement or additional context
+
+- **`dependencyUpdatePatterns`**: Patterns for which dependencies to update during publish
+  - Array of package name patterns (supports wildcards)
+  - If not specified, all dependencies are updated
+
+- **`requiredEnvVars`**: Environment variables that must be set for publish to succeed
+  - Array of environment variable names
+  - Default includes `GITHUB_TOKEN` and `OPENAI_API_KEY`
+
+- **`linkWorkspacePackages`** / **`unlinkWorkspacePackages`**: Whether to automatically link/unlink workspace packages during the publish process
+  - Options: `true`, `false`
+  - Default: `true`
+
+- **`waitForReleaseWorkflows`**: Whether to wait for workflows triggered by release/tag creation
+  - Options: `true`, `false`
+  - Default: `true`
+
+- **`releaseWorkflowsTimeout`**: Maximum time in milliseconds to wait for release workflows
+  - Default: `600000` (10 minutes)
+
+- **`releaseWorkflowNames`**: Specific workflow names to wait for (overrides automatic detection)
+  - Array of workflow names
+  - If not specified, automatically detects release-triggered workflows
 
 #### Automatic Workflow Detection
 

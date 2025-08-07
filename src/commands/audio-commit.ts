@@ -122,17 +122,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
     } catch (error: any) {
         const logger = getLogger();
 
-        // Handle user cancellation gracefully - exit with code 0
+        // Handle user cancellation gracefully - don't exit process
         if (error instanceof UserCancellationError) {
             logger.info(error.message);
-            process.exit(0);
+            throw error; // Let calling code handle this
         }
 
-        // Handle other errors - exit with code 1
+        // Handle other errors - don't exit process
         logger.error(`audio-commit failed: ${error.message}`);
         if (error.cause) {
             logger.debug(`Caused by: ${error.cause.message}`);
         }
-        process.exit(1);
+        throw error; // Let calling code handle this
     }
 };

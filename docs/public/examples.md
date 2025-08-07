@@ -27,6 +27,28 @@ git add src/components/
 kodrdriv commit --cached
 ```
 
+Handle dependency updates automatically:
+```bash
+npm install new-package
+kodrdriv commit --sendit
+# Automatically detects and commits package-lock.json changes
+```
+
+Work with excluded files in different scenarios:
+```bash
+# Interactive mode with suggestions
+kodrdriv commit
+# If only excluded files changed, provides guidance on including them
+
+# Dry-run for excluded files
+kodrdriv commit --dry-run
+# Generates template message even for excluded-only changes
+
+# Manual exclusion control
+kodrdriv commit --excluded-paths "node_modules" "dist"
+# Includes critical files while excluding build artifacts
+```
+
 ### Release Examples
 
 Basic release notes generation:
@@ -130,6 +152,46 @@ Enable debug logging:
 kodrdriv release --debug
 ```
 
+### Model Configuration Examples
+
+**Use different models for different commands via CLI:**
+```bash
+# Use GPT-4 for important commit messages
+kodrdriv commit --model gpt-4o --context "Critical bug fix"
+
+# Use faster model for routine operations
+kodrdriv review --model gpt-4o-mini
+
+# Override global config for specific release
+kodrdriv release --model gpt-4o --context "Major version release"
+```
+
+**Command-specific model configuration:**
+```yaml
+# .kodrdriv/config.yaml
+model: gpt-4o-mini          # Global default (cost-effective)
+
+commit:
+  model: gpt-4o             # High-quality commit messages
+
+release:
+  model: gpt-4o             # Detailed release notes
+
+review:
+  model: gpt-4o-mini        # Fast reviews for regular use
+```
+
+**Usage scenarios:**
+```bash
+# These commands will use the models specified in config:
+kodrdriv commit              # Uses gpt-4o (from commit.model)
+kodrdriv release             # Uses gpt-4o (from release.model)
+kodrdriv review              # Uses gpt-4o-mini (from review.model)
+
+# CLI overrides still work:
+kodrdriv commit --model gpt-4o-mini  # Overrides commit.model setting
+```
+
 ### Configuration Debugging
 
 Check current configuration (useful for debugging):
@@ -168,12 +230,8 @@ kodrdriv --check-config
 
 ### Monorepo Development Workflow
 
-1. Link local packages for development:
-   ```bash
-   kodrdriv link --scope-roots '{"@company": "../", "@tools": "../../tools/"}'
-   ```
-2. Make changes across packages
-3. Generate commit messages for each package:
+1. Make changes across packages
+2. Generate commit messages for each package:
    ```bash
    cd package-a
    kodrdriv commit --context "Cross-package refactoring"
@@ -339,9 +397,20 @@ kodrdriv commit --sendit --context "Fixing validation bug #123"
 ### Dependency Updates
 
 ```bash
-# Update dependencies and commit
+# Update dependencies and commit automatically
 npm update
-kodrdriv commit --context "Routine dependency updates"
+kodrdriv commit --sendit --context "Routine dependency updates"
+# Automatically includes package-lock.json and generates appropriate commit message
+
+# Update dependencies with manual review
+npm install @types/node@latest
+kodrdriv commit
+# If only package-lock.json changed, provides options to include it
+
+# Update and stage everything including lockfiles
+npm update
+kodrdriv commit --add --sendit "update all dependencies"
+# Stages all changes and commits, handling excluded files automatically
 ```
 
 ### Documentation Updates
@@ -362,6 +431,7 @@ model: gpt-4o-mini
 verbose: true
 commit:
   messageLimit: 5
+  model: gpt-4o  # Use more powerful model for commit messages
 excludedPatterns:
   - "*.lock"
   - dist/
@@ -372,7 +442,13 @@ excludedPatterns:
 
 `.kodrdriv/config.yaml`:
 ```yaml
-model: gpt-4o-mini
+model: gpt-4o-mini      # Default model for most operations
+commit:
+  model: gpt-4o         # Use powerful model for commit messages
+release:
+  model: gpt-4o         # Use powerful model for release notes
+review:
+  model: gpt-4o-mini    # Use faster model for reviews
 publish:
   mergeMethod: squash
   dependencyUpdatePatterns:
@@ -380,6 +456,7 @@ publish:
   requiredEnvVars:
     - NODE_AUTH_TOKEN
     - CODECOV_TOKEN
+  targetBranch: main
 link:
   scopeRoots:
     "@company": "../"
