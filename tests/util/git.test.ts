@@ -16,7 +16,16 @@ vi.mock('../../src/logging', () => ({
     }))
 }));
 
-import { isValidGitRef, getDefaultFromRef, getRemoteDefaultBranch } from '../../src/util/git';
+import {
+    isValidGitRef,
+    getDefaultFromRef,
+    getRemoteDefaultBranch,
+    localBranchExists,
+    remoteBranchExists,
+    getBranchCommitSha,
+    isBranchInSyncWithRemote,
+    safeSyncBranchWithRemote
+} from '../../src/util/git';
 import { run } from '../../src/util/child';
 
 const mockRun = run as any;
@@ -144,6 +153,227 @@ describe('git utilities', () => {
             const result = await getRemoteDefaultBranch();
 
             expect(result).toBe(null);
+        });
+    });
+
+    describe('localBranchExists', () => {
+        it('should return true when local branch exists', async () => {
+            mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+
+            const result = await localBranchExists('feature-branch');
+
+            expect(result).toBe(true);
+            expect(mockRun).toHaveBeenCalledWith('git rev-parse --verify refs/heads/feature-branch >/dev/null 2>&1');
+        });
+
+        it('should return false when local branch does not exist', async () => {
+            mockRun.mockRejectedValue(new Error('fatal: bad revision'));
+
+            const result = await localBranchExists('nonexistent-branch');
+
+            expect(result).toBe(false);
+            expect(mockRun).toHaveBeenCalledWith('git rev-parse --verify refs/heads/nonexistent-branch >/dev/null 2>&1');
+        });
+    });
+
+    describe('remoteBranchExists', () => {
+        it('should return true when remote branch exists', async () => {
+            mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+
+            const result = await remoteBranchExists('feature-branch');
+
+            expect(result).toBe(true);
+            expect(mockRun).toHaveBeenCalledWith('git rev-parse --verify refs/remotes/origin/feature-branch >/dev/null 2>&1');
+        });
+
+        it('should return false when remote branch does not exist', async () => {
+            mockRun.mockRejectedValue(new Error('fatal: bad revision'));
+
+            const result = await remoteBranchExists('nonexistent-branch');
+
+            expect(result).toBe(false);
+            expect(mockRun).toHaveBeenCalledWith('git rev-parse --verify refs/remotes/origin/nonexistent-branch >/dev/null 2>&1');
+        });
+
+        it('should use custom remote name', async () => {
+            mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+
+            const result = await remoteBranchExists('feature-branch', 'upstream');
+
+            expect(result).toBe(true);
+            expect(mockRun).toHaveBeenCalledWith('git rev-parse --verify refs/remotes/upstream/feature-branch >/dev/null 2>&1');
+        });
+    });
+
+    describe('getBranchCommitSha', () => {
+        it('should return commit SHA for branch reference', async () => {
+            const mockSha = 'abc123def456';
+            mockRun.mockResolvedValue({ stdout: mockSha + '\n', stderr: '' });
+
+            const result = await getBranchCommitSha('refs/heads/main');
+
+            expect(result).toBe(mockSha);
+            expect(mockRun).toHaveBeenCalledWith('git rev-parse refs/heads/main');
+        });
+
+        it('should trim whitespace from SHA', async () => {
+            const mockSha = 'abc123def456';
+            mockRun.mockResolvedValue({ stdout: `  ${mockSha}  \n\n`, stderr: '' });
+
+            const result = await getBranchCommitSha('refs/heads/main');
+
+            expect(result).toBe(mockSha);
+        });
+    });
+
+    describe('isBranchInSyncWithRemote', () => {
+        it('should return inSync true when SHAs match', async () => {
+            const mockSha = 'abc123def456';
+            mockRun
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // remote branch exists
+                .mockResolvedValueOnce({ stdout: mockSha, stderr: '' }) // local SHA
+                .mockResolvedValueOnce({ stdout: mockSha, stderr: '' }); // remote SHA
+
+            const result = await isBranchInSyncWithRemote('main');
+
+            expect(result.inSync).toBe(true);
+            expect(result.localSha).toBe(mockSha);
+            expect(result.remoteSha).toBe(mockSha);
+            expect(result.localExists).toBe(true);
+            expect(result.remoteExists).toBe(true);
+        });
+
+        it('should return inSync false when SHAs differ', async () => {
+            const localSha = 'abc123def456';
+            const remoteSha = 'def456abc123';
+            mockRun
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // remote branch exists
+                .mockResolvedValueOnce({ stdout: localSha, stderr: '' }) // local SHA
+                .mockResolvedValueOnce({ stdout: remoteSha, stderr: '' }); // remote SHA
+
+            const result = await isBranchInSyncWithRemote('main');
+
+            expect(result.inSync).toBe(false);
+            expect(result.localSha).toBe(localSha);
+            expect(result.remoteSha).toBe(remoteSha);
+        });
+
+        it('should handle missing local branch', async () => {
+            mockRun
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockRejectedValueOnce(new Error('fatal: bad revision')) // local branch missing
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }); // remote branch exists
+
+            const result = await isBranchInSyncWithRemote('main');
+
+            expect(result.inSync).toBe(false);
+            expect(result.localExists).toBe(false);
+            expect(result.remoteExists).toBe(true);
+            expect(result.error).toContain('Local branch \'main\' does not exist');
+        });
+
+        it('should handle missing remote branch', async () => {
+            mockRun
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockRejectedValueOnce(new Error('fatal: bad revision')); // remote branch missing
+
+            const result = await isBranchInSyncWithRemote('main');
+
+            expect(result.inSync).toBe(false);
+            expect(result.localExists).toBe(true);
+            expect(result.remoteExists).toBe(false);
+            expect(result.error).toContain('Remote branch \'origin/main\' does not exist');
+        });
+    });
+
+    describe('safeSyncBranchWithRemote', () => {
+        it('should successfully sync existing branch', async () => {
+            mockRun
+                .mockResolvedValueOnce({ stdout: 'main', stderr: '' }) // current branch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // remote branch exists
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git pull
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }); // checkout back (if needed)
+
+            const result = await safeSyncBranchWithRemote('main');
+
+            expect(result.success).toBe(true);
+            expect(result.error).toBeUndefined();
+        });
+
+        it('should create local branch when it does not exist', async () => {
+            // Mock implementation that handles specific commands
+            mockRun.mockImplementation((command: string) => {
+                if (command === 'git branch --show-current') {
+                    return Promise.resolve({ stdout: 'feature', stderr: '' });
+                }
+                if (command === 'git fetch origin --quiet') {
+                    return Promise.resolve({ stdout: '', stderr: '' });
+                }
+                if (command === 'git rev-parse --verify refs/heads/main >/dev/null 2>&1') {
+                    return Promise.reject(new Error('fatal: bad revision')); // Local branch doesn't exist
+                }
+                if (command === 'git rev-parse --verify refs/remotes/origin/main >/dev/null 2>&1') {
+                    return Promise.resolve({ stdout: '', stderr: '' }); // Remote branch exists
+                }
+                if (command === 'git branch main origin/main') {
+                    return Promise.resolve({ stdout: '', stderr: '' });
+                }
+                return Promise.reject(new Error(`Unexpected command: ${command}`));
+            });
+
+            const result = await safeSyncBranchWithRemote('main');
+
+            expect(result.success).toBe(true);
+            expect(mockRun).toHaveBeenCalledWith('git branch main origin/main');
+        });
+
+        it('should handle merge conflicts', async () => {
+            mockRun
+                .mockResolvedValueOnce({ stdout: 'main', stderr: '' }) // current branch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // remote branch exists
+                .mockRejectedValueOnce(new Error('CONFLICT: Merge conflict in file.txt')); // git pull fails
+
+            const result = await safeSyncBranchWithRemote('main');
+
+            expect(result.success).toBe(false);
+            expect(result.conflictResolutionRequired).toBe(true);
+            expect(result.error).toContain('diverged from');
+        });
+
+        it('should handle uncommitted changes when switching branches', async () => {
+            mockRun
+                .mockResolvedValueOnce({ stdout: 'feature', stderr: '' }) // current branch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // remote branch exists
+                .mockResolvedValueOnce({ stdout: 'M file.txt', stderr: '' }); // uncommitted changes
+
+            const result = await safeSyncBranchWithRemote('main');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('uncommitted changes');
+        });
+
+        it('should handle missing remote branch', async () => {
+            mockRun
+                .mockResolvedValueOnce({ stdout: 'main', stderr: '' }) // current branch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // local branch exists
+                .mockRejectedValueOnce(new Error('fatal: bad revision')); // remote branch missing
+
+            const result = await safeSyncBranchWithRemote('main');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toContain('Remote branch \'origin/main\' does not exist');
         });
     });
 });

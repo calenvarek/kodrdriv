@@ -102,6 +102,66 @@ const hasWorkflowsConfigured = async (): Promise<boolean> => {
     }
 };
 
+/**
+ * Check if any workflow runs have been triggered for a specific PR
+ * This is more specific than hasWorkflowsConfigured as it checks for actual runs
+ */
+const hasWorkflowRunsForPR = async (prNumber: number): Promise<boolean> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        // Get the PR to find the head SHA
+        const pr = await octokit.pulls.get({
+            owner,
+            repo,
+            pull_number: prNumber,
+        });
+
+        const headSha = pr.data.head.sha;
+        const headRef = pr.data.head.ref;
+
+        // Check for workflow runs triggered by this PR
+        const workflowRuns = await octokit.actions.listWorkflowRunsForRepo({
+            owner,
+            repo,
+            head_sha: headSha,
+            per_page: 50, // Check recent runs
+        });
+
+        // Also check for runs on the branch
+        const branchRuns = await octokit.actions.listWorkflowRunsForRepo({
+            owner,
+            repo,
+            branch: headRef,
+            per_page: 50,
+        });
+
+        const allRuns = [...workflowRuns.data.workflow_runs, ...branchRuns.data.workflow_runs];
+
+        // Filter to runs that match our PR's head SHA or are very recent on the branch
+        const relevantRuns = allRuns.filter(run =>
+            run.head_sha === headSha ||
+            (run.head_branch === headRef && new Date(run.created_at).getTime() > Date.now() - 300000) // Last 5 minutes
+        );
+
+        if (relevantRuns.length > 0) {
+            logger.debug(`Found ${relevantRuns.length} workflow runs for PR #${prNumber} (SHA: ${headSha})`);
+            return true;
+        }
+
+        logger.debug(`No workflow runs found for PR #${prNumber} (SHA: ${headSha}, branch: ${headRef})`);
+        return false;
+
+
+    } catch (error: any) {
+        logger.debug(`Error checking workflow runs for PR #${prNumber}: ${error.message}`);
+        // If we can't check workflow runs, assume they might exist
+        return true;
+    }
+};
+
 export const waitForPullRequestChecks = async (prNumber: number, options: { timeout?: number; skipUserConfirmation?: boolean } = {}): Promise<void> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
@@ -112,6 +172,7 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
     const startTime = Date.now();
     let consecutiveNoChecksCount = 0;
     const maxConsecutiveNoChecks = 6; // 6 consecutive checks (1 minute) with no checks before asking user
+    let checkedWorkflowRuns = false; // Track if we've already checked for workflow runs to avoid repeated checks
 
     while (true) {
         const elapsedTime = Date.now() - startTime;
@@ -184,8 +245,63 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
                         return;
                     }
                 } else {
-                    logger.info('GitHub Actions workflows are configured. Continuing to wait for checks...');
-                    consecutiveNoChecksCount = 0; // Reset counter since workflows exist
+                    // Workflows exist, but check if any are actually running for this PR
+                    if (!checkedWorkflowRuns) {
+                        logger.info('GitHub Actions workflows are configured. Checking if any workflows are triggered for this PR...');
+
+                        const hasRunsForPR = await hasWorkflowRunsForPR(prNumber);
+                        checkedWorkflowRuns = true; // Mark that we've checked
+
+                        if (!hasRunsForPR) {
+                            logger.warn(`No workflow runs detected for PR #${prNumber}. This may indicate that the configured workflows don't match this branch pattern.`);
+
+                            if (!skipUserConfirmation) {
+                                const proceedWithoutChecks = await promptConfirmation(
+                                    `⚠️  GitHub Actions workflows are configured in this repository, but none appear to be triggered by PR #${prNumber}.\n` +
+                                    `This usually means the workflow trigger patterns (branches, paths) don't match this PR.\n` +
+                                    `PR #${prNumber} will likely never have status checks to wait for.\n` +
+                                    `Do you want to proceed with merging the PR without waiting for checks?`
+                                );
+
+                                if (proceedWithoutChecks) {
+                                    logger.info('User chose to proceed without checks (no matching workflow triggers).');
+                                    return;
+                                } else {
+                                    throw new Error(`No matching workflow triggers for PR #${prNumber}. User chose not to proceed.`);
+                                }
+                            } else {
+                                // In non-interactive mode, proceed if no workflow runs are detected
+                                logger.info('No workflow runs detected for this PR, proceeding without checks.');
+                                return;
+                            }
+                        } else {
+                            logger.info('Workflow runs detected for this PR. Continuing to wait for checks...');
+                            consecutiveNoChecksCount = 0; // Reset counter since workflow runs exist
+                        }
+                    } else {
+                        // We've already checked workflow runs and found none that match this PR
+                        // At this point, we should give up to avoid infinite loops
+                        logger.warn(`Still no checks after ${consecutiveNoChecksCount} attempts. No workflow runs match this PR.`);
+
+                        if (!skipUserConfirmation) {
+                            const proceedWithoutChecks = await promptConfirmation(
+                                `⚠️  After waiting ${Math.round(elapsedTime / 1000)}s, no checks have appeared for PR #${prNumber}.\n` +
+                                `The configured workflows don't appear to trigger for this branch.\n` +
+                                `Do you want to proceed with merging the PR without checks?`
+                            );
+
+                            if (proceedWithoutChecks) {
+                                logger.info('User chose to proceed without checks (timeout waiting for workflow triggers).');
+                                return;
+                            } else {
+                                throw new Error(`No workflow triggers matched PR #${prNumber} after waiting. User chose not to proceed.`);
+                            }
+                        } else {
+                            // In non-interactive mode, proceed after reasonable waiting
+                            logger.info('No workflow runs detected after waiting, proceeding without checks.');
+                            return;
+                        }
+                    }
                 }
             }
 

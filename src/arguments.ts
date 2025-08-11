@@ -38,6 +38,7 @@ export const InputSchema = z.object({
     skipFileCheck: z.boolean().optional(),
     maxDiffBytes: z.number().optional(),
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
+    syncTarget: z.boolean().optional(),
     scopeRoots: z.string().optional(),
 
     startFrom: z.string().optional(),
@@ -118,12 +119,13 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'publish' options (only when it's actually a publish command or has publish-specific options)
-    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.interactive !== undefined))) {
+    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.interactive !== undefined))) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
         if (finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
         if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.publish.targetVersion = finalCliArgs.targetVersion;
         if (finalCliArgs.interactive !== undefined) transformedCliArgs.publish.interactive = finalCliArgs.interactive;
+        if (finalCliArgs.syncTarget !== undefined) transformedCliArgs.publish.syncTarget = finalCliArgs.syncTarget;
     }
 
     // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
@@ -496,6 +498,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--target-version <targetVersion>', 'target version for release (explicit version like "4.30.0" or semantic bump: "patch", "minor", "major")')
         .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
+        .option('--sync-target', 'attempt to automatically sync target branch with remote before publishing')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 

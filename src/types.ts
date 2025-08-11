@@ -83,6 +83,7 @@ export const ConfigSchema = z.object({
         unlinkWorkspacePackages: z.boolean().optional(),
         checksTimeout: z.number().optional(),
         skipUserConfirmation: z.boolean().optional(),
+        syncTarget: z.boolean().optional(),
         sendit: z.boolean().optional(),
         waitForReleaseWorkflows: z.boolean().optional(),
         releaseWorkflowsTimeout: z.number().optional(),

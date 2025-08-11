@@ -55,6 +55,7 @@ describe('GitHub Utilities', () => {
         actions: {
             listRepoWorkflows: vi.fn(),
             listWorkflowRuns: vi.fn(),
+            listWorkflowRunsForRepo: vi.fn(),
         },
     };
 
@@ -2482,6 +2483,150 @@ jobs:
             }
 
             await expect(promise).resolves.toBeUndefined();
+        });
+
+        it('should proceed when workflows exist but no workflow runs match the PR branch', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'release/v1.0.0' }
+                }
+            });
+
+            // No checks found for 6 consecutive attempts
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+            // Workflows are configured in the repository
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // But no workflow runs match the PR (different branch patterns)
+            mockOctokit.actions.listWorkflowRunsForRepo
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }) // No runs for SHA
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }); // No runs for branch
+
+            const promise = GitHub.waitForPullRequestChecks(123, { skipUserConfirmation: true });
+
+            // Advance through the consecutive no-checks period
+            for (let i = 0; i < 6; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(mockOctokit.actions.listRepoWorkflows).toHaveBeenCalled();
+            expect(mockOctokit.actions.listWorkflowRunsForRepo).toHaveBeenCalledTimes(2);
+        });
+
+        it('should prompt user when workflows exist but no workflow runs match the PR branch (interactive mode)', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'release/v1.0.0' }
+                }
+            });
+
+            // No checks found for 6 consecutive attempts
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+            // Workflows are configured in the repository
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // But no workflow runs match the PR
+            mockOctokit.actions.listWorkflowRunsForRepo
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }) // No runs for SHA
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }); // No runs for branch
+
+            promptConfirmation.mockResolvedValue(true);
+
+            const promise = GitHub.waitForPullRequestChecks(123, { skipUserConfirmation: false });
+
+            // Advance through the consecutive no-checks period
+            for (let i = 0; i < 6; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(promptConfirmation).toHaveBeenCalledWith(
+                expect.stringContaining('GitHub Actions workflows are configured in this repository, but none appear to be triggered by PR #123')
+            );
+        });
+
+        it('should continue waiting when workflow runs are detected for the PR', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'main' }
+                }
+            });
+
+            // No checks found initially, then checks appear
+            mockOctokit.checks.listForRef
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [{ status: 'completed', conclusion: 'success' }] } });
+
+            // Workflows are configured
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // Workflow runs are found for this PR
+            mockOctokit.actions.listWorkflowRunsForRepo
+                .mockResolvedValueOnce({
+                    data: {
+                        workflow_runs: [
+                            { head_sha: 'test-sha', head_branch: 'main', created_at: new Date().toISOString() }
+                        ]
+                    }
+                });
+
+            const promise = GitHub.waitForPullRequestChecks(123);
+
+            // Wait for several consecutive no-checks attempts, workflow detection, then final success
+            for (let i = 0; i < 7; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(mockOctokit.actions.listWorkflowRunsForRepo).toHaveBeenCalled();
+        });
+
+        it('should handle workflow run detection API errors gracefully', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'main' }
+                }
+            });
+
+            // No checks found for 6 consecutive attempts
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+            // Workflows are configured
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // API error when checking workflow runs (should assume runs exist)
+            mockOctokit.actions.listWorkflowRunsForRepo.mockRejectedValue(new Error('API Error'));
+
+            const promise = GitHub.waitForPullRequestChecks(123);
+
+            // Since API error is treated as "runs might exist", it should continue waiting
+            // Let's check it continues and doesn't exit immediately
+            for (let i = 0; i < 7; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            // Since we assume runs exist when there's an API error, it should keep waiting
+            // In this test, we won't get resolution - the mock will keep returning no checks
+            // This is expected behavior when API errors occur (conservative approach)
+
+            // Let's verify the workflow run detection was attempted despite the error
+            expect(mockOctokit.actions.listWorkflowRunsForRepo).toHaveBeenCalled();
         });
 
         it('should provide specific recovery instructions based on failure types', async () => {
