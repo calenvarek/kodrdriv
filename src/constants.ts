@@ -48,7 +48,7 @@ export const DEFAULT_SENDIT_MODE = false;
 export const DEFAULT_INTERACTIVE_MODE = false;
 export const DEFAULT_AMEND_MODE = false;
 export const DEFAULT_MESSAGE_LIMIT = 50;
-export const DEFAULT_MAX_DIFF_BYTES = 2048; // 2KB default limit per file
+export const DEFAULT_MAX_DIFF_BYTES = 20480; // 20KB limit per file
 
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 

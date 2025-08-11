@@ -6,6 +6,7 @@ import shellescape from 'shell-escape';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Diff from '../content/diff';
 import * as Log from '../content/log';
+import * as Files from '../content/files';
 import { CommandError, ValidationError, ExternalDependencyError } from '../error/CommandErrors';
 import { getDryRunLogger } from '../logging';
 import * as CommitPrompt from '../prompt/commit';
@@ -296,6 +297,7 @@ const executeInternal = async (runConfig: Config) => {
     validateSenditState(runConfig, cached, isDryRun, logger);
 
     let diffContent = '';
+    let isUsingFileContent = false;
     const maxDiffBytes = runConfig.commit?.maxDiffBytes ?? DEFAULT_MAX_DIFF_BYTES;
     const options = {
         cached,
@@ -349,17 +351,36 @@ const executeInternal = async (runConfig: Config) => {
                 }
             }
         } else {
-            // No changes at all
+            // No changes at all - try fallback to file content for new repositories
+            logger.info('No changes detected in the working directory.');
+
             if (runConfig.commit?.sendit && !isDryRun) {
                 logger.warn('No changes detected to commit. Skipping commit operation.');
                 return 'No changes to commit.';
             } else {
-                logger.info('No changes detected in the working directory.');
-                if (runConfig.commit?.sendit) {
-                    logger.info('Skipping commit operation due to no changes.');
-                    return 'No changes to commit.';
+                logger.info('No diff content available. Attempting to generate commit message from file content...');
+
+                // Create file content collector as fallback
+                const fileOptions = {
+                    excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS,
+                    maxTotalBytes: maxDiffBytes * 5, // Allow more content since we're not looking at diffs
+                    workingDirectory: process.cwd()
+                };
+                const files = await Files.create(fileOptions);
+                const fileContent = await files.get();
+
+                if (fileContent && fileContent.trim().length > 0) {
+                    logger.info('Using file content for commit message generation (%d characters)', fileContent.length);
+                    diffContent = fileContent;
+                    isUsingFileContent = true;
+                    hasActualChanges = true; // We have content to work with
                 } else {
-                    logger.info('Generating commit message template for future use...');
+                    if (runConfig.commit?.sendit) {
+                        logger.info('Skipping commit operation due to no changes.');
+                        return 'No changes to commit.';
+                    } else {
+                        logger.info('Generating commit message template for future use...');
+                    }
                 }
             }
         }
@@ -378,6 +399,7 @@ const executeInternal = async (runConfig: Config) => {
     const promptContent = {
         diffContent,
         userDirection: runConfig.commit?.direction,
+        isFileContent: isUsingFileContent,
     };
     const promptContext = {
         logContext,
