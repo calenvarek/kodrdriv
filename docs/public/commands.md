@@ -281,7 +281,7 @@ The release command analyzes changes between two Git references and generates st
 > [!TIP]
 > ### Custom Release Range
 >
-> The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it compares changes between the `main` branch and `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
+> The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it automatically detects the best comparison reference (trying `main`, then `master`, then `origin/main`) and compares to `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
 
 > [!TIP]
 > ### Comparing Releases
@@ -290,7 +290,7 @@ The release command analyzes changes between two Git references and generates st
 
 ### Release Command Options
 
-- `--from <from>`: Branch or reference to generate release notes from (default: 'main')
+- `--from <from>`: Branch or reference to generate release notes from (default: automatically detected - tries `main`, then `master`, then `origin/main`)
 - `--to <to>`: Branch or reference to generate release notes to (default: 'HEAD')
 - `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
 - `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 50). Reducing this number can make the summary more focused, while increasing it provides broader historical context.

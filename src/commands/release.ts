@@ -2,7 +2,8 @@
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
-import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_FROM_COMMIT_ALIAS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { getDefaultFromRef } from '../util/git';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as ReleasePrompt from '../prompt/release';
@@ -184,17 +185,23 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
 
+    // Resolve the from reference with fallback logic if not explicitly provided
+    const fromRef = runConfig.release?.from ?? await getDefaultFromRef();
+    const toRef = runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS;
+
+    logger.debug(`Using git references: from=${fromRef}, to=${toRef}`);
+
     const log = await Log.create({
-        from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS,
-        to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS,
+        from: fromRef,
+        to: toRef,
         limit: runConfig.release?.messageLimit
     });
     let logContent = '';
 
     const maxDiffBytes = runConfig.release?.maxDiffBytes ?? DEFAULT_MAX_DIFF_BYTES;
     const diff = await Diff.create({
-        from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS,
-        to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS,
+        from: fromRef,
+        to: toRef,
         excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS,
         maxDiffBytes
     });
