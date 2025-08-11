@@ -31,6 +31,14 @@ vi.mock('../../src/util/openai', () => ({
 }));
 
 vi.mock('../../src/logging', () => ({
+    getLogger: vi.fn().mockReturnValue({
+        info: vi.fn(),
+        debug: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    }),
     getDryRunLogger: vi.fn().mockReturnValue({
         info: vi.fn(),
         debug: vi.fn(),
@@ -95,6 +103,10 @@ vi.mock('@riotprompt/riotprompt', () => ({
             })
         })
     }
+}));
+
+vi.mock('../../src/util/git', () => ({
+    getDefaultFromRef: vi.fn().mockResolvedValue('origin/HEAD')
 }));
 
 describe('release command', () => {
