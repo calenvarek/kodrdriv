@@ -21,7 +21,7 @@ The publish command supports the following options:
 - `--target-version <targetVersion>`: Target version for the release (default: 'patch')
   - **Explicit version**: Provide a specific version number (e.g., "4.30.0")
   - **Semantic bumps**: Use "patch", "minor", or "major" for automatic version increments
-  - **Pre-release handling**: Converts pre-release versions like "4.23.3-dev.1" to clean releases
+  - **Pre-release handling**: Graduates pre-release versions like "4.23.3-dev.1" to their base version "4.23.3"
   - **Tag conflict detection**: Automatically checks if the target version tag already exists and prevents conflicts
   - **Use Case**: When you need to jump to a specific version or perform non-patch releases
 - `--interactive`: Present release notes for interactive review and editing
