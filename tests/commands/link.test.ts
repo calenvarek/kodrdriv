@@ -3,6 +3,7 @@ import * as Link from '../../src/commands/link';
 import { Config } from '../../src/types';
 import * as Storage from '../../src/util/storage';
 import * as Child from '../../src/util/child';
+import path from 'path';
 
 // Mock the storage module
 vi.mock('../../src/util/storage', () => ({
@@ -308,6 +309,12 @@ describe('Link Command', () => {
         it('should leave existing symlinks that point to correct targets', async () => {
             const config = createBaseConfig();
 
+            // Calculate paths dynamically based on current working directory to work in any environment
+            const currentDir = process.cwd();
+            const sourcePath = path.join(path.dirname(currentDir), 'global', 'node_modules', '@fjell', 'core');
+            const targetPath = path.join(currentDir, 'node_modules', '@fjell', 'core');
+            const expectedRelativePath = path.relative(path.dirname(targetPath), sourcePath);
+
             mockStorage.readFile
                 .mockResolvedValueOnce(JSON.stringify({
                     name: '@fjell/my-app',
@@ -321,7 +328,7 @@ describe('Link Command', () => {
             mockRun
                 .mockResolvedValueOnce({ stdout: '', stderr: '' }) // npm link (self-link)
                 .mockResolvedValueOnce({
-                    stdout: '/Users/global/node_modules/@fjell/core',
+                    stdout: sourcePath,
                     stderr: ''
                 }); // npm ls --link -g -p
 
@@ -331,7 +338,7 @@ describe('Link Command', () => {
                 isSymbolicLink: () => true,
                 isDirectory: () => false
             }); // Target is a symlink
-            mockFs.readlink.mockResolvedValueOnce('../../../../../../global/node_modules/@fjell/core'); // Existing symlink points to correct target
+            mockFs.readlink.mockResolvedValueOnce(expectedRelativePath); // Existing symlink points to correct target
 
             const result = await Link.execute(config);
 
