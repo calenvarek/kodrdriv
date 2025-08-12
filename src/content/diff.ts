@@ -8,6 +8,8 @@ export interface Instance {
     get(): Promise<string>;
 }
 
+
+
 // Enhanced exclusion patterns specifically for review context
 // These focus on excluding large files, binaries, and content that doesn't help with issue analysis
 export const getReviewExcludedPatterns = (basePatterns: string[]): string[] => {

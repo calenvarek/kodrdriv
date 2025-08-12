@@ -2,7 +2,8 @@
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
-import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_FROM_COMMIT_ALIAS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { getDefaultFromRef } from '../util/git';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as ReleasePrompt from '../prompt/release';
@@ -12,7 +13,8 @@ import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
-import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
+import { validateReleaseSummary, safeJsonParse, type ReleaseSummary } from '../util/validation';
+import * as GitHub from '../util/github';
 import {
     getUserChoice,
     editContentInEditor,
@@ -184,17 +186,23 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
 
+    // Resolve the from reference with fallback logic if not explicitly provided
+    const fromRef = runConfig.release?.from ?? await getDefaultFromRef();
+    const toRef = runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS;
+
+    logger.debug(`Using git references: from=${fromRef}, to=${toRef}`);
+
     const log = await Log.create({
-        from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS,
-        to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS,
+        from: fromRef,
+        to: toRef,
         limit: runConfig.release?.messageLimit
     });
     let logContent = '';
 
     const maxDiffBytes = runConfig.release?.maxDiffBytes ?? DEFAULT_MAX_DIFF_BYTES;
     const diff = await Diff.create({
-        from: runConfig.release?.from ?? DEFAULT_FROM_COMMIT_ALIAS,
-        to: runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS,
+        from: fromRef,
+        to: toRef,
         excludedPatterns: runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS,
         maxDiffBytes
     });
@@ -207,10 +215,76 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
     };
+    // Helper function to determine versions for milestone lookup
+    const determineVersionsForMilestones = async (): Promise<string[]> => {
+        const versions: string[] = [];
+
+        // Get current package.json version to determine likely release version
+        try {
+            const storage = createStorage({ log: () => {} });
+            const packageJsonContents = await storage.readFile('package.json', 'utf-8');
+            const packageJson = safeJsonParse(packageJsonContents, 'package.json');
+            const currentVersion = packageJson.version;
+
+            if (currentVersion) {
+                // If it's a dev version (e.g., "0.1.1-dev.0"), extract base version
+                if (currentVersion.includes('-dev.')) {
+                    const baseVersion = currentVersion.split('-')[0];
+                    versions.push(baseVersion);
+                    logger.debug(`Detected dev version ${currentVersion}, will check milestone for ${baseVersion}`);
+                } else {
+                    // Use current version as-is
+                    versions.push(currentVersion);
+                    logger.debug(`Using current version ${currentVersion} for milestone lookup`);
+                }
+            }
+        } catch (error: any) {
+            logger.debug(`Failed to read package.json version: ${error.message}`);
+        }
+
+        // Handle edge case: if publish targetVersion is different from current version
+        if (runConfig.publish?.targetVersion &&
+            runConfig.publish.targetVersion !== 'patch' &&
+            runConfig.publish.targetVersion !== 'minor' &&
+            runConfig.publish.targetVersion !== 'major') {
+
+            const targetVersion = runConfig.publish.targetVersion;
+            if (!versions.includes(targetVersion)) {
+                versions.push(targetVersion);
+                logger.debug(`Added target version ${targetVersion} for milestone lookup`);
+            }
+        }
+
+        return versions;
+    };
+
+    // Get milestone issues if enabled
+    let milestoneIssuesContent = '';
+    const milestonesEnabled = !runConfig.release?.noMilestones;
+
+    if (milestonesEnabled) {
+        logger.info('🔍 Checking for milestone issues to include in release notes...');
+        const versions = await determineVersionsForMilestones();
+
+        if (versions.length > 0) {
+            milestoneIssuesContent = await GitHub.getMilestoneIssuesForRelease(versions, 50000);
+            if (milestoneIssuesContent) {
+                logger.info('📋 Incorporated milestone issues into release notes context');
+            } else {
+                logger.debug('No milestone issues found to incorporate');
+            }
+        } else {
+            logger.debug('No versions determined for milestone lookup');
+        }
+    } else {
+        logger.debug('Milestone integration disabled via --no-milestones');
+    }
+
     const promptContent = {
         logContent,
         diffContent,
         releaseFocus: runConfig.release?.focus,
+        milestoneIssues: milestoneIssuesContent,
     };
     const promptContext = {
         context: runConfig.release?.context,
@@ -249,6 +323,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
             logContent: originalLogContent,
             diffContent: reducedDiffContent,
             releaseFocus: runConfig.release?.focus,
+            milestoneIssues: milestoneIssuesContent,
         };
         const reducedPromptContext = {
             context: runConfig.release?.context,

@@ -39,7 +39,7 @@ export const DEFAULT_CONTEXT_DIRECTORIES: string[] = [];
 export const DEFAULT_CONFIG_DIR = '.kodrdriv';
 export const DEFAULT_PREFERENCES_DIRECTORY = path.join(os.homedir(), '.kodrdriv');
 
-export const DEFAULT_FROM_COMMIT_ALIAS = 'origin/HEAD';
+export const DEFAULT_FROM_COMMIT_ALIAS = 'main';
 export const DEFAULT_TO_COMMIT_ALIAS = 'HEAD';
 
 export const DEFAULT_ADD = false;
@@ -48,7 +48,7 @@ export const DEFAULT_SENDIT_MODE = false;
 export const DEFAULT_INTERACTIVE_MODE = false;
 export const DEFAULT_AMEND_MODE = false;
 export const DEFAULT_MESSAGE_LIMIT = 50;
-export const DEFAULT_MAX_DIFF_BYTES = 2048; // 2KB default limit per file
+export const DEFAULT_MAX_DIFF_BYTES = 20480; // 20KB limit per file
 
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 
@@ -73,6 +73,8 @@ export const COMMAND_TREE = 'tree';
 export const COMMAND_LINK = 'link';
 export const COMMAND_UNLINK = 'unlink';
 export const COMMAND_CLEAN = 'clean';
+export const COMMAND_DEVELOPMENT = 'development';
+export const COMMAND_VERSIONS = 'versions';
 export const COMMAND_CHECK_CONFIG = 'check-config';
 export const COMMAND_INIT_CONFIG = 'init-config';
 
@@ -87,7 +89,9 @@ export const ALLOWED_COMMANDS = [
     COMMAND_TREE,
     COMMAND_LINK,
     COMMAND_UNLINK,
-    COMMAND_CLEAN
+    COMMAND_CLEAN,
+    COMMAND_DEVELOPMENT,
+    COMMAND_VERSIONS
 ];
 
 export const DEFAULT_COMMAND = COMMAND_COMMIT;
@@ -173,6 +177,7 @@ export const KODRDRIV_DEFAULTS = {
         messageLimit: DEFAULT_MESSAGE_LIMIT,
         interactive: DEFAULT_INTERACTIVE_MODE,
         maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
+        noMilestones: false,
     },
     audioCommit: {
         maxRecordingTime: 300, // 5 minutes default
@@ -213,25 +218,39 @@ export const KODRDRIV_DEFAULTS = {
         unlinkWorkspacePackages: true,
         sendit: DEFAULT_SENDIT_MODE,
         targetBranch: 'main',
+        noMilestones: false,
     },
     link: {
         scopeRoots: {},
         dryRun: false,
+        packageArgument: undefined,
     },
     unlink: {
         scopeRoots: {},
         workspaceFile: undefined,
         dryRun: false,
         cleanNodeModules: false,
+        packageArgument: undefined,
     },
     tree: {
         directories: undefined,
         excludedPatterns: undefined,
         startFrom: undefined,
+        stopAt: undefined,
         cmd: undefined,
         parallel: false,
         builtInCommand: undefined,
         continue: false,
+        packageArgument: undefined,
+        cleanNodeModules: false,
+    },
+    development: {
+        targetVersion: 'patch',
+        noMilestones: false,
+    },
+    versions: {
+        subcommand: undefined,
+        directories: undefined,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
 };

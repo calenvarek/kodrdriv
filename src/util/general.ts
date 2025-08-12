@@ -197,9 +197,13 @@ export const calculateTargetVersion = (currentVersion: string, targetVersion: st
 };
 
 export const checkIfTagExists = async (tagName: string): Promise<boolean> => {
-    const { run } = await import('./child');
+    const { runSecure, validateGitRef } = await import('./child');
     try {
-        const { stdout } = await run(`git tag -l ${tagName}`);
+        // Validate tag name to prevent injection
+        if (!validateGitRef(tagName)) {
+            throw new Error(`Invalid tag name: ${tagName}`);
+        }
+        const { stdout } = await runSecure('git', ['tag', '-l', tagName]);
         return stdout.trim() === tagName;
     } catch {
         // If git command fails, assume tag doesn't exist

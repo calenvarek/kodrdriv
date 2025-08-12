@@ -4,6 +4,8 @@ Task #2: Provide a detailed list of changes involved in this release, and make s
 
 Task #3: Use the content in the Release Focus section as the PRIMARY GUIDE for writing the release notes and to help make connections with people, projects, issues, features, and other information. The Release Focus should heavily influence the tone, emphasis, and structure of your release notes.
 
+Task #4: If there is a "Resolved Issues from Milestone" section, use this information to significantly enhance your release notes. These are well-documented issues that were resolved in this release. Include the important changes from these issues in your release notes, and make sure to reference the issue numbers. Milestone issues represent significant work that users care about and should be prominently featured in the release notes.
+
 **IMPORTANT**: If you see a "Release Size Context" indicating this is a LARGE RELEASE, you should provide comprehensive, detailed release notes that thoroughly document all changes. For large releases, be extensive rather than brief - users need to understand the full scope of changes. Don't just summarize - dive deep into the details, organize changes into meaningful groups, and explain the impact of major changes.
 
 ### Output Format
@@ -15,9 +17,10 @@ Your response MUST be a valid JSON object with the following structure:
 }
 
 **Instructions for the `title` field:**
-- It must be a single line.
+- It must be a single line and should be concise and readable (aim for under 80 characters).
 - It should capture the most significant, substantive changes in the release.
 - Focus on what is noticeable to developers using the software.
+- Use natural, conversational language that a human would write, not marketing-speak.
 - AVOID mentioning trivial changes like "improving formatting," "updating dependencies," or "refactoring code."
 
 **Instructions for the `body` field:**
@@ -29,21 +32,24 @@ Your response MUST be a valid JSON object with the following structure:
 
 - Do not mention and people or contributors in the release notes.  For example, do not say, "Thanks to John Doe for this feature."  Release notes are to be impersonal and not focused on indiviudals.
 
-- Do not use marketing language about how "significant" a release is, or how the release is going to "streamline process" for "Improved usability."   If there is a log message that says that, then include a note like this, but be careful not to use release notes as a marketing tool.
+- Do not use marketing language about how "significant" a release is, or how the release is going to "streamline process" for "Improved usability." Write factual, technical descriptions of what has changed. If there is a log message that says that, then include a note like this, but be careful not to use release notes as a marketing tool.
+
+- Do not use emoticons or emojis in headers or content. These make the output appear AI-generated rather than human-written.
 
 - If the release is very simple, keep the release notes short and simple. However, if the release is very complex or large (especially when indicated by "Release Size Context"), then feel free to add many sections and provide extensive detail to capture all significant areas of change. Large releases deserve comprehensive documentation.
 
-## 🎯 Purpose
+## Purpose
 
 Create release notes that:
 
 * Help developers, contributors, or users **understand what changed**
 * Reflect the **actual purpose** and **impact** of the release
 * Are **not promotional**, **not exaggerated**, and **not overly positive**
+* Sound like they were written by a human developer, not AI-generated marketing copy
 * **For large releases**: Provide comprehensive coverage of all significant changes rather than brief summaries
 
 
-## 🧭 Instructions
+## Instructions
 
 1. **Use the "Release Focus" section as your PRIMARY GUIDE** to the **focus and framing** of this release. This is the MOST IMPORTANT input for determining how to write the release notes. The Release Focus may include:
 
@@ -52,7 +58,16 @@ Create release notes that:
    * Target audiences or known issues being addressed
    * Strategic direction or priorities for this release
 
-   🎯 **CRITICAL**: The Release Focus should shape the **opening paragraph**, determine which changes are emphasized most prominently, and guide the overall narrative of the release notes. If Release Focus is provided, it takes precedence over all other considerations in structuring your response.
+   **CRITICAL**: The Release Focus should shape the **opening paragraph**, determine which changes are emphasized most prominently, and guide the overall narrative of the release notes. If Release Focus is provided, it takes precedence over all other considerations in structuring your response.
+
+1a. **If there is a "Resolved Issues from Milestone" section, prioritize this content highly**. These represent well-documented issues that were resolved in this release:
+
+   * Include the resolved issues prominently in your release notes
+   * Reference the issue numbers (e.g., "Fixed authentication bug (#123)")
+   * **Pay close attention to the issue descriptions, comments, and discussions** to understand the motivation and context behind changes
+   * Use the issue conversations to provide detailed context about why changes were made and what problems they solve
+   * These issues often represent the most significant user-facing changes in the release
+   * Organize related issues together in logical sections
 
 2. **Structure the release notes as follows:**
 
@@ -74,11 +89,11 @@ Create release notes that:
 
    Include only the sections that are relevant. **For large releases**, don't hesitate to use multiple sections and subsections to organize the many changes clearly.
 
-3. **Use clear, factual bullet points** under each section. Briefly describe what changed and why it's relevant — **but do not use marketing language**.
+3. **Use clear, factual bullet points** under each section. Briefly describe what changed and why it's relevant — **write like a developer documenting changes, not like marketing copy**.
 
    **For large releases**: Provide detailed bullet points that explain:
    - What specifically changed
-   - Why the change was made (if evident from commit messages)
+   - Why the change was made (if evident from commit messages or issue descriptions)
    - Impact on users or developers
    - Related files or components affected (when relevant)
 
@@ -87,6 +102,8 @@ Create release notes that:
    * "significant boost"
    * "exciting changes"
    * "revolutionary update"
+   * "streamlined workflow"
+   * "enhanced user experience"
 
 4. **Keep your tone technical, neutral, and useful.** It's okay to include references to:
 
@@ -104,13 +121,13 @@ Create release notes that:
 
 ---
 
-## 📝 Output Format Examples
+## Output Format Examples
 
 ### Example for a Large Release:
 
 ```json
 {
-  "title": "Major Configuration System Overhaul and Enhanced Developer Experience",
+  "title": "Configuration System Overhaul and Developer Tooling v2.1.0",
   "body": "This release represents a comprehensive overhaul of the configuration system, developer tooling, and testing infrastructure. Based on the Release Focus of modernizing the development workflow and addressing long-standing technical debt, this release includes significant architectural changes, new developer features, and extensive improvements to code quality and maintainability.\\n\\n**Configuration System Overhaul**\\n\\n* Completely redesigned configuration loading system with support for environment-specific overrides\\n* Unified `vite.config.ts`, `webpack.config.js`, and `rollup.config.js` into a single environment-aware configuration module\\n* Added support for `.env.defaults`, `.env.local`, and `.env.production` files with proper precedence handling\\n* Implemented configuration validation with detailed error messages for missing or invalid settings\\n* Migrated from legacy JSON-based config to TypeScript-based configuration with full type safety\\n\\n**New Features**\\n\\n* Added comprehensive CLI argument parsing with support for nested configuration options\\n* Implemented hot-reloading development server with automatic dependency injection\\n* Added support for custom build plugins with a new plugin API\\n* Created new debugging tools including request/response logging and performance profiling\\n* Added automated code formatting and linting with pre-commit hooks\\n\\n**Developer Experience Improvements**\\n\\n* Reduced config nesting depth in `tsconfig.json` to improve readability and maintainability\\n* Updated all development scripts to use the new unified configuration system\\n* Added comprehensive error handling with stack traces and helpful troubleshooting suggestions\\n* Implemented automatic workspace package linking and unlinking for monorepo development\\n* Created new developer documentation with step-by-step setup instructions\\n\\n**Testing Infrastructure**\\n\\n* Migrated entire test suite from Jest to Vitest for better ES module support\\n* Added comprehensive integration tests for the new configuration system\\n* Implemented end-to-end testing with Playwright for critical user workflows\\n* Added test coverage reporting with detailed branch and function coverage metrics\\n* Created performance benchmarks for build times and memory usage\\n\\n**Bug Fixes**\\n\\n* Fixed critical crash in config loader when optional fields were undefined or null\\n* Resolved issue with `yarn build` failing on Windows due to missing path escaping\\n* Fixed memory leak in development server during file watching operations\\n* Corrected TypeScript compilation errors in strict mode for legacy code\\n* Fixed race condition in parallel test execution causing intermittent failures\\n\\n**Breaking Changes**\\n\\n* Removed support for legacy `.env.local.js` files - migrate to `.env.local`\\n* Changed default output directory from `dist/` to `build/` for consistency\\n* Updated minimum Node.js version requirement to 18.0.0\\n* Deprecated `--legacy-config` flag - will be removed in next major version\\n\\n**Documentation Updates**\\n\\n* Completely rewrote setup instructions in `README.md` to reflect new configuration process\\n* Added comprehensive API documentation with examples for all configuration options\\n* Created troubleshooting guide for common development environment issues\\n* Added migration guide for users upgrading from previous versions\\n* Updated all code examples to use the new configuration system"
 }
 ```
@@ -119,7 +136,7 @@ Create release notes that:
 
 ```json
 {
-  "title": "Configuration System Simplification and Developer Experience Improvements",
+  "title": "Simplified Configuration and Windows Build Fixes v1.2.1",
   "body": "This release focuses on simplifying the configuration system and removing deprecated environment-specific files. Based on the Release Focus of improving developer onboarding and standardizing build behavior, the team prioritized changes that reduce friction for new developers and standardize build behavior across local and CI environments.\\n\\n**Improvements**\\n\\n* Unified `vite.config.ts` and `webpack.config.js` into a single environment-aware module\\n* Reduced config nesting depth in `tsconfig.json` to improve readability\\n* Updated CI scripts to use `.env.defaults` instead of `.env.local`\\n\\n**Bug Fixes**\\n\\n* Fixed crash in config loader when optional fields were undefined\\n* Resolved issue with `yarn build` failing on Windows due to missing path escape\\n\\n**Documentation Updates**\\n\\n* Rewrote setup instructions in `README.md` to reflect unified config process\\n* Removed legacy instructions for `env.local.js`"
 }
 ```

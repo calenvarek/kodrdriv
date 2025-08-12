@@ -4,6 +4,7 @@ import * as Storage from './storage';
 import { getLogger } from '../logging';
 import { archiveAudio } from './general';
 import { Config } from '../types';
+import { safeJsonParse } from './validation';
 // eslint-disable-next-line no-restricted-imports
 import fs from 'fs';
 
@@ -58,6 +59,22 @@ export function isTokenLimitError(error: any): boolean {
            message.includes('reduce the length');
 }
 
+// Check if an error is a rate limit error
+export function isRateLimitError(error: any): boolean {
+    if (!error?.message && !error?.code && !error?.status) return false;
+
+    // Check for OpenAI specific rate limit indicators
+    if (error.status === 429 || error.code === 'rate_limit_exceeded') {
+        return true;
+    }
+
+    const message = error.message.toLowerCase();
+    return message.includes('rate limit exceeded') ||
+           message.includes('too many requests') ||
+           message.includes('quota exceeded') ||
+           (message.includes('rate') && message.includes('limit'));
+}
+
 export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, maxTokens?: number } = { model: "gpt-4o-mini" }): Promise<string | any> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
@@ -103,12 +120,22 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
             response_format: options.responseFormat,
         });
 
+        // Create timeout promise with proper cleanup to prevent memory leaks
+        let timeoutId: NodeJS.Timeout | null = null;
         const timeoutPromise = new Promise<never>((_, reject) => {
             const timeoutMs = parseInt(process.env.OPENAI_TIMEOUT_MS || '300000'); // Default to 5 minutes
-            setTimeout(() => reject(new OpenAIError(`OpenAI API call timed out after ${timeoutMs/1000} seconds`)), timeoutMs);
+            timeoutId = setTimeout(() => reject(new OpenAIError(`OpenAI API call timed out after ${timeoutMs/1000} seconds`)), timeoutMs);
         });
 
-        const completion = await Promise.race([completionPromise, timeoutPromise]);
+        let completion;
+        try {
+            completion = await Promise.race([completionPromise, timeoutPromise]);
+        } finally {
+            // Clear the timeout to prevent memory leaks
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+            }
+        }
 
         // Save response debug file if enabled
         if (options.debug && (options.debugResponseFile || options.debugFile)) {
@@ -124,7 +151,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
 
         logger.debug('Received response from OpenAI: %s...', response.substring(0, 30));
         if (options.responseFormat) {
-            return JSON.parse(response);
+            return safeJsonParse(response, 'OpenAI API response');
         } else {
             return response;
         }
@@ -159,9 +186,9 @@ export async function createCompletionWithRetry(
                 const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
                 await new Promise(resolve => setTimeout(resolve, backoffMs));
                 continue;
-            } else if (error.message?.includes('rate limit') && attempt < maxRetries) {
+            } else if (isRateLimitError(error) && attempt < maxRetries) {
                 // Handle rate limiting with exponential backoff
-                const backoffMs = Math.min(5000 * Math.pow(2, attempt - 1), 30000);
+                const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 15000); // More reasonable backoff: 2s, 4s, 8s, max 15s
                 logger.warn(`Rate limit hit on attempt ${attempt}/${maxRetries}, waiting ${backoffMs}ms before retry...`);
                 await new Promise(resolve => setTimeout(resolve, backoffMs));
                 continue;
@@ -179,6 +206,25 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
     const storage = Storage.create({ log: logger.debug });
     let openai: OpenAI | null = null;
     let audioStream: fs.ReadStream | null = null;
+    let streamClosed = false;
+
+    // Helper function to safely close the stream
+    const closeAudioStream = () => {
+        if (audioStream && !streamClosed) {
+            try {
+                // Only call destroy if it exists and the stream isn't already destroyed
+                if (typeof audioStream.destroy === 'function' && !audioStream.destroyed) {
+                    audioStream.destroy();
+                }
+                streamClosed = true;
+                logger.debug('Audio stream closed successfully');
+            } catch (streamErr) {
+                logger.debug('Failed to destroy audio read stream: %s', (streamErr as Error).message);
+                streamClosed = true; // Mark as closed even if destroy failed
+            }
+        }
+    };
+
     try {
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) {
@@ -204,11 +250,30 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         }
 
         audioStream = await storage.readStream(filePath);
-        const transcription = await openai.audio.transcriptions.create({
-            model: options.model || "whisper-1",
-            file: audioStream,
-            response_format: "json",
-        });
+
+        // Set up error handler for the stream to ensure cleanup on stream errors
+        // Only add handler if the stream has the 'on' method (real streams)
+        if (audioStream && typeof audioStream.on === 'function') {
+            audioStream.on('error', (streamError) => {
+                logger.error('Audio stream error: %s', streamError.message);
+                closeAudioStream();
+            });
+        }
+
+        let transcription;
+        try {
+            transcription = await openai.audio.transcriptions.create({
+                model: options.model || "whisper-1",
+                file: audioStream,
+                response_format: "json",
+            });
+            // Close the stream immediately after successful API call to prevent race conditions
+            closeAudioStream();
+        } catch (apiError) {
+            // Close the stream immediately if the API call fails
+            closeAudioStream();
+            throw apiError;
+        }
 
         // Save response debug file if enabled
         if (options.debug && (options.debugResponseFile || options.debugFile)) {
@@ -240,13 +305,7 @@ export async function transcribeAudio(filePath: string, options: { model?: strin
         throw new OpenAIError(`Failed to transcribe audio: ${error.message}`);
     } finally {
         // Ensure the audio stream is properly closed to release file handles
-        try {
-            if (audioStream) {
-                audioStream.close();
-            }
-        } catch (streamErr) {
-            logger.debug('Failed to close audio read stream: %s', (streamErr as Error).message);
-        }
+        closeAudioStream();
         // OpenAI client cleanup is handled automatically by the library
         // No manual cleanup needed for newer versions
     }

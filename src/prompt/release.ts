@@ -15,6 +15,7 @@ export type Content = {
     releaseFocus?: string;
     logContent: string;
     diffContent: string;
+    milestoneIssues?: string;
 };
 
 export type Context = {
@@ -32,16 +33,18 @@ export type ReleasePromptResult = {
  * Analyzes release content to determine if it's a large release
  * and calculates appropriate token limits
  */
-const analyzeReleaseSize = (logContent: string, diffContent: string): { isLarge: boolean; maxTokens: number } => {
+const analyzeReleaseSize = (logContent: string, diffContent: string, milestoneIssues?: string): { isLarge: boolean; maxTokens: number } => {
     const logLines = logContent.split('\n').length;
     const diffLines = diffContent.split('\n').length;
-    const totalContentLength = logContent.length + diffContent.length;
+    const milestoneLines = milestoneIssues ? milestoneIssues.split('\n').length : 0;
+    const totalContentLength = logContent.length + diffContent.length + (milestoneIssues?.length || 0);
 
     // Consider it a large release if:
     // - More than 20 commits (log lines typically ~3-5 per commit)
     // - More than 500 diff lines
+    // - Milestone issues present (indicates significant work)
     // - Total content length > 50KB
-    const isLarge = logLines > 60 || diffLines > 500 || totalContentLength > 50000;
+    const isLarge = logLines > 60 || diffLines > 500 || milestoneLines > 50 || totalContentLength > 50000;
 
     if (isLarge) {
         // For large releases, significantly increase token limit
@@ -57,13 +60,13 @@ const analyzeReleaseSize = (logContent: string, diffContent: string): { isLarge:
  */
 export const createPrompt = async (
     { overrides: _overrides, overridePaths: _overridePaths }: Config,
-    { releaseFocus, logContent, diffContent }: Content,
+    { releaseFocus, logContent, diffContent, milestoneIssues }: Content,
     { context, directories }: Context = {}
 ): Promise<ReleasePromptResult> => {
     const basePath = __dirname;
 
     // Analyze release size to determine token requirements
-    const { isLarge: isLargeRelease, maxTokens } = analyzeReleaseSize(logContent, diffContent);
+    const { isLarge: isLargeRelease, maxTokens } = analyzeReleaseSize(logContent, diffContent, milestoneIssues);
 
     // Build content items for the prompt
     const contentItems: ContentItem[] = [];
@@ -74,6 +77,9 @@ export const createPrompt = async (
     }
     if (logContent) {
         contentItems.push({ content: logContent, title: 'Log Context' });
+    }
+    if (milestoneIssues) {
+        contentItems.push({ content: milestoneIssues, title: 'Resolved Issues from Milestone' });
     }
     if (releaseFocus) {
         contentItems.push({ content: releaseFocus, title: 'Release Focus' });

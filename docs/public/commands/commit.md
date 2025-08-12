@@ -57,6 +57,62 @@ Each package can have its own commit configuration:
 
 For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in-commands.md#kodrdriv-tree-commit).
 
+## GitHub Issues Integration
+
+KodrDriv automatically enhances commit messages by analyzing recently closed GitHub issues, providing context and motivation for your changes. This is particularly valuable for large commits that may address multiple features or bug fixes.
+
+### How It Works
+
+When generating commit messages, KodrDriv:
+
+1. **Reads your current version** from `package.json` (e.g., `0.1.1-dev.0`)
+2. **Fetches recently closed GitHub issues** (last 10 issues by default)
+3. **Prioritizes milestone-relevant issues** - issues tagged with milestones matching your current version (e.g., issues in milestone `release/0.1.1` when working on version `0.1.1-dev.0`)
+4. **Provides context to the AI** about what problems your changes might be solving
+
+### What This Enables
+
+- **Better commit messages for large changes** - The AI understands WHY changes were made, not just WHAT changed
+- **Automatic issue references** - Generated messages can include references like "Fixes #123" when appropriate
+- **Context-aware descriptions** - Commit messages explain the motivation behind complex changes
+- **Milestone awareness** - Changes are understood in the context of current release goals
+
+### Example Output
+
+Instead of a generic commit message like:
+```
+Update authentication system and fix timeout handling
+```
+
+You might get a more informative message like:
+```
+Fix authentication timeout and improve session handling (addresses #145, #167)
+
+* Increase session timeout from 30min to 2hrs in config.ts (fixes #145)
+* Add automatic token refresh logic in auth-service.ts (fixes #167)
+* Update error handling for expired sessions in middleware.ts
+* Add tests for extended session scenarios in auth.test.ts
+```
+
+### Requirements
+
+- **GitHub repository** - Your project must be a GitHub repository
+- **GitHub API access** - Requires `GITHUB_TOKEN` environment variable (see [Configuration](../configuration.md))
+- **Milestones (optional)** - While milestones enhance the feature, it works without them
+
+### Graceful Degradation
+
+The GitHub issues integration is designed to never block commit message generation:
+
+- **No GitHub token**: Continues without GitHub context
+- **API failures**: Falls back to standard commit message generation
+- **No milestones**: Uses general recently closed issues
+- **No issues**: Generates commit messages based solely on code changes
+
+### Configuration
+
+No additional configuration is required - the feature works automatically when GitHub access is available. You can control the number of issues fetched by modifying the source code, though the default of 10 recent issues works well for most projects.
+
 ## Providing Direction
 
 You can provide direction for the commit message in two ways:
@@ -156,6 +212,27 @@ kodrdriv commit --cached --interactive --context "Part of security improvements"
 
 # Limit commit history context
 kodrdriv commit --message-limit 5 "quick fix"
+```
+
+### GitHub Issues Integration Examples
+
+```bash
+# Large commit addressing multiple features - GitHub issues provide context
+git add -A
+kodrdriv commit
+# Output: Enhanced commit message referencing relevant closed issues from current milestone
+
+# Working on a release version - issues from release/1.2.0 milestone are prioritized
+# (when package.json version is 1.2.0-dev.0)
+kodrdriv commit "implement feature set for v1.2.0"
+
+# Even with API failures, commits still work
+# Network error? No problem - generates commit message without GitHub context
+kodrdriv commit --sendit "quick fix"
+
+# Combined with interactive mode for reviewing GitHub issue context
+kodrdriv commit --interactive
+# Shows generated message with GitHub issue references, allows editing
 ```
 
 ### Interactive Mode Examples

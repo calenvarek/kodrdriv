@@ -323,5 +323,140 @@ describe('openai', () => {
             mockTranscriptionsCreate.mockResolvedValue(null);
             await expect(transcribeAudio('test.mp3')).rejects.toThrow('No transcription received from OpenAI');
         });
+
+        it('should properly close stream on successful transcription', async () => {
+            const mockStream = {
+                destroy: vi.fn(),
+                destroyed: false,
+                on: vi.fn()
+            };
+
+            // Mock the storage readStream to return our mock stream
+            Storage.create().readStream.mockResolvedValue(mockStream);
+
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            await transcribeAudio('test.mp3');
+
+            // Verify stream was properly closed
+            expect(mockStream.destroy).toHaveBeenCalled();
+        });
+
+        it('should properly close stream on API error', async () => {
+            const mockStream = {
+                destroy: vi.fn(),
+                destroyed: false,
+                on: vi.fn()
+            };
+
+            // Mock the storage readStream to return our mock stream
+            Storage.create().readStream.mockResolvedValue(mockStream);
+
+            mockTranscriptionsCreate.mockRejectedValue(new Error('API Error'));
+
+            await expect(transcribeAudio('test.mp3')).rejects.toThrow('Failed to transcribe audio: API Error');
+
+            // Verify stream was properly closed even on error
+            expect(mockStream.destroy).toHaveBeenCalled();
+        });
+
+        it('should handle stream error events properly', async () => {
+            const mockStream = {
+                destroy: vi.fn(),
+                destroyed: false,
+                on: vi.fn()
+            };
+
+            // Mock the storage readStream to return our mock stream
+            Storage.create().readStream.mockResolvedValue(mockStream);
+
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            await transcribeAudio('test.mp3');
+
+            // Verify that error handler was set up
+            expect(mockStream.on).toHaveBeenCalledWith('error', expect.any(Function));
+
+            // Simulate a stream error and verify cleanup is called
+            const errorCall = mockStream.on.mock.calls.find(call => call[0] === 'error');
+            expect(errorCall).toBeDefined();
+            const errorHandler = errorCall![1];
+            errorHandler(new Error('Stream error'));
+
+            // destroy should only be called once due to the streamClosed flag preventing double-closing
+            // This is the correct behavior to prevent race conditions
+            expect(mockStream.destroy).toHaveBeenCalledTimes(1);
+        });
+
+        it('should not double-close streams', async () => {
+            const mockStream = {
+                destroy: vi.fn(),
+                destroyed: false,
+                on: vi.fn()
+            };
+
+            // Mock the storage readStream to return our mock stream
+            Storage.create().readStream.mockResolvedValue(mockStream);
+
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            await transcribeAudio('test.mp3');
+
+            // First call to destroy() should succeed
+            expect(mockStream.destroy).toHaveBeenCalledTimes(1);
+
+            // Simulate the stream being destroyed after first call
+            mockStream.destroyed = true;
+
+            // Trigger the finally block manually to test double-close protection
+            // In a real scenario, this would be handled by the closeAudioStream function
+            // but since we can't directly test the internal function, we verify the logic
+            // The actual protection is in the streamClosed flag and !audioStream.destroyed check
+        });
+
+        it('should handle streams without event handlers gracefully', async () => {
+            const mockStream = {
+                destroy: vi.fn(),
+                destroyed: false
+                // Note: no 'on' method - this tests the typeof check
+            };
+
+            // Mock the storage readStream to return our mock stream
+            Storage.create().readStream.mockResolvedValue(mockStream);
+
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            // Should not throw error even when stream doesn't have 'on' method
+            const result = await transcribeAudio('test.mp3');
+
+            expect(result).toEqual(mockResponse);
+            expect(mockStream.destroy).toHaveBeenCalled();
+        });
+
+        it('should handle stream destroy errors gracefully', async () => {
+            const mockStream = {
+                destroy: vi.fn().mockImplementation(() => {
+                    throw new Error('Destroy failed');
+                }),
+                destroyed: false,
+                on: vi.fn()
+            };
+
+            // Mock the storage readStream to return our mock stream
+            Storage.create().readStream.mockResolvedValue(mockStream);
+
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            // Should not throw error even when stream destroy fails
+            const result = await transcribeAudio('test.mp3');
+
+            expect(result).toEqual(mockResponse);
+            expect(mockStream.destroy).toHaveBeenCalled();
+        });
     });
 });

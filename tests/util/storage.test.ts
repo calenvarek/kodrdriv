@@ -82,6 +82,11 @@ describe('Storage Utility', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        // Reset individual mocks but re-setup crypto mock
+        mockCrypto.createHash.mockReturnValue({
+            update: vi.fn().mockReturnThis(),
+            digest: vi.fn().mockReturnValue('0123456789abcdef0123456789abcdef01234567')
+        });
         storage = storageModule.create({ log: mockLog });
     });
 
@@ -321,6 +326,80 @@ describe('Storage Utility', () => {
 
             await expect(storage.createDirectory('/test/dir')).rejects.toThrow(
                 'Failed to create output directory /test/dir: Failed to create directory'
+            );
+        });
+    });
+
+    describe('ensureDirectory', () => {
+        it('should create directory if it does not exist', async () => {
+            mockStat.mockRejectedValueOnce(new Error('Path does not exist')); // exists() returns false
+            mockMkdir.mockResolvedValueOnce(undefined);
+
+            await storage.ensureDirectory('/test/dir');
+
+            expect(mockMkdir).toHaveBeenCalledWith('/test/dir', { recursive: true });
+        });
+
+        it('should not create directory if it already exists and is a directory', async () => {
+            mockStat.mockResolvedValueOnce({ isDirectory: () => false, isFile: () => false }); // exists() returns true
+            mockStat.mockResolvedValueOnce({ // isDirectory() returns true
+                isDirectory: () => true,
+                isFile: () => false
+            });
+
+            await storage.ensureDirectory('/test/dir');
+
+            expect(mockMkdir).not.toHaveBeenCalled();
+        });
+
+        it('should throw error if path exists but is a file', async () => {
+            mockStat.mockResolvedValueOnce({ isDirectory: () => false, isFile: () => false }); // exists() returns true
+            mockStat.mockResolvedValueOnce({ // isDirectory() returns false
+                isDirectory: () => false,
+                isFile: () => true
+            });
+
+            await expect(storage.ensureDirectory('/test/output')).rejects.toThrow(
+                'Cannot create directory at /test/output: a file already exists at this location'
+            );
+
+            expect(mockMkdir).not.toHaveBeenCalled();
+        });
+
+        it('should propagate isDirectory errors', async () => {
+            mockStat.mockResolvedValueOnce({ isDirectory: () => false, isFile: () => false }); // exists() returns true
+            mockStat.mockRejectedValueOnce(new Error('Stat failed')); // isDirectory() throws error
+
+            await expect(storage.ensureDirectory('/test/dir')).rejects.toThrow('Stat failed');
+
+            expect(mockMkdir).not.toHaveBeenCalled();
+        });
+
+        it('should handle case where parent directory is a file', async () => {
+            mockStat.mockRejectedValueOnce(new Error('Path does not exist')); // exists() for full path returns false
+            const enotdirError: any = new Error('ENOTDIR: not a directory');
+            enotdirError.code = 'ENOTDIR';
+            mockMkdir.mockRejectedValueOnce(enotdirError); // mkdir fails because parent is a file
+
+            // Mock the checks for parent directory discovery
+            mockStat.mockResolvedValueOnce({ isDirectory: () => false, isFile: () => false }); // 'output' exists
+            mockStat.mockResolvedValueOnce({ // 'output' is not a directory (it's a file)
+                isDirectory: () => false,
+                isFile: () => true
+            });
+
+            await expect(storage.ensureDirectory('output/kodrdriv')).rejects.toThrow(
+                'Cannot create directory at output/kodrdriv: a file exists at output blocking the path'
+            );
+        });
+
+        it('should propagate mkdir errors that are not ENOTDIR', async () => {
+            mockStat.mockRejectedValueOnce(new Error('Path does not exist')); // exists() returns false
+            const permissionError = new Error('Permission denied');
+            mockMkdir.mockRejectedValueOnce(permissionError);
+
+            await expect(storage.ensureDirectory('/test/dir')).rejects.toThrow(
+                'Failed to create output directory /test/dir: Permission denied'
             );
         });
     });

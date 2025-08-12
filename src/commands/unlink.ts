@@ -1,536 +1,367 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import path from 'path';
-import { getLogger, getDryRunLogger } from '../logging';
+import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { safeJsonParse, validateLinkBackup, type LinkBackup } from '../util/validation';
-import { run } from '../util/child';
+import { run, runSecure } from '../util/child';
 import {
-    PerformanceTimer,
-    PackageJson,
-    PackageJsonLocation,
-    findAllPackageJsonFiles,
-    scanDirectoryForPackages,
-    checkForFileDependencies
+    findAllPackageJsonFiles
 } from '../util/performance';
-import { smartNpmInstall } from '../util/npmOptimizations';
+import { safeJsonParse, validatePackageJson } from '../util/validation';
 
-interface ExtendedPackageJson extends PackageJson {
-    workspaces?: string[] | { packages?: string[] };
-    overrides?: Record<string, any>;
-    resolutions?: Record<string, any>;
-}
-
-
-
-interface ProblematicDependency {
-    name: string;
-    version: string;
-    type: 'file:' | 'link:' | 'relative-path' | 'workspace' | 'override' | 'resolution';
-    dependencyType: 'dependencies' | 'devDependencies' | 'peerDependencies' | 'workspaces' | 'overrides' | 'resolutions';
-    packagePath: string;
-    reason: string;
-}
-
-const EXCLUDED_DIRECTORIES = [
-    'node_modules',
-    'dist',
-    'build',
-    'coverage',
-    '.git',
-    '.next',
-    '.nuxt',
-    'out',
-    'public',
-    'static',
-    'assets'
-];
-
-
-
-const findPackagesToUnlink = async (scopeRoots: Record<string, string>, storage: any): Promise<string[]> => {
-    const logger = getLogger();
-    const timer = PerformanceTimer.start(logger, 'Finding packages to unlink');
-    const packagesToUnlink: string[] = [];
-
-    logger.silly(`Finding packages to unlink from scope roots: ${JSON.stringify(scopeRoots)}`);
-
-    // Scan all scope roots to build a comprehensive map of packages that should be unlinked
-    const scopeTimer = PerformanceTimer.start(logger, 'Scanning all scope roots for packages to unlink');
-    const allScopePackages = new Map<string, string>(); // packageName -> relativePath
-
-    // Process all scopes in parallel for better performance
-    const scopePromises = Object.entries(scopeRoots).map(async ([scope, rootDir]) => {
-        logger.verbose(`Scanning scope ${scope} at root directory: ${rootDir}`);
-        const scopePackages = await scanDirectoryForPackages(rootDir, storage);
-
-        // Add packages from this scope to the overall map
-        const scopeResults: Array<[string, string]> = [];
-        for (const [packageName, packagePath] of scopePackages) {
-            if (packageName.startsWith(scope)) {
-                scopeResults.push([packageName, packagePath]);
-                logger.debug(`Package to unlink: ${packageName} -> ${packagePath}`);
-            }
+// Helper function to parse package names and scopes (same as link command)
+const parsePackageArgument = (packageArg: string): { scope: string; packageName?: string } => {
+    if (packageArg.startsWith('@')) {
+        const parts = packageArg.split('/');
+        if (parts.length === 1) {
+            // Just a scope like "@fjell"
+            return { scope: parts[0] };
+        } else {
+            // Full package name like "@fjell/core"
+            return { scope: parts[0], packageName: packageArg };
         }
-        return scopeResults;
-    });
-
-    const allScopeResults = await Promise.all(scopePromises);
-
-    // Flatten results and collect package names
-    for (const scopeResults of allScopeResults) {
-        for (const [packageName, packagePath] of scopeResults) {
-            allScopePackages.set(packageName, packagePath);
-            packagesToUnlink.push(packageName);
-        }
+    } else {
+        throw new Error(`Package argument must start with @ (scope): ${packageArg}`);
     }
-
-    scopeTimer.end(`Scanned ${Object.keys(scopeRoots).length} scope roots, found ${packagesToUnlink.length} packages to unlink`);
-
-    timer.end(`Found ${packagesToUnlink.length} packages to unlink`);
-    return packagesToUnlink;
 };
 
-const readLinkBackup = async (storage: any): Promise<LinkBackup> => {
-    const backupPath = path.join(process.cwd(), '.kodrdriv-link-backup.json');
-    if (await storage.exists(backupPath)) {
+// Find packages in the workspace that match the given scope or package name
+const findMatchingPackages = async (
+    targetDirectories: string[],
+    scope: string,
+    storage: any,
+    logger: any,
+    packageName?: string
+): Promise<Array<{ name: string; path: string; isSource: boolean }>> => {
+    const matchingPackages: Array<{ name: string; path: string; isSource: boolean }> = [];
+
+    // Find all package.json files in target directories
+    let allPackageJsonFiles: any[] = [];
+    for (const targetDirectory of targetDirectories) {
+        const packageJsonFiles = await findAllPackageJsonFiles(targetDirectory, storage);
+        allPackageJsonFiles = allPackageJsonFiles.concat(packageJsonFiles);
+    }
+
+    for (const packageJsonLocation of allPackageJsonFiles) {
+        const packageDir = packageJsonLocation.path.replace('/package.json', '');
+
         try {
-            const content = await storage.readFile(backupPath, 'utf-8');
-            const parsed = safeJsonParse(content, 'link backup file');
-            return validateLinkBackup(parsed);
-        } catch (error) {
-            throw new Error(`Failed to parse link backup file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    }
-    return {};
-};
+            const packageJsonContent = await storage.readFile(packageJsonLocation.path, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonLocation.path);
+            const packageJson = validatePackageJson(parsed, packageJsonLocation.path);
 
-const writeLinkBackup = async (backup: LinkBackup, storage: any): Promise<void> => {
-    const backupPath = path.join(process.cwd(), '.kodrdriv-link-backup.json');
-    if (Object.keys(backup).length === 0) {
-        // Remove backup file if empty
-        if (await storage.exists(backupPath)) {
-            await storage.deleteFile(backupPath);
-        }
-    } else {
-        await storage.writeFile(backupPath, JSON.stringify(backup, null, 2), 'utf-8');
-    }
-};
+            if (!packageJson.name) continue;
 
-const restorePackageJson = async (
-    packageJsonLocation: PackageJsonLocation,
-    packagesToUnlink: string[],
-    backup: LinkBackup,
-    storage: any
-): Promise<number> => {
-    const logger = getLogger();
-    let restoredCount = 0;
-    const { packageJson, path: packageJsonPath, relativePath } = packageJsonLocation;
+            const isInScope = packageJson.name.startsWith(scope + '/');
+            const isExactMatch = packageName && packageJson.name === packageName;
 
-    // Restore original versions from backup
-    for (const packageName of packagesToUnlink) {
-        const backupKey = `${relativePath}:${packageName}`;
-        const backupEntry = backup[backupKey];
-
-        if (!backupEntry) {
-            logger.debug(`No backup found for ${backupKey}, skipping`);
-            continue;
-        }
-
-        const currentDeps = (packageJson as any)[backupEntry.dependencyType];
-        if (currentDeps && currentDeps[packageName]?.startsWith('file:')) {
-            // Restore the original version
-            currentDeps[packageName] = backupEntry.originalVersion;
-            restoredCount++;
-            logger.verbose(`Restored ${relativePath}/${backupEntry.dependencyType}.${packageName}: file:... -> ${backupEntry.originalVersion}`);
-
-            // Remove from backup
-            delete backup[backupKey];
-        }
-    }
-
-    // NOTE: Don't write the file here - let the caller handle all modifications
-    return restoredCount;
-};
-
-/**
- * Comprehensive scan for all types of problematic dependencies that could cause GitHub build failures
- */
-const scanForProblematicDependencies = (packageJsonFiles: PackageJsonLocation[]): ProblematicDependency[] => {
-    const logger = getLogger();
-    const timer = PerformanceTimer.start(logger, 'Scanning for problematic dependencies');
-    const problematicDeps: ProblematicDependency[] = [];
-
-    for (const { path: packagePath, packageJson, relativePath } of packageJsonFiles) {
-        const extendedPackageJson = packageJson as ExtendedPackageJson;
-
-        // Check dependencies, devDependencies, peerDependencies
-        const depTypes: Array<keyof Pick<ExtendedPackageJson, 'dependencies' | 'devDependencies' | 'peerDependencies'>> = [
-            'dependencies', 'devDependencies', 'peerDependencies'
-        ];
-
-        for (const depType of depTypes) {
-            const deps = extendedPackageJson[depType];
-            if (!deps) continue;
-
-            for (const [name, version] of Object.entries(deps)) {
-                let problemType: ProblematicDependency['type'] | null = null;
-                let reason = '';
-
-                // Check for file: dependencies
-                if (version.startsWith('file:')) {
-                    problemType = 'file:';
-                    reason = 'File dependencies cause build failures in CI/CD environments';
-                }
-                // Check for link: dependencies
-                else if (version.startsWith('link:')) {
-                    problemType = 'link:';
-                    reason = 'Link dependencies are not resolvable in remote environments';
-                }
-                // Check for relative path patterns that could be problematic
-                else if (version.includes('../') || version.includes('./') || version.startsWith('/')) {
-                    problemType = 'relative-path';
-                    reason = 'Relative path dependencies are not resolvable in different environments';
-                }
-                // Check for workspace protocol (used by some package managers)
-                else if (version.startsWith('workspace:')) {
-                    problemType = 'workspace';
-                    reason = 'Workspace protocol dependencies require workspace configuration';
-                }
-
-                if (problemType) {
-                    problematicDeps.push({
-                        name,
-                        version,
-                        type: problemType,
-                        dependencyType: depType,
-                        packagePath: relativePath,
-                        reason
-                    });
-                }
+            if (isInScope || isExactMatch) {
+                matchingPackages.push({
+                    name: packageJson.name,
+                    path: packageDir,
+                    isSource: packageName ? packageJson.name === packageName : isInScope
+                });
             }
+        } catch (error: any) {
+            logger.warn(`Failed to parse ${packageJsonLocation.path}: ${error.message}`);
         }
+    }
 
-        // Check workspace configurations
-        if (extendedPackageJson.workspaces) {
-            problematicDeps.push({
-                name: 'workspaces',
-                version: JSON.stringify(extendedPackageJson.workspaces),
-                type: 'workspace',
-                dependencyType: 'workspaces',
-                packagePath: relativePath,
-                reason: 'Workspace configurations can cause issues when published to npm'
-            });
-        }
+    return matchingPackages;
+};
 
-        // Check overrides (npm 8.3+)
-        if (extendedPackageJson.overrides) {
-            for (const [name, override] of Object.entries(extendedPackageJson.overrides)) {
-                if (typeof override === 'string' && (override.startsWith('file:') || override.startsWith('link:') || override.includes('../'))) {
-                    problematicDeps.push({
-                        name,
-                        version: override,
-                        type: 'override',
-                        dependencyType: 'overrides',
-                        packagePath: relativePath,
-                        reason: 'Override configurations with local paths cause build failures'
-                    });
-                }
+// Find packages that depend on the target package
+const findConsumingPackages = async (
+    targetDirectories: string[],
+    targetPackageName: string,
+    storage: any,
+    logger: any
+): Promise<Array<{ name: string; path: string }>> => {
+    const consumingPackages: Array<{ name: string; path: string }> = [];
+
+    // Find all package.json files in target directories
+    let allPackageJsonFiles: any[] = [];
+    for (const targetDirectory of targetDirectories) {
+        const packageJsonFiles = await findAllPackageJsonFiles(targetDirectory, storage);
+        allPackageJsonFiles = allPackageJsonFiles.concat(packageJsonFiles);
+    }
+
+    for (const packageJsonLocation of allPackageJsonFiles) {
+        const packageDir = packageJsonLocation.path.replace('/package.json', '');
+
+        try {
+            const packageJsonContent = await storage.readFile(packageJsonLocation.path, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonLocation.path);
+            const packageJson = validatePackageJson(parsed, packageJsonLocation.path);
+
+            if (!packageJson.name) continue;
+
+            // Check if this package depends on the target package
+            const dependencyTypes = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+            const hasDependency = dependencyTypes.some(depType =>
+                packageJson[depType] && packageJson[depType][targetPackageName]
+            );
+
+            if (hasDependency && packageJson.name !== targetPackageName) {
+                consumingPackages.push({
+                    name: packageJson.name,
+                    path: packageDir
+                });
             }
-        }
-
-        // Check resolutions (Yarn)
-        if (extendedPackageJson.resolutions) {
-            for (const [name, resolution] of Object.entries(extendedPackageJson.resolutions)) {
-                if (typeof resolution === 'string' && (resolution.startsWith('file:') || resolution.startsWith('link:') || resolution.includes('../'))) {
-                    problematicDeps.push({
-                        name,
-                        version: resolution,
-                        type: 'resolution',
-                        dependencyType: 'resolutions',
-                        packagePath: relativePath,
-                        reason: 'Resolution configurations with local paths cause build failures'
-                    });
-                }
-            }
+        } catch (error: any) {
+            logger.warn(`Failed to parse ${packageJsonLocation.path}: ${error.message}`);
         }
     }
 
-    timer.end(`Found ${problematicDeps.length} problematic dependencies`);
-    return problematicDeps;
+    return consumingPackages;
 };
 
-/**
- * Enhanced function to display problematic dependencies with detailed information
- */
-const displayProblematicDependencies = (problematicDeps: ProblematicDependency[]): void => {
-    const logger = getLogger();
-
-    if (problematicDeps.length === 0) {
-        logger.info('✅ No problematic dependencies found');
-        return;
-    }
-
-    logger.info('🔓 Found problematic dependencies that could cause GitHub build failures:');
-
-    // Group by package path for better readability
-    const grouped = problematicDeps.reduce((acc, dep) => {
-        if (!acc[dep.packagePath]) {
-            acc[dep.packagePath] = [];
-        }
-        acc[dep.packagePath].push(dep);
-        return acc;
-    }, {} as Record<string, ProblematicDependency[]>);
-
-    for (const [packagePath, deps] of Object.entries(grouped)) {
-        logger.info(`  📄 ${packagePath}:`);
-        for (const dep of deps) {
-            logger.info(`    ❌ ${dep.dependencyType}.${dep.name}: ${dep.version} (${dep.type})`);
-            logger.info(`       💡 ${dep.reason}`);
-        }
-    }
-};
-
-/**
- * Verification step to ensure no problematic dependencies remain after cleanup
- */
-const verifyCleanup = async (packageJsonFiles: PackageJsonLocation[]): Promise<boolean> => {
-    const logger = getLogger();
-    const timer = PerformanceTimer.start(logger, 'Verifying cleanup completion');
-
-    const remainingProblems = scanForProblematicDependencies(packageJsonFiles);
-
-    if (remainingProblems.length === 0) {
-        logger.info('✅ Verification passed: No problematic dependencies remain');
-        timer.end('Verification successful');
-        return true;
-    } else {
-        logger.warn('⚠️ Verification failed: Found remaining problematic dependencies');
-        displayProblematicDependencies(remainingProblems);
-        timer.end('Verification failed');
-        return false;
-    }
-};
-
-export const execute = async (runConfig: Config): Promise<string> => {
+const executeInternal = async (runConfig: Config, packageArgument?: string): Promise<string> => {
     const isDryRun = runConfig.dryRun || runConfig.unlink?.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const overallTimer = PerformanceTimer.start(logger, 'Unlink command execution');
     const storage = createStorage({ log: logger.info });
 
-    logger.info('🔓 Unlinking workspace packages and cleaning up problematic dependencies...');
+    // Get target directories from config, default to current directory
+    const targetDirectories = runConfig.tree?.directories || [process.cwd()];
 
-    // Get configuration
-    const configTimer = PerformanceTimer.start(logger, 'Reading configuration');
-    const scopeRoots = runConfig.unlink?.scopeRoots || runConfig.link?.scopeRoots || {};
-    const workspaceFileName = runConfig.unlink?.workspaceFile || 'pnpm-workspace.yaml';
-    configTimer.end('Configuration loaded');
-
-    if (Object.keys(scopeRoots).length === 0) {
-        logger.info('No scope roots configured. Skipping link management.');
-        overallTimer.end('Unlink command (no scope roots)');
-        return 'No scope roots configured. Skipping link management.';
-    }
-
-    // Find all package.json files in current directory tree
-    const packageJsonFiles = await findAllPackageJsonFiles(process.cwd(), storage);
-
-    if (packageJsonFiles.length === 0) {
-        throw new Error('No package.json files found in current directory or subdirectories.');
-    }
-
-    logger.info(`Found ${packageJsonFiles.length} package.json file(s) to process`);
-    logger.info(`Scanning ${Object.keys(scopeRoots).length} scope root(s): ${Object.keys(scopeRoots).join(', ')}`);
-
-    // Comprehensive scan for all problematic dependencies
-    const problematicDeps = scanForProblematicDependencies(packageJsonFiles);
-    displayProblematicDependencies(problematicDeps);
-
-    // Find packages to unlink based on scope roots
-    const packagesToUnlinkNames = await findPackagesToUnlink(scopeRoots, storage);
-
-    if (packagesToUnlinkNames.length === 0 && problematicDeps.length === 0) {
-        logger.info('✅ No packages found matching scope roots for unlinking and no problematic dependencies detected.');
-        overallTimer.end('Unlink command (nothing to clean)');
-        return 'No packages found matching scope roots for unlinking and no problematic dependencies detected.';
-    }
-
-    logger.verbose(`Found ${packagesToUnlinkNames.length} packages that could be unlinked: ${packagesToUnlinkNames.join(', ')}`);
-
-    // Read existing backup
-    const backupTimer = PerformanceTimer.start(logger, 'Reading link backup');
-    const backup = await readLinkBackup(storage);
-    backupTimer.end('Link backup loaded');
-
-    if (isDryRun) {
-        logger.info('Would clean up problematic dependencies and restore original package.json dependencies');
-
-        // Show what would be cleaned up
-        let dryRunCount = 0;
-        for (const packageName of packagesToUnlinkNames) {
-            for (const { relativePath } of packageJsonFiles) {
-                const backupKey = `${relativePath}:${packageName}`;
-                const backupEntry = backup[backupKey];
-                if (backupEntry) {
-                    logger.verbose(`Would restore ${relativePath}/${packageName}: file:... -> ${backupEntry.originalVersion}`);
-                    dryRunCount++;
-                }
-            }
-        }
-
-        // Show what problematic dependencies would be cleaned
-        if (problematicDeps.length > 0) {
-            logger.verbose(`Would clean up ${problematicDeps.length} problematic dependencies`);
-        }
-
-        overallTimer.end('Unlink command (dry run)');
-        return `DRY RUN: Would unlink ${dryRunCount} dependency reference(s) and clean up ${problematicDeps.length} problematic dependencies across ${packageJsonFiles.length} package.json files`;
+    if (targetDirectories.length === 1) {
+        logger.info(`Analyzing workspace at: ${targetDirectories[0]}`);
     } else {
-        // Restore package.json files with original versions and clean up problematic dependencies
-        let totalRestoredCount = 0;
-        let totalCleanedCount = 0;
+        logger.info(`Analyzing workspaces at: ${targetDirectories.join(', ')}`);
+    }
 
-        for (const packageJsonLocation of packageJsonFiles) {
-            const { packageJson, path: packageJsonPath, relativePath } = packageJsonLocation;
-            let modified = false;
+    // If no package argument provided, implement new behavior for current project
+    if (!packageArgument) {
+        logger.info('🔓 Unlinking current project...');
 
-            // Restore from backup
-            const restoredCount = await restorePackageJson(packageJsonLocation, packagesToUnlinkNames, backup, storage);
-            totalRestoredCount += restoredCount;
-            if (restoredCount > 0) modified = true;
+        const currentDir = process.cwd();
+        const packageJsonPath = `${currentDir}/package.json`;
 
-            // Clean up problematic dependencies for this specific package
-            const extendedPackageJson = packageJson as ExtendedPackageJson;
-
-            // Remove workspace configurations
-            if (extendedPackageJson.workspaces) {
-                delete extendedPackageJson.workspaces;
-                logger.verbose(`Removed workspace configuration from ${relativePath}`);
-                modified = true;
-                totalCleanedCount++;
-            }
-
-            // Clean overrides with problematic paths
-            if (extendedPackageJson.overrides) {
-                const cleanOverrides: Record<string, any> = {};
-                let overridesModified = false;
-
-                for (const [name, override] of Object.entries(extendedPackageJson.overrides)) {
-                    if (typeof override === 'string' && (override.startsWith('file:') || override.startsWith('link:') || override.includes('../'))) {
-                        logger.verbose(`Removed problematic override ${relativePath}/overrides.${name}: ${override}`);
-                        overridesModified = true;
-                        totalCleanedCount++;
-                    } else {
-                        cleanOverrides[name] = override;
-                    }
-                }
-
-                if (overridesModified) {
-                    if (Object.keys(cleanOverrides).length === 0) {
-                        delete extendedPackageJson.overrides;
-                    } else {
-                        extendedPackageJson.overrides = cleanOverrides;
-                    }
-                    modified = true;
-                }
-            }
-
-            // Clean resolutions with problematic paths
-            if (extendedPackageJson.resolutions) {
-                const cleanResolutions: Record<string, any> = {};
-                let resolutionsModified = false;
-
-                for (const [name, resolution] of Object.entries(extendedPackageJson.resolutions)) {
-                    if (typeof resolution === 'string' && (resolution.startsWith('file:') || resolution.startsWith('link:') || resolution.includes('../'))) {
-                        logger.verbose(`Removed problematic resolution ${relativePath}/resolutions.${name}: ${resolution}`);
-                        resolutionsModified = true;
-                        totalCleanedCount++;
-                    } else {
-                        cleanResolutions[name] = resolution;
-                    }
-                }
-
-                if (resolutionsModified) {
-                    if (Object.keys(cleanResolutions).length === 0) {
-                        delete extendedPackageJson.resolutions;
-                    } else {
-                        extendedPackageJson.resolutions = cleanResolutions;
-                    }
-                    modified = true;
-                }
-            }
-
-            // Save the modified package.json if any changes were made
-            if (modified) {
-                await storage.writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2), 'utf-8');
-            }
+        // Check if we're in a directory with package.json
+        if (!(await storage.exists(packageJsonPath))) {
+            const message = `No package.json found in current directory: ${currentDir}`;
+            logger.warn(message);
+            return message;
         }
 
-        // Save updated backup (with restored items removed)
-        await writeLinkBackup(backup, storage);
-
-        if (totalRestoredCount === 0 && totalCleanedCount === 0) {
-            logger.info('✅ No problematic dependencies were found to clean up.');
-            overallTimer.end('Unlink command (nothing to clean)');
-            return 'No problematic dependencies were found to clean up.';
-        }
-
-        logger.info(`Cleaned up ${totalRestoredCount} linked dependencies and ${totalCleanedCount} other problematic dependencies across ${packageJsonFiles.length} package.json file(s)`);
-
-        // CRITICAL: Clean up package-lock.json to prevent GitHub build failures
-        // The lock file may still contain file: references even after restoring package.json
-        logger.info('🧹 Cleaning up package-lock.json to remove any stale file references...');
-        const packageLockPath = path.join(process.cwd(), 'package-lock.json');
-        if (await storage.exists(packageLockPath)) {
-            await storage.deleteFile(packageLockPath);
-            logger.info('🗑️ Deleted package-lock.json to ensure clean state');
-        }
-
-        // Optionally clean up node_modules for thorough cleanup
-        const cleanNodeModules = runConfig.unlink?.cleanNodeModules !== false; // default to true
-        if (cleanNodeModules) {
-            logger.info('🧹 Cleaning up node_modules for complete fresh start...');
-            const nodeModulesPath = path.join(process.cwd(), 'node_modules');
-            if (await storage.exists(nodeModulesPath)) {
-                try {
-                    await storage.removeDirectory(nodeModulesPath);
-                    logger.info('🗑️ Deleted node_modules directory');
-                } catch (error: any) {
-                    logger.warn(`Could not delete node_modules (${error.message}), continuing...`);
-                }
-            }
-        }
-
-        // Re-read package.json files for verification
-        const updatedPackageJsonFiles = await findAllPackageJsonFiles(process.cwd(), storage);
-
-        // Verification step
-        const verificationPassed = await verifyCleanup(updatedPackageJsonFiles);
-
-        if (!verificationPassed) {
-            logger.warn('⚠️ Some problematic dependencies may still remain. Please review the output above.');
-        }
-
-        // Rebuild dependencies with fresh install (NOT npm ci to avoid using stale lock file)
-        logger.info('⏳ Running fresh npm install to regenerate clean dependencies (this may take a moment)...');
+        // Parse package.json to get package name
+        let packageName: string;
         try {
-            const installResult = await smartNpmInstall({
-                skipIfNotNeeded: false, // Always install after unlinking changes
-                preferCi: false, // NEVER use npm ci here - we need fresh npm install to regenerate lock file
-                verbose: false
-            });
+            const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+            const packageJson = validatePackageJson(parsed, packageJsonPath);
 
-            if (installResult.skipped) {
-                logger.info(`⚡ Dependencies were up to date (${installResult.method})`);
-            } else {
-                logger.info(`✅ Dependencies rebuilt cleanly using ${installResult.method} (${installResult.duration}ms)`);
+            if (!packageJson.name) {
+                throw new Error('package.json has no name field');
             }
-        } catch (error) {
-            logger.warn(`Failed to rebuild dependencies: ${error}. You may need to run 'npm install' manually.`);
+            packageName = packageJson.name;
+        } catch (error: any) {
+            const message = `Failed to parse package.json: ${error.message}`;
+            logger.error(message);
+            return message;
         }
 
-        const summary = `Successfully cleaned up ${totalRestoredCount} linked dependencies and ${totalCleanedCount} other problematic dependencies across ${packageJsonFiles.length} package.json file(s)`;
-        overallTimer.end('Unlink command completed');
+        logger.info(`Processing package: ${packageName}`);
+
+        const cleanNodeModules = runConfig.unlink?.cleanNodeModules || false;
+
+
+
+        if (isDryRun) {
+            logger.info(`DRY RUN: Would execute unlink steps for ${packageName}:`);
+            logger.info(`  1. npm unlink -g`);
+            if (cleanNodeModules) {
+                logger.info(`  2. rm -rf node_modules package-lock.json`);
+                logger.info(`  3. npm install`);
+                logger.info(`  4. Check for remaining links with npm ls --link`);
+            } else {
+                logger.info(`  2. Check for remaining links with npm ls --link`);
+                logger.info(`  Note: Use --clean-node-modules flag to also clean and reinstall dependencies`);
+            }
+            return `DRY RUN: Would execute unlink steps for ${packageName}`;
+        }
+
+        // Step 1: Remove global link
+        logger.info('Step 1: Removing global link...');
+        try {
+            await run('npm unlink -g');
+            logger.info('✅ Global link removed');
+        } catch (error: any) {
+            // This might fail if the package wasn't globally linked, which is OK
+            logger.warn(`⚠️ Failed to remove global link (this is OK if package wasn't linked): ${error.message}`);
+        }
+
+        if (cleanNodeModules) {
+            // Step 2: Clean node_modules and package-lock.json
+            logger.info('Step 2: Cleaning node_modules and package-lock.json...');
+            try {
+                await run('rm -rf node_modules package-lock.json');
+                logger.info('✅ Cleaned node_modules and package-lock.json');
+            } catch (error: any) {
+                logger.warn(`⚠️ Failed to clean node_modules/package-lock.json: ${error.message}`);
+            }
+
+            // Step 3: Install dependencies
+            logger.info('Step 3: Installing dependencies...');
+            try {
+                await run('npm install');
+                logger.info('✅ Dependencies installed');
+            } catch (error: any) {
+                logger.error(`❌ Failed to install dependencies: ${error.message}`);
+                throw error;
+            }
+
+            // Step 4: Check for remaining links (suppress output and errors)
+            logger.info('Step 4: Checking for remaining links...');
+        } else {
+            // Step 2: Check for remaining links (suppress output and errors)
+            logger.info('Step 2: Checking for remaining links...');
+            logger.info('Note: Use --clean-node-modules flag to also clean and reinstall dependencies');
+        }
+
+        try {
+            // Use child_process directly to suppress logging and get JSON output
+            const util = await import('util');
+            const child_process = await import('child_process');
+            const execPromise = util.promisify(child_process.exec);
+
+            const result = await execPromise('npm ls --link --json');
+
+            // Parse JSON output to check for links to packages in the same scope
+            const packageScope = packageName.includes('/') ? packageName.split('/')[0] : null;
+
+            if (packageScope && result.stdout.trim()) {
+                try {
+                    const linksData = safeJsonParse(result.stdout, 'npm ls output after unlink');
+                    const linkedPackages = Object.keys(linksData.dependencies || {});
+                    const scopeLinkedPackages = linkedPackages.filter(pkg => pkg.startsWith(packageScope + '/'));
+
+                    if (scopeLinkedPackages.length > 0) {
+                        logger.warn(`⚠️ Found remaining links to packages in scope ${packageScope}: ${scopeLinkedPackages.join(', ')}`);
+                        logger.verbose('This may be expected if other packages in your workspace are still linked');
+                    } else {
+                        logger.info('✅ No problematic links found');
+                    }
+                } catch {
+                    // If JSON parsing fails, fall back to basic check
+                    logger.verbose('Failed to parse npm ls --link --json output, using basic check');
+                    if (result.stdout.includes(packageScope)) {
+                        logger.warn(`⚠️ Found remaining links to packages in scope ${packageScope}`);
+                        logger.verbose('This may be expected if other packages in your workspace are still linked');
+                    } else {
+                        logger.info('✅ No problematic links found');
+                    }
+                }
+            } else {
+                logger.info('✅ No problematic links found');
+            }
+        } catch {
+            // npm ls --link returns non-zero when there are no links, which is what we want
+            // So we only log this at verbose level
+            logger.verbose('npm ls --link check completed (non-zero exit is expected when no links exist)');
+        }
+
+        const summary = `Successfully unlinked ${packageName}`;
+        logger.info(summary);
         return summary;
+    }
+
+    // New scope-based unlinking behavior
+    logger.info(`🔓 Unlinking scope/package: ${packageArgument}`);
+
+    const { scope, packageName } = parsePackageArgument(packageArgument);
+    logger.verbose(`Parsed scope: ${scope}, package: ${packageName || 'all packages in scope'}`);
+
+    // Find matching packages in the workspace
+    const matchingPackages = await findMatchingPackages(targetDirectories, scope, storage, logger, packageName);
+
+    if (matchingPackages.length === 0) {
+        const message = packageName
+            ? `No package found matching: ${packageName}`
+            : `No packages found in scope: ${scope}`;
+        logger.warn(message);
+        return message;
+    }
+
+    logger.info(`Found ${matchingPackages.length} matching package(s)`);
+
+    const unlinkedPackages: string[] = [];
+
+    // If specific package name provided, use that; otherwise unlink all packages in scope
+    const packagesToUnlink = packageName
+        ? matchingPackages.filter(pkg => pkg.name === packageName)
+        : matchingPackages;
+
+    for (const pkg of packagesToUnlink) {
+        logger.info(`Processing package: ${pkg.name}`);
+
+        // Step A: Find all packages that depend on this package and unlink them first
+        const consumingPackages = await findConsumingPackages(targetDirectories, pkg.name, storage, logger);
+
+        if (consumingPackages.length === 0) {
+            logger.info(`No consuming packages found for: ${pkg.name}`);
+        } else {
+            logger.info(`Found ${consumingPackages.length} consuming package(s) for: ${pkg.name}`);
+
+            for (const consumer of consumingPackages) {
+                try {
+                    const consumerOriginalCwd = process.cwd();
+                    process.chdir(consumer.path);
+
+                    try {
+                        if (isDryRun) {
+                            logger.info(`DRY RUN: Would run 'npm unlink ${pkg.name}' in: ${consumer.path}`);
+                        } else {
+                            logger.verbose(`Running 'npm unlink ${pkg.name}' in consumer: ${consumer.path}`);
+                            await runSecure('npm', ['unlink', pkg.name]);
+                            logger.info(`✅ Consumer unlinked: ${consumer.name} -/-> ${pkg.name}`);
+                        }
+                    } finally {
+                        process.chdir(consumerOriginalCwd);
+                    }
+                } catch (error: any) {
+                    // npm unlink can fail if package wasn't linked, but that's OK
+                    logger.warn(`⚠️ Failed to unlink ${pkg.name} in ${consumer.name}: ${error.message}`);
+                }
+            }
+        }
+
+        // Step B: Run 'npm unlink' in the source package directory
+        try {
+            const originalCwd = process.cwd();
+            process.chdir(pkg.path);
+
+            try {
+                if (isDryRun) {
+                    logger.info(`DRY RUN: Would run 'npm unlink' in: ${pkg.path}`);
+                } else {
+                    logger.verbose(`Running 'npm unlink' in source: ${pkg.path}`);
+                    await run('npm unlink');
+                    logger.info(`✅ Source unlinked: ${pkg.name}`);
+                }
+            } finally {
+                process.chdir(originalCwd);
+            }
+
+            unlinkedPackages.push(pkg.name);
+        } catch (error: any) {
+            // npm unlink can fail if package wasn't linked, but that's OK
+            logger.warn(`⚠️ Failed to unlink source package ${pkg.name}: ${error.message}`);
+            unlinkedPackages.push(pkg.name); // Still count as success
+        }
+    }
+
+    const summary = `Successfully unlinked ${unlinkedPackages.length} package(s): ${unlinkedPackages.join(', ')}`;
+    logger.info(summary);
+    return summary;
+};
+
+export const execute = async (runConfig: Config, packageArgument?: string): Promise<string> => {
+    try {
+        // Use packageArgument from runConfig if not provided as parameter
+        const finalPackageArgument = packageArgument || runConfig.unlink?.packageArgument;
+        return await executeInternal(runConfig, finalPackageArgument);
+    } catch (error: any) {
+        const logger = getLogger();
+        logger.error(`unlink failed: ${error.message}`);
+        throw error;
     }
 };

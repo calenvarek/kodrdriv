@@ -1,0 +1,8 @@
+{
+  "name": "web-app",
+  "version": "1.0.0",
+  "description": "Web application",
+  "dependencies": {
+    "core-library": "^1.0.0"
+  }
+}

@@ -12,6 +12,7 @@ import * as Logging from '../../src/logging';
 import * as ReviewCommand from '../../src/commands/review';
 import * as Unplayable from '@theunwalked/unplayable';
 import * as OpenAI from '../../src/util/openai';
+import * as Countdown from '../../src/util/countdown';
 
 // Mock the logging module
 vi.mock('../../src/logging', () => ({
@@ -23,6 +24,7 @@ vi.mock('@theunwalked/unplayable');
 vi.mock('../../src/util/openai');
 vi.mock('../../src/util/general');
 vi.mock('../../src/util/storage');
+vi.mock('../../src/util/countdown');
 
 // Mock storage that matches the Storage.Utility interface
 const mockStorage = {
@@ -351,6 +353,119 @@ describe('audio-review command', () => {
 
                 expect(mockLogger.warn).toHaveBeenCalledWith('Using generated filename for recorded audio: %s', path.join('output', mockTimestampedFilename));
                 expect(result).toBe(mockReviewResult);
+            });
+        });
+
+        describe('countdown timer integration', () => {
+            let mockCountdownTimer: any;
+
+            beforeEach(() => {
+                mockCountdownTimer = {
+                    start: vi.fn().mockResolvedValue(undefined),
+                    stop: vi.fn()
+                };
+
+                // Set up the countdown mock properly
+                vi.mocked(Countdown.createAudioRecordingCountdown).mockReturnValue(mockCountdownTimer);
+            });
+
+            it('should start countdown timer when recording with maxRecordingTime', async () => {
+                const mockProcessAudioResult = {
+                    cancelled: false,
+                    audioFilePath: 'test-audio.wav'
+                };
+
+                vi.mocked(processAudio).mockResolvedValue(mockProcessAudioResult);
+                vi.mocked(transcribeAudio).mockResolvedValue({
+                    text: 'test transcription'
+                });
+                vi.mocked(executeReview).mockResolvedValue('Review completed');
+
+                const config: Config = {
+                    configDirectory: '/test',
+                    discoveredConfigDirs: [],
+                    resolvedConfigDirs: [],
+                    audioReview: {
+                        maxRecordingTime: 120 // 2 minutes
+                    }
+                };
+
+                await execute(config);
+
+                expect(vi.mocked(Countdown.createAudioRecordingCountdown)).toHaveBeenCalledWith(120);
+                expect(mockCountdownTimer.start).toHaveBeenCalled();
+                expect(mockCountdownTimer.stop).toHaveBeenCalled();
+            });
+
+            it('should not start countdown timer when processing existing file', async () => {
+                const mockProcessAudioResult = {
+                    cancelled: false,
+                    audioFilePath: 'existing-audio.wav'
+                };
+
+                vi.mocked(processAudio).mockResolvedValue(mockProcessAudioResult);
+                vi.mocked(transcribeAudio).mockResolvedValue({
+                    text: 'test transcription'
+                });
+                vi.mocked(executeReview).mockResolvedValue('Review completed');
+
+                const config: Config = {
+                    configDirectory: '/test',
+                    discoveredConfigDirs: [],
+                    resolvedConfigDirs: [],
+                    audioReview: {
+                        file: 'existing-audio.wav',
+                        maxRecordingTime: 120
+                    }
+                };
+
+                await execute(config);
+
+                expect(vi.mocked(Countdown.createAudioRecordingCountdown)).not.toHaveBeenCalled();
+                expect(mockCountdownTimer.start).not.toHaveBeenCalled();
+            });
+
+            it('should not start countdown timer when maxRecordingTime is not set', async () => {
+                const mockProcessAudioResult = {
+                    cancelled: false,
+                    audioFilePath: 'test-audio.wav'
+                };
+
+                vi.mocked(processAudio).mockResolvedValue(mockProcessAudioResult);
+                vi.mocked(transcribeAudio).mockResolvedValue({
+                    text: 'test transcription'
+                });
+                vi.mocked(executeReview).mockResolvedValue('Review completed');
+
+                const config: Config = {
+                    configDirectory: '/test',
+                    discoveredConfigDirs: [],
+                    resolvedConfigDirs: [],
+                    audioReview: {}
+                };
+
+                await execute(config);
+
+                expect(vi.mocked(Countdown.createAudioRecordingCountdown)).not.toHaveBeenCalled();
+            });
+
+            it('should stop countdown timer even when audio processing fails', async () => {
+                vi.mocked(processAudio).mockRejectedValue(new Error('Recording failed'));
+
+                const config: Config = {
+                    configDirectory: '/test',
+                    discoveredConfigDirs: [],
+                    resolvedConfigDirs: [],
+                    audioReview: {
+                        maxRecordingTime: 60
+                    }
+                };
+
+                await execute(config);
+
+                expect(vi.mocked(Countdown.createAudioRecordingCountdown)).toHaveBeenCalledWith(60);
+                expect(mockCountdownTimer.start).toHaveBeenCalled();
+                expect(mockCountdownTimer.stop).toHaveBeenCalled();
             });
         });
     });

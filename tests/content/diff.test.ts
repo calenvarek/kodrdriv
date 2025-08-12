@@ -4,8 +4,15 @@ import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../../src/constants';
 
 // Mock ESM modules
 vi.mock('../../src/util/child', () => ({
-    // @ts-ignore
-    run: vi.fn()
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
 }));
 
 vi.mock('../../src/logging', () => ({
@@ -374,7 +381,7 @@ describe('diff', () => {
         it('should return original diff if within size limit', async () => {
             const smallDiff = 'diff --git a/file.txt b/file.txt\n+small change';
             const Diff = await import('../../src/content/diff');
-            const result = Diff.truncateDiffByFiles(smallDiff, 2048);
+            const result = Diff.truncateDiffByFiles(smallDiff, 20480);
             expect(result).toBe(smallDiff);
         });
 
@@ -428,6 +435,69 @@ index abc123..def456 100644
             const Diff = await import('../../src/content/diff');
             const result = Diff.truncateDiffByFiles(largeDiff, 100);
             expect(result).toContain('SUMMARY: 1 files omitted due to size limits');
+        });
+
+        it('should allow files under the 20KB limit', async () => {
+            // Create a file under 20KB
+            const mediumSizeDiff = `diff --git a/src/component.ts b/src/component.ts
+index abc123..def456 100644
+--- a/src/component.ts
++++ b/src/component.ts
+@@ -1,400 +1,400 @@
+ export class Component {
+${'  // Some code change\n'.repeat(400)}} // This creates ~8KB diff`;
+
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(mediumSizeDiff, 20480); // 20KB limit
+
+            // Should not be truncated because it's under 20KB
+            expect(result).toContain('export class Component');
+            expect(result).not.toContain('CHANGE OMITTED');
+        });
+
+        it('should truncate files over the 20KB limit', async () => {
+            // Create a file over 20KB
+            const largeDiff = `diff --git a/src/huge-file.ts b/src/huge-file.ts
+index abc123..def456 100644
+--- a/src/huge-file.ts
++++ b/src/huge-file.ts
+@@ -1,1000 +1,1000 @@
+ export class HugeFile {
+${'  // Very long line that will make this file exceed the 20KB limit when repeated many times\n'.repeat(1000)}} // This creates ~80KB diff`;
+
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(largeDiff, 20480); // 20KB limit
+
+            // Should be truncated because it exceeds the 20KB limit
+            expect(result).toContain('CHANGE OMITTED: File too large');
+            expect(result).toContain('20480 limit');
+        });
+
+        it('should apply same limit to all file types', async () => {
+            const mixedDiff = `diff --git a/src/code.ts b/src/code.ts
+index abc123..def456 100644
+--- a/src/code.ts
++++ b/src/code.ts
+@@ -1,1000 +1,1000 @@
+${'  // Large TypeScript change that exceeds limit\n'.repeat(600)}}
+
+diff --git a/data/large.txt b/data/large.txt
+index abc123..def456 100644
+--- a/data/large.txt
++++ b/data/large.txt
+@@ -1,1000 +1,1000 @@
+${'Large text data that also exceeds limit\n'.repeat(600)}}`;
+
+            const Diff = await import('../../src/content/diff');
+            const result = Diff.truncateDiffByFiles(mixedDiff, 20480); // 20KB limit
+
+            // Both files should be truncated using the same 20KB limit
+            expect(result).toContain('src/code.ts');
+            expect(result).toContain('data/large.txt');
+            expect(result).toContain('CHANGE OMITTED: File too large');
+            // Should see the truncation message twice (once for each file)
+            const truncationMessages = result.match(/CHANGE OMITTED: File too large/g);
+            expect(truncationMessages).toHaveLength(2);
         });
     });
 

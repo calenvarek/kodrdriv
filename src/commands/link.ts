@@ -1,288 +1,472 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import path from 'path';
-import { ValidationError, CommandError } from '../error/CommandErrors';
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
-import { create as createStorage } from '../util/storage';
-import { safeJsonParse, validateLinkBackup, type LinkBackup } from '../util/validation';
+import { run, runSecure } from '../util/child';
 import {
-    PerformanceTimer,
-    PackageJson,
-    PackageJsonLocation,
-    findAllPackageJsonFiles,
-    scanDirectoryForPackages
+    findAllPackageJsonFiles
 } from '../util/performance';
-import { smartNpmInstall } from '../util/npmOptimizations';
+import { create as createStorage } from '../util/storage';
+import { safeJsonParse, validatePackageJson } from '../util/validation';
+import fs from 'fs/promises';
+import path from 'path';
 
-interface ExtendedPackageJson extends PackageJson {
-    overrides?: Record<string, string>;
-}
+// Helper function to create symbolic links manually
+const createSymbolicLink = async (
+    packageName: string,
+    sourcePath: string,
+    targetDir: string,
+    logger: any,
+    isDryRun: boolean = false
+): Promise<boolean> => {
+    try {
+        // Parse package name to get scope and name parts
+        const [scope, name] = packageName.startsWith('@')
+            ? packageName.split('/')
+            : [null, packageName];
 
+        // Create the target path structure
+        const nodeModulesPath = path.join(targetDir, 'node_modules');
+        let targetPath: string;
 
+        if (scope) {
+            // Scoped package: node_modules/@scope/name
+            const scopeDir = path.join(nodeModulesPath, scope);
+            targetPath = path.join(scopeDir, name);
 
-const EXCLUDED_DIRECTORIES = [
-    'node_modules',
-    'dist',
-    'build',
-    'coverage',
-    '.git',
-    '.next',
-    '.nuxt',
-    'out',
-    'public',
-    'static',
-    'assets'
-];
+            if (!isDryRun) {
+                // Ensure scope directory exists
+                await fs.mkdir(scopeDir, { recursive: true });
+            }
+        } else {
+            // Unscoped package: node_modules/name
+            targetPath = path.join(nodeModulesPath, name);
 
-const findPackagesToLink = async (scopeRoots: Record<string, string>, storage: any): Promise<Map<string, string>> => {
-    const logger = getLogger();
-    const timer = PerformanceTimer.start(logger, 'Finding packages to link');
-    const packagesToLink = new Map<string, string>();
-
-    logger.silly(`Finding packages to link from scope roots: ${JSON.stringify(scopeRoots)}`);
-
-    // Scan all scope roots to build a comprehensive map of packages that can be linked
-    const scopeTimer = PerformanceTimer.start(logger, 'Scanning all scope roots for linkable packages');
-    const allScopePackages = new Map<string, string>(); // packageName -> relativePath
-
-    // Process all scopes in parallel for better performance
-    const scopePromises = Object.entries(scopeRoots).map(async ([scope, rootDir]) => {
-        logger.verbose(`Scanning scope ${scope} at root directory: ${rootDir}`);
-        const scopePackages = await scanDirectoryForPackages(rootDir, storage);
-
-        // Add packages from this scope to the overall map
-        const scopeResults: Array<[string, string]> = [];
-        for (const [packageName, packagePath] of scopePackages) {
-            if (packageName.startsWith(scope)) {
-                scopeResults.push([packageName, packagePath]);
-                logger.debug(`Linkable package: ${packageName} -> ${packagePath}`);
+            if (!isDryRun) {
+                // Ensure node_modules directory exists
+                await fs.mkdir(nodeModulesPath, { recursive: true });
             }
         }
-        return scopeResults;
-    });
 
-    const allScopeResults = await Promise.all(scopePromises);
-
-    // Flatten results
-    for (const scopeResults of allScopeResults) {
-        for (const [packageName, packagePath] of scopeResults) {
-            allScopePackages.set(packageName, packagePath);
+        if (isDryRun) {
+            logger.verbose(`DRY RUN: Would create symlink: ${targetPath} -> ${sourcePath}`);
+            return true;
         }
-    }
 
-    scopeTimer.end(`Scanned ${Object.keys(scopeRoots).length} scope roots, found ${allScopePackages.size} packages`);
+        // Create the symbolic link using relative path for better portability
+        const relativePath = path.relative(path.dirname(targetPath), sourcePath);
 
-    // Now we have all scope packages, we can resolve the ones we want to link
-    for (const [packageName, packagePath] of allScopePackages) {
-        packagesToLink.set(packageName, packagePath);
-    }
-
-    timer.end(`Found ${packagesToLink.size} packages to link`);
-    return packagesToLink;
-};
-
-const readLinkBackup = async (storage: any, logger?: any): Promise<LinkBackup> => {
-    const backupPath = path.join(process.cwd(), '.kodrdriv-link-backup.json');
-    if (await storage.exists(backupPath)) {
+        // Check if something already exists at the target path
         try {
-            const content = await storage.readFile(backupPath, 'utf-8');
-            return JSON.parse(content) as LinkBackup;
-        } catch (error) {
-            // Log warning but continue with empty backup instead of throwing
-            if (logger) {
-                logger.warn(`Failed to parse link backup file: ${error}`);
-            }
-            return {};
-        }
-    }
-    return {};
-};
+            const stats = await fs.lstat(targetPath); // Use lstat to not follow symlinks
 
-const writeLinkBackup = async (backup: LinkBackup, storage: any): Promise<void> => {
-    const backupPath = path.join(process.cwd(), '.kodrdriv-link-backup.json');
-    await storage.writeFile(backupPath, JSON.stringify(backup, null, 2), 'utf-8');
-};
-
-const updatePackageJson = async (
-    packageJsonLocation: PackageJsonLocation,
-    packagesToLink: Map<string, string>,
-    backup: LinkBackup,
-    storage: any
-): Promise<number> => {
-    const logger = getLogger();
-    let linkedCount = 0;
-    const { packageJson, path: packageJsonPath, relativePath } = packageJsonLocation;
-
-    // Process dependencies, devDependencies, and peerDependencies
-    const depTypes: Array<keyof Pick<PackageJson, 'dependencies' | 'devDependencies' | 'peerDependencies'>> = [
-        'dependencies', 'devDependencies', 'peerDependencies'
-    ];
-
-    for (const depType of depTypes) {
-        const dependencies = packageJson[depType];
-        if (!dependencies) continue;
-
-        for (const [packageName, targetPath] of packagesToLink) {
-            if (dependencies[packageName]) {
-                // Backup original version before linking
-                const backupKey = `${relativePath}:${packageName}`;
-                if (!backup[backupKey]) {
-                    backup[backupKey] = {
-                        originalVersion: dependencies[packageName],
-                        dependencyType: depType,
-                        relativePath
-                    };
+            if (stats.isSymbolicLink()) {
+                // It's a symlink, check if it points to the correct target
+                const existingLink = await fs.readlink(targetPath);
+                if (existingLink === relativePath) {
+                    logger.verbose(`Symlink already exists and points to correct target: ${targetPath} -> ${relativePath}`);
+                    return true;
+                } else {
+                    logger.info(`🔧 Fixing symlink: ${targetPath} (was pointing to ${existingLink}, now pointing to ${relativePath})`);
+                    await fs.unlink(targetPath);
+                    await fs.symlink(relativePath, targetPath, 'dir');
+                    logger.info(`✅ Fixed symlink: ${targetPath} -> ${relativePath}`);
+                    return true;
                 }
-
-                // Update to file: dependency
-                const targetAbsolutePath = path.resolve(process.cwd(), targetPath);
-                const fileReferencePath = path.relative(path.dirname(packageJsonPath), targetAbsolutePath);
-                dependencies[packageName] = `file:${fileReferencePath}`;
-                linkedCount++;
-                logger.verbose(`Linked ${relativePath}/${depType}.${packageName}: ${backup[backupKey].originalVersion} -> file:${fileReferencePath}`);
+            } else if (stats.isDirectory()) {
+                // It's a directory, remove it
+                logger.warn(`⚠️ Removing existing directory to create symlink: ${targetPath}`);
+                await fs.rm(targetPath, { recursive: true, force: true });
+                await fs.symlink(relativePath, targetPath, 'dir');
+                logger.info(`✅ Created symlink: ${targetPath} -> ${relativePath}`);
+                return true;
+            } else {
+                // It's a file, remove it
+                logger.warn(`⚠️ Removing existing file to create symlink: ${targetPath}`);
+                await fs.unlink(targetPath);
+                await fs.symlink(relativePath, targetPath, 'dir');
+                logger.info(`✅ Created symlink: ${targetPath} -> ${relativePath}`);
+                return true;
             }
+        } catch (error: any) {
+            if (error.code === 'ENOENT') {
+                // Nothing exists at target path, create the symlink
+                await fs.symlink(relativePath, targetPath, 'dir');
+                logger.verbose(`Created symlink: ${targetPath} -> ${relativePath}`);
+                return true;
+            } else {
+                throw error; // Re-throw unexpected errors
+            }
+        }
+    } catch (error: any) {
+        logger.warn(`Failed to create symlink for ${packageName}: ${error.message}`);
+        return false;
+    }
+};
+
+// Helper function to parse package names and scopes
+const parsePackageArgument = (packageArg: string): { scope: string; packageName?: string } => {
+    if (packageArg.startsWith('@')) {
+        const parts = packageArg.split('/');
+        if (parts.length === 1) {
+            // Just a scope like "@fjell"
+            return { scope: parts[0] };
+        } else {
+            // Full package name like "@fjell/core"
+            return { scope: parts[0], packageName: packageArg };
+        }
+    } else {
+        throw new Error(`Package argument must start with @ (scope): ${packageArg}`);
+    }
+};
+
+// Find packages in the workspace that match the given scope or package name
+const findMatchingPackages = async (
+    targetDirectories: string[],
+    scope: string,
+    storage: any,
+    logger: any,
+    packageName?: string
+): Promise<Array<{ name: string; path: string; isSource: boolean }>> => {
+    const matchingPackages: Array<{ name: string; path: string; isSource: boolean }> = [];
+
+    // Find all package.json files in target directories
+    let allPackageJsonFiles: any[] = [];
+    for (const targetDirectory of targetDirectories) {
+        const packageJsonFiles = await findAllPackageJsonFiles(targetDirectory, storage);
+        allPackageJsonFiles = allPackageJsonFiles.concat(packageJsonFiles);
+    }
+
+    for (const packageJsonLocation of allPackageJsonFiles) {
+        const packageDir = packageJsonLocation.path.replace('/package.json', '');
+
+        try {
+            const packageJsonContent = await storage.readFile(packageJsonLocation.path, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonLocation.path);
+            const packageJson = validatePackageJson(parsed, packageJsonLocation.path);
+
+            if (!packageJson.name) continue;
+
+            const isInScope = packageJson.name.startsWith(scope + '/');
+            const isExactMatch = packageName && packageJson.name === packageName;
+
+            if (isInScope || isExactMatch) {
+                matchingPackages.push({
+                    name: packageJson.name,
+                    path: packageDir,
+                    isSource: packageName ? packageJson.name === packageName : isInScope
+                });
+            }
+        } catch (error: any) {
+            logger.warn(`Failed to parse ${packageJsonLocation.path}: ${error.message}`);
         }
     }
 
-    // NOTE: Don't write the file here - let the caller handle all modifications
-    return linkedCount;
+    return matchingPackages;
 };
 
-const executeInternal = async (runConfig: Config): Promise<string> => {
+// Find packages that depend on the target package
+const findConsumingPackages = async (
+    targetDirectories: string[],
+    targetPackageName: string,
+    storage: any,
+    logger: any
+): Promise<Array<{ name: string; path: string }>> => {
+    const consumingPackages: Array<{ name: string; path: string }> = [];
+
+    // Find all package.json files in target directories
+    let allPackageJsonFiles: any[] = [];
+    for (const targetDirectory of targetDirectories) {
+        const packageJsonFiles = await findAllPackageJsonFiles(targetDirectory, storage);
+        allPackageJsonFiles = allPackageJsonFiles.concat(packageJsonFiles);
+    }
+
+    for (const packageJsonLocation of allPackageJsonFiles) {
+        const packageDir = packageJsonLocation.path.replace('/package.json', '');
+
+        try {
+            const packageJsonContent = await storage.readFile(packageJsonLocation.path, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonLocation.path);
+            const packageJson = validatePackageJson(parsed, packageJsonLocation.path);
+
+            if (!packageJson.name) continue;
+
+            // Check if this package depends on the target package
+            const dependencyTypes = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+            const hasDependency = dependencyTypes.some(depType =>
+                packageJson[depType] && packageJson[depType][targetPackageName]
+            );
+
+            if (hasDependency && packageJson.name !== targetPackageName) {
+                consumingPackages.push({
+                    name: packageJson.name,
+                    path: packageDir
+                });
+            }
+        } catch (error: any) {
+            logger.warn(`Failed to parse ${packageJsonLocation.path}: ${error.message}`);
+        }
+    }
+
+    return consumingPackages;
+};
+
+const executeInternal = async (runConfig: Config, packageArgument?: string): Promise<string> => {
     const isDryRun = runConfig.dryRun || runConfig.link?.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const overallTimer = PerformanceTimer.start(logger, 'Link command execution');
     const storage = createStorage({ log: logger.info });
 
-    logger.info('🔗 Linking workspace packages...');
+    // Get target directories from config, default to current directory
+    const targetDirectories = runConfig.tree?.directories || [process.cwd()];
 
-    // Get configuration
-    const configTimer = PerformanceTimer.start(logger, 'Reading configuration');
-    const scopeRoots = runConfig.link?.scopeRoots || {};
-    configTimer.end('Configuration loaded');
-
-    if (Object.keys(scopeRoots).length === 0) {
-        logger.info('No scope roots configured. Skipping link management.');
-        overallTimer.end('Link command (no scope roots)');
-        return 'No scope roots configured. Skipping link management.';
-    }
-
-    // Find all package.json files in current directory tree
-    const packageJsonFiles = await findAllPackageJsonFiles(process.cwd(), storage);
-
-    if (packageJsonFiles.length === 0) {
-        overallTimer.end('Link command (no package.json files)');
-        throw new ValidationError('No package.json files found in current directory or subdirectories.');
-    }
-
-    logger.info(`Found ${packageJsonFiles.length} package.json file(s) to process`);
-    logger.info(`Scanning ${Object.keys(scopeRoots).length} scope root(s): ${Object.keys(scopeRoots).join(', ')}`);
-
-    // Check if any package.json files already have file: dependencies (safety check)
-    const safetyTimer = PerformanceTimer.start(logger, 'Safety check for existing file: dependencies');
-    // checkForFileDependencies(packageJsonFiles); // This function is no longer imported
-    safetyTimer.end('Safety check completed');
-
-    // Collect all dependencies from all package.json files using optimized function
-    // const allDependencies = collectAllDependencies(packageJsonFiles); // This function is no longer imported
-
-    // logger.verbose(`Found ${Object.keys(allDependencies).length} total unique dependencies across all package.json files`);
-
-    // Find matching sibling packages
-    const packagesToLink = await findPackagesToLink(scopeRoots, storage);
-
-    if (packagesToLink.size === 0) {
-        logger.info('✅ No matching sibling packages found for linking.');
-        overallTimer.end('Link command (no packages to link)');
-        return 'No matching sibling packages found for linking.';
-    }
-
-    logger.info(`Found ${packagesToLink.size} package(s) to link: ${[...packagesToLink.keys()].join(', ')}`);
-
-    // Read existing backup
-    const backupTimer = PerformanceTimer.start(logger, 'Reading link backup');
-    const backup = await readLinkBackup(storage, logger);
-    backupTimer.end('Link backup loaded');
-
-    if (isDryRun) {
-        logger.info('Would update package.json files with file: dependencies and run npm install');
-        for (const { relativePath } of packageJsonFiles) {
-            logger.verbose(`Would process ${relativePath}/package.json`);
-        }
-        for (const [packageName, packagePath] of packagesToLink.entries()) {
-            logger.verbose(`Would link ${packageName} -> file:${packagePath}`);
-        }
-        overallTimer.end('Link command (dry run)');
-        return `DRY RUN: Would link ${packagesToLink.size} packages across ${packageJsonFiles.length} package.json files`;
+    if (targetDirectories.length === 1) {
+        logger.info(`Analyzing workspace at: ${targetDirectories[0]}`);
     } else {
-        // Update all package.json files with file: dependencies
-        const updateTimer = PerformanceTimer.start(logger, 'Updating package.json files');
-        let totalLinksCreated = 0;
-        for (const packageJsonLocation of packageJsonFiles) {
-            const linksCreated = await updatePackageJson(packageJsonLocation, packagesToLink, backup, storage);
-            totalLinksCreated += linksCreated;
+        logger.info(`Analyzing workspaces at: ${targetDirectories.join(', ')}`);
+    }
 
-            // Write the modified package.json file to disk
-            if (linksCreated > 0) {
-                await storage.writeFile(packageJsonLocation.path, JSON.stringify(packageJsonLocation.packageJson, null, 2) + '\n', 'utf-8');
-                logger.verbose(`Updated ${packageJsonLocation.relativePath}/package.json with ${linksCreated} file: dependencies`);
-            }
-        }
-        updateTimer.end(`Updated ${packageJsonFiles.length} package.json files, created ${totalLinksCreated} links`);
+    // If no package argument provided, use new smart same-scope linking behavior
+    if (!packageArgument) {
+        logger.info('🔗 Smart linking current project...');
 
-        if (totalLinksCreated === 0) {
-            logger.info('✅ No dependencies were linked (packages may not be referenced).');
-            overallTimer.end('Link command (no links created)');
-            return 'No dependencies were linked.';
-        }
+        // Work in current directory only - read the package.json
+        const currentDir = process.cwd();
+        const packageJsonPath = `${currentDir}/package.json`;
 
-        // Save backup after all changes
-        const saveTimer = PerformanceTimer.start(logger, 'Saving link backup');
-        await writeLinkBackup(backup, storage);
-        saveTimer.end('Link backup saved');
-        logger.info(`Updated ${packageJsonFiles.length} package.json file(s) with file: dependencies`);
-
-        // Run optimized npm install to create symlinks
-        logger.info('⏳ Installing dependencies to create symlinks...');
+        let currentPackageJson;
         try {
-            const installResult = await smartNpmInstall({
-                skipIfNotNeeded: false, // Always install after linking changes
-                preferCi: false, // Use npm install to handle new file: dependencies
-                verbose: false
-            });
-
-            if (installResult.skipped) {
-                logger.info(`⚡ Dependencies were up to date (${installResult.method})`);
-            } else {
-                logger.info(`✅ Links applied successfully using ${installResult.method} (${installResult.duration}ms)`);
-            }
-        } catch (error) {
-            logger.warn(`Failed to install dependencies: ${error}. You may need to run 'npm install' manually.`);
+            const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+            currentPackageJson = validatePackageJson(parsed, packageJsonPath);
+        } catch (error: any) {
+            const message = `No valid package.json found in current directory: ${error.message}`;
+            logger.error(message);
+            return message;
         }
 
-        const summary = `Successfully linked ${totalLinksCreated} dependency reference(s) across ${packageJsonFiles.length} package.json file(s):\n${[...packagesToLink.entries()].map(([name, path]) => `  - ${name}: file:${path}`).join('\n')}`;
+        if (!currentPackageJson.name) {
+            const message = 'package.json must have a name field';
+            logger.error(message);
+            return message;
+        }
 
-        overallTimer.end('Link command execution completed');
+        // Extract the scope from the current package name
+        const currentScope = currentPackageJson.name.startsWith('@')
+            ? currentPackageJson.name.split('/')[0]
+            : null;
+
+        if (!currentScope) {
+            const message = 'Current package must have a scoped name (e.g., @scope/package) for smart linking';
+            logger.warn(message);
+            return message;
+        }
+
+        logger.info(`Current package: ${currentPackageJson.name} (scope: ${currentScope})`);
+
+        // Step 1: Link the current package globally
+        try {
+            if (isDryRun) {
+                logger.info(`DRY RUN: Would run 'npm link' in current directory`);
+            } else {
+                logger.verbose(`Running 'npm link' to register ${currentPackageJson.name} globally...`);
+                await run('npm link');
+                logger.info(`✅ Self-linked: ${currentPackageJson.name}`);
+            }
+        } catch (error: any) {
+            logger.error(`❌ Failed to self-link ${currentPackageJson.name}: ${error.message}`);
+            throw new Error(`Failed to self-link ${currentPackageJson.name}: ${error.message}`);
+        }
+
+        // Step 2: Find same-scope dependencies in current package
+        const allDependencies = {
+            ...currentPackageJson.dependencies,
+            ...currentPackageJson.devDependencies
+        };
+
+        const sameScopeDependencies = Object.keys(allDependencies).filter(depName =>
+            depName.startsWith(currentScope + '/')
+        );
+
+        if (sameScopeDependencies.length === 0) {
+            logger.info(`No same-scope dependencies found for ${currentScope}`);
+            if (isDryRun) {
+                return `DRY RUN: Would self-link, no same-scope dependencies found to link`;
+            } else {
+                return `Self-linked ${currentPackageJson.name}, no same-scope dependencies to link`;
+            }
+        }
+
+        // Step 3: Get globally linked packages directories (only if we have same-scope dependencies)
+        let globallyLinkedPackages: { [key: string]: string } = {};
+        try {
+            if (isDryRun) {
+                logger.info(`DRY RUN: Would run 'npm ls --link -g -p' to discover linked package directories`);
+                logger.info(`DRY RUN: Would attempt to link same-scope dependencies: ${sameScopeDependencies.join(', ')}`);
+                return `DRY RUN: Would self-link and attempt to link ${sameScopeDependencies.length} same-scope dependencies`;
+            } else {
+                logger.verbose(`Discovering globally linked package directories...`);
+                const result = await run('npm ls --link -g -p');
+                const resultStr = typeof result === 'string' ? result : result.stdout;
+
+                // Parse the directory paths - each line is a directory path
+                const directoryPaths = resultStr.trim().split('\n').filter(line => line.trim() !== '');
+
+                // Extract package names from directory paths and build a map
+                for (const dirPath of directoryPaths) {
+                    try {
+                        // Read the package.json to get the actual package name
+                        const packageJsonPath = `${dirPath.trim()}/package.json`;
+                        const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+                        const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+                        const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+                        if (packageJson.name) {
+                            globallyLinkedPackages[packageJson.name] = dirPath.trim();
+                        }
+                    } catch (packageError: any) {
+                        logger.verbose(`Could not read package.json from ${dirPath}: ${packageError.message}`);
+                    }
+                }
+
+                const linkedCount = Object.keys(globallyLinkedPackages).length;
+                logger.verbose(`Found ${linkedCount} globally linked package(s)`);
+            }
+        } catch (error: any) {
+            logger.warn(`Failed to get globally linked packages (continuing anyway): ${error.message}`);
+            globallyLinkedPackages = {};
+        }
+
+        logger.info(`Found ${sameScopeDependencies.length} same-scope dependencies: ${sameScopeDependencies.join(', ')}`);
+
+        // Step 4: Link same-scope dependencies that are available globally using manual symlinks
+        const linkedDependencies: string[] = [];
+
+        for (const depName of sameScopeDependencies) {
+            const sourcePath = globallyLinkedPackages[depName];
+            if (sourcePath) {
+                try {
+                    logger.verbose(`Linking same-scope dependency: ${depName} from ${sourcePath}`);
+
+                    // Create the symbolic link manually using the directory path directly
+                    const success = await createSymbolicLink(depName, sourcePath, currentDir, logger, isDryRun);
+
+                    if (success) {
+                        logger.info(`✅ Linked dependency: ${depName}`);
+                        linkedDependencies.push(depName);
+                    } else {
+                        logger.warn(`⚠️ Failed to link ${depName}`);
+                    }
+                } catch (error: any) {
+                    logger.warn(`⚠️ Failed to link ${depName}: ${error.message}`);
+                }
+            } else {
+                logger.verbose(`Skipping ${depName} (not globally linked)`);
+            }
+        }
+
+        const summary = linkedDependencies.length > 0
+            ? `Self-linked ${currentPackageJson.name} and linked ${linkedDependencies.length} same-scope dependencies: ${linkedDependencies.join(', ')}`
+            : `Self-linked ${currentPackageJson.name}, no same-scope dependencies were available to link`;
+
+        logger.info(summary);
         return summary;
     }
+
+    // New scope-based linking behavior
+    logger.info(`🔗 Linking scope/package: ${packageArgument}`);
+
+    const { scope, packageName } = parsePackageArgument(packageArgument);
+    logger.verbose(`Parsed scope: ${scope}, package: ${packageName || 'all packages in scope'}`);
+
+    // Find matching packages in the workspace
+    const matchingPackages = await findMatchingPackages(targetDirectories, scope, storage, logger, packageName);
+
+    if (matchingPackages.length === 0) {
+        const message = packageName
+            ? `No package found matching: ${packageName}`
+            : `No packages found in scope: ${scope}`;
+        logger.warn(message);
+        return message;
+    }
+
+    logger.info(`Found ${matchingPackages.length} matching package(s)`);
+
+    const linkedPackages: string[] = [];
+
+    // If specific package name provided, use that; otherwise link all packages in scope
+    const packagesToLink = packageName
+        ? matchingPackages.filter(pkg => pkg.name === packageName)
+        : matchingPackages;
+
+    for (const pkg of packagesToLink) {
+        logger.info(`Processing package: ${pkg.name}`);
+
+        // Step A: Run 'npm link' in the source package directory
+        try {
+            const originalCwd = process.cwd();
+            process.chdir(pkg.path);
+
+            try {
+                if (isDryRun) {
+                    logger.info(`DRY RUN: Would run 'npm link' in: ${pkg.path}`);
+                } else {
+                    logger.verbose(`Running 'npm link' in source: ${pkg.path}`);
+                    await run('npm link');
+                    logger.info(`✅ Source linked: ${pkg.name}`);
+                }
+            } finally {
+                process.chdir(originalCwd);
+            }
+
+            // Step B: Find all packages that depend on this package and link them
+            const consumingPackages = await findConsumingPackages(targetDirectories, pkg.name, storage, logger);
+
+            if (consumingPackages.length === 0) {
+                logger.info(`No consuming packages found for: ${pkg.name}`);
+            } else {
+                logger.info(`Found ${consumingPackages.length} consuming package(s) for: ${pkg.name}`);
+
+                for (const consumer of consumingPackages) {
+                    try {
+                        const consumerOriginalCwd = process.cwd();
+                        process.chdir(consumer.path);
+
+                        try {
+                            if (isDryRun) {
+                                logger.info(`DRY RUN: Would run 'npm link ${pkg.name}' in: ${consumer.path}`);
+                            } else {
+                                logger.verbose(`Running 'npm link ${pkg.name}' in consumer: ${consumer.path}`);
+                                await runSecure('npm', ['link', pkg.name]);
+                                logger.info(`✅ Consumer linked: ${consumer.name} -> ${pkg.name}`);
+                            }
+                        } finally {
+                            process.chdir(consumerOriginalCwd);
+                        }
+                    } catch (error: any) {
+                        logger.error(`❌ Failed to link ${pkg.name} in ${consumer.name}: ${error.message}`);
+                        throw new Error(`Failed to link ${pkg.name} in consumer ${consumer.name}: ${error.message}`);
+                    }
+                }
+            }
+
+            linkedPackages.push(pkg.name);
+        } catch (error: any) {
+            logger.error(`❌ Failed to link source package ${pkg.name}: ${error.message}`);
+            throw new Error(`Failed to link source package ${pkg.name}: ${error.message}`);
+        }
+    }
+
+    const summary = `Successfully linked ${linkedPackages.length} package(s): ${linkedPackages.join(', ')}`;
+    logger.info(summary);
+    return summary;
 };
 
-export const execute = async (runConfig: Config): Promise<string> => {
+export const execute = async (runConfig: Config, packageArgument?: string): Promise<string> => {
     try {
-        return await executeInternal(runConfig);
+        // Use packageArgument from runConfig if not provided as parameter
+        const finalPackageArgument = packageArgument || runConfig.link?.packageArgument;
+        return await executeInternal(runConfig, finalPackageArgument);
     } catch (error: any) {
         const logger = getLogger();
-
-        if (error instanceof ValidationError || error instanceof CommandError) {
-            logger.error(`link failed: ${error.message}`);
-            if (error.cause) {
-                logger.debug(`Caused by: ${error.cause.message}`);
-            }
-            throw error;
-        }
-
-        // Unexpected errors
-        logger.error(`link encountered unexpected error: ${error.message}`);
+        logger.error(`link failed: ${error.message}`);
         throw error;
     }
 };

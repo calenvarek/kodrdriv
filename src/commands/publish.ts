@@ -6,12 +6,13 @@ import * as Release from './release';
 
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
-import { run, runWithDryRunSupport } from '../util/child';
+import { run, runWithDryRunSupport, runSecure, validateGitRef } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
+import { isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '../util/git';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const logger = getLogger();
@@ -120,6 +121,45 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
         }
     }
 
+    // Check target branch sync with remote
+    logger.info(`Checking target branch '${targetBranch}' sync with remote...`);
+    if (isDryRun) {
+        logger.info(`Would verify target branch '${targetBranch}' is in sync with remote origin`);
+    } else {
+        // Only check if local target branch exists (it's okay if it doesn't exist locally)
+        const targetBranchExists = await localBranchExists(targetBranch);
+        if (targetBranchExists) {
+            const syncStatus = await isBranchInSyncWithRemote(targetBranch);
+
+            if (!syncStatus.inSync) {
+                logger.error(`❌ Target branch '${targetBranch}' is not in sync with remote.`);
+                logger.error('');
+
+                if (syncStatus.error) {
+                    logger.error(`   Error: ${syncStatus.error}`);
+                } else if (syncStatus.localSha && syncStatus.remoteSha) {
+                    logger.error(`   Local:  ${syncStatus.localSha.substring(0, 8)}`);
+                    logger.error(`   Remote: ${syncStatus.remoteSha.substring(0, 8)}`);
+                }
+
+                logger.error('');
+                logger.error('📋 To resolve this issue:');
+                logger.error(`   1. Switch to the target branch: git checkout ${targetBranch}`);
+                logger.error(`   2. Pull the latest changes: git pull origin ${targetBranch}`);
+                logger.error('   3. Resolve any merge conflicts if they occur');
+                logger.error('   4. Switch back to your feature branch and re-run publish');
+                logger.error('');
+                logger.error('💡 Alternatively, run "kodrdriv publish --sync-target" to attempt automatic sync.');
+
+                throw new Error(`Target branch '${targetBranch}' is not in sync with remote. Please sync the branch before running publish.`);
+            } else {
+                logger.info(`✅ Target branch '${targetBranch}' is in sync with remote.`);
+            }
+        } else {
+            logger.info(`ℹ️  Target branch '${targetBranch}' does not exist locally - will be created when needed.`);
+        }
+    }
+
     // Check if prepublishOnly script exists in package.json
     logger.info('Checking for prepublishOnly script...');
     const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -170,10 +210,50 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     logger.info('All prechecks passed.');
 };
 
+const handleTargetBranchSyncRecovery = async (runConfig: Config): Promise<void> => {
+    const isDryRun = runConfig.dryRun || false;
+    const logger = getDryRunLogger(isDryRun);
+    const targetBranch = runConfig.publish?.targetBranch || 'main';
+
+    logger.info(`🔄 Attempting to sync target branch '${targetBranch}' with remote...`);
+
+    if (isDryRun) {
+        logger.info(`Would attempt to sync '${targetBranch}' with remote`);
+        return;
+    }
+
+    const syncResult = await safeSyncBranchWithRemote(targetBranch);
+
+    if (syncResult.success) {
+        logger.info(`✅ Successfully synced '${targetBranch}' with remote.`);
+        logger.info('You can now re-run the publish command.');
+    } else if (syncResult.conflictResolutionRequired) {
+        logger.error(`❌ Failed to sync '${targetBranch}': conflicts detected.`);
+        logger.error('');
+        logger.error('📋 Manual conflict resolution required:');
+        logger.error(`   1. Switch to the target branch: git checkout ${targetBranch}`);
+        logger.error(`   2. Pull and resolve conflicts: git pull origin ${targetBranch}`);
+        logger.error('   3. Commit the resolved changes');
+        logger.error('   4. Switch back to your feature branch and re-run publish');
+        logger.error('');
+        throw new Error(`Target branch '${targetBranch}' has conflicts that require manual resolution.`);
+    } else {
+        logger.error(`❌ Failed to sync '${targetBranch}': ${syncResult.error}`);
+        throw new Error(`Failed to sync target branch: ${syncResult.error}`);
+    }
+};
+
 export const execute = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
     const storage = createStorage({ log: logger.info });
+    const targetBranch = runConfig.publish?.targetBranch || 'main';
+
+    // Handle --sync-target flag
+    if (runConfig.publish?.syncTarget) {
+        await handleTargetBranchSyncRecovery(runConfig);
+        return; // Exit after sync operation
+    }
 
     // Run prechecks before starting any work
     await runPrechecks(runConfig);
@@ -372,11 +452,39 @@ export const execute = async (runConfig: Config): Promise<void> => {
         }
     }
 
-    logger.info('Checking out main branch...');
-    await runWithDryRunSupport('git checkout main', isDryRun);
-    await runWithDryRunSupport('git pull origin main', isDryRun);
+    // Switch to target branch and pull latest changes
+    logger.info(`Checking out target branch: ${targetBranch}...`);
 
-    // Now create and push the tag on the main branch
+    try {
+        await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
+        await runWithDryRunSupport(`git pull origin ${targetBranch}`, isDryRun);
+    } catch (error: any) {
+        // Check if this is a merge conflict or sync issue
+        if (!isDryRun && (error.message.includes('conflict') ||
+                         error.message.includes('CONFLICT') ||
+                         error.message.includes('diverged') ||
+                         error.message.includes('non-fast-forward'))) {
+
+            logger.error(`❌ Failed to sync target branch '${targetBranch}' with remote.`);
+            logger.error('');
+            logger.error('📋 Recovery options:');
+            logger.error(`   1. Run 'kodrdriv publish --sync-target' to attempt automatic resolution`);
+            logger.error(`   2. Manually resolve conflicts:`);
+            logger.error(`      - git checkout ${targetBranch}`);
+            logger.error(`      - git pull origin ${targetBranch}`);
+            logger.error(`      - Resolve any conflicts and commit`);
+            logger.error(`      - Re-run your original publish command`);
+            logger.error('');
+            logger.error('💡 The publish process has been stopped to prevent data loss.');
+
+            throw new Error(`Target branch '${targetBranch}' sync failed. Use recovery options above to resolve.`);
+        } else {
+            // Re-throw other errors
+            throw error;
+        }
+    }
+
+    // Now create and push the tag on the target branch
     logger.info('Creating release tag...');
     let tagName: string;
     if (isDryRun) {
@@ -384,39 +492,43 @@ export const execute = async (runConfig: Config): Promise<void> => {
         tagName = 'v1.0.0'; // Mock version for dry run
     } else {
         const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-        const { version } = JSON.parse(packageJsonContents);
+        const { version } = safeJsonParse(packageJsonContents, 'package.json');
         tagName = `v${version}`;
 
         // Check if tag already exists locally
         try {
-            const { stdout } = await run(`git tag -l ${tagName}`);
+            // Validate tag name to prevent injection
+            if (!validateGitRef(tagName)) {
+                throw new Error(`Invalid tag name: ${tagName}`);
+            }
+            const { stdout } = await runSecure('git', ['tag', '-l', tagName]);
             if (stdout.trim() === tagName) {
                 logger.info(`Tag ${tagName} already exists locally, skipping tag creation`);
             } else {
-                await run(`git tag ${tagName}`);
+                await runSecure('git', ['tag', tagName]);
                 logger.info(`Created local tag: ${tagName}`);
             }
         } catch (error) {
             // If git tag -l fails, create the tag anyway
-            await run(`git tag ${tagName}`);
+            await runSecure('git', ['tag', tagName]);
             logger.info(`Created local tag: ${tagName}`);
         }
 
         // Check if tag exists on remote before pushing
         let tagWasPushed = false;
         try {
-            const { stdout } = await run(`git ls-remote origin refs/tags/${tagName}`);
+            const { stdout } = await runSecure('git', ['ls-remote', 'origin', `refs/tags/${tagName}`]);
             if (stdout.trim()) {
                 logger.info(`Tag ${tagName} already exists on remote, skipping push`);
             } else {
-                await run(`git push origin ${tagName}`);
+                await runSecure('git', ['push', 'origin', tagName]);
                 logger.info(`Pushed tag to remote: ${tagName}`);
                 tagWasPushed = true;
             }
         } catch (error) {
             // If ls-remote fails, try to push anyway (might be a new remote)
             try {
-                await run(`git push origin ${tagName}`);
+                await runSecure('git', ['push', 'origin', tagName]);
                 logger.info(`Pushed tag to remote: ${tagName}`);
                 tagWasPushed = true;
             } catch (pushError: any) {
@@ -438,6 +550,12 @@ export const execute = async (runConfig: Config): Promise<void> => {
     logger.info('Creating GitHub release...');
     if (isDryRun) {
         logger.info('Would read package.json version and create GitHub release with retry logic');
+        const milestonesEnabled = !runConfig.publish?.noMilestones;
+        if (milestonesEnabled) {
+            logger.info('Would close milestone for released version');
+        } else {
+            logger.info('Would skip milestone closure (--no-milestones)');
+        }
     } else {
         const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
         const releaseNotesPath = getOutputPath(outputDirectory, 'RELEASE_NOTES.md');
@@ -452,6 +570,17 @@ export const execute = async (runConfig: Config): Promise<void> => {
             try {
                 await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
                 logger.info(`GitHub release created successfully for tag: ${tagName}`);
+
+                // Close milestone for this version if enabled
+                const milestonesEnabled = !runConfig.publish?.noMilestones;
+                if (milestonesEnabled) {
+                    logger.info('🏁 Closing milestone for released version...');
+                    const version = tagName.replace(/^v/, ''); // Remove 'v' prefix if present
+                    await GitHub.closeMilestoneForVersion(version);
+                } else {
+                    logger.debug('Milestone integration disabled via --no-milestones');
+                }
+
                 break; // Success - exit retry loop
             } catch (error: any) {
                 // Check if this is a tag-not-found error that we can retry
@@ -516,7 +645,6 @@ export const execute = async (runConfig: Config): Promise<void> => {
     }
 
     // Switch to target branch
-    const targetBranch = runConfig.publish?.targetBranch || 'main';
     logger.info(`Switching to target branch: ${targetBranch}`);
     await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
 

@@ -14,7 +14,7 @@ The publish command supports the following options:
 
 - `--merge-method <method>`: Method to merge pull requests during the publish process (default: 'squash')
   - Available methods: 'merge', 'squash', 'rebase'
-- `--from <from>`: Branch or tag to generate release notes from (default: 'main')
+- `--from <from>`: Branch or tag to generate release notes from (default: automatically detected - tries `main`, then `master`, then `origin/main`)
   - Useful when releases fail and you need to generate notes from a specific version back
   - Accepts any valid Git reference (branch, tag, or commit hash)
   - **Use Case**: When a previous release failed partway through, you can specify `--from v1.2.0` to generate release notes that include all changes since that version

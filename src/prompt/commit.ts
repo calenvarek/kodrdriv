@@ -9,6 +9,8 @@ const __dirname = path.dirname(__filename);
 export type Content = {
     diffContent: string;
     userDirection?: string;
+    isFileContent?: boolean; // Flag to indicate if diffContent is actually file content
+    githubIssuesContext?: string; // GitHub issues related to current version/milestone
 };
 
 export type Context = {
@@ -35,7 +37,7 @@ export type Config = {
  */
 export const createPrompt = async (
     { overridePaths: _overridePaths, overrides: _overrides }: Config,
-    { diffContent, userDirection }: Content,
+    { diffContent, userDirection, isFileContent, githubIssuesContext }: Content,
     { logContext, context, directories }: Context = {}
 ): Promise<Prompt> => {
     const basePath = __dirname;
@@ -48,7 +50,11 @@ export const createPrompt = async (
         contentItems.push({ content: userDirection, title: 'User Direction' });
     }
     if (diffContent) {
-        contentItems.push({ content: diffContent, title: 'Diff' });
+        const contentTitle = isFileContent ? 'Project Files' : 'Diff';
+        contentItems.push({ content: diffContent, title: contentTitle });
+    }
+    if (githubIssuesContext) {
+        contentItems.push({ content: githubIssuesContext, title: 'Recent GitHub Issues' });
     }
 
     if (logContext) {

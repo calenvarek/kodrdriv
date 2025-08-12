@@ -7,13 +7,7 @@ export interface ReleaseSummary {
     body: string;
 }
 
-export interface LinkBackup {
-    [key: string]: {
-        originalVersion: string;
-        dependencyType: string;
-        relativePath: string;
-    };
-}
+
 
 export interface TranscriptionResult {
     text: string;
@@ -36,33 +30,7 @@ export const validateReleaseSummary = (data: any): ReleaseSummary => {
     return data as ReleaseSummary;
 };
 
-/**
- * Validates and safely casts data to LinkBackup type
- */
-export const validateLinkBackup = (data: any): LinkBackup => {
-    if (!data || typeof data !== 'object') {
-        throw new Error('Invalid link backup: not an object');
-    }
 
-    // Validate each backup entry
-    for (const [key, value] of Object.entries(data)) {
-        if (!value || typeof value !== 'object') {
-            throw new Error(`Invalid link backup entry for ${key}: not an object`);
-        }
-        const entry = value as any;
-        if (typeof entry.originalVersion !== 'string') {
-            throw new Error(`Invalid link backup entry for ${key}: originalVersion must be a string`);
-        }
-        if (typeof entry.dependencyType !== 'string') {
-            throw new Error(`Invalid link backup entry for ${key}: dependencyType must be a string`);
-        }
-        if (typeof entry.relativePath !== 'string') {
-            throw new Error(`Invalid link backup entry for ${key}: relativePath must be a string`);
-        }
-    }
-
-    return data as LinkBackup;
-};
 
 /**
  * Validates transcription result has required text property

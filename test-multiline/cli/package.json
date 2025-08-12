@@ -1,0 +1,8 @@
+{
+  "name": "cli-tool",
+  "version": "1.0.0",
+  "description": "Command line tool",
+  "dependencies": {
+    "core-library": "^1.0.0"
+  }
+}

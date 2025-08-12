@@ -11,7 +11,7 @@ The release command analyzes changes between two Git references and generates st
 > [!TIP]
 > ### Custom Release Range
 >
-> The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it compares changes between `origin/HEAD` and `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
+> The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it automatically detects the best comparison reference (trying `main`, then `master`, then `origin/main`) and compares to `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
 
 > [!TIP]
 > ### Comparing Releases
@@ -25,7 +25,7 @@ The release command analyzes changes between two Git references and generates st
 
 ## Command Options
 
-- `--from <from>`: Branch or reference to generate release notes from (default: 'origin/HEAD')
+- `--from <from>`: Branch or reference to generate release notes from (default: automatically detected - tries `main`, then `master`, then `origin/main`)
 - `--to <to>`: Branch or reference to generate release notes to (default: 'HEAD')
 - `--interactive`: Present the generated release notes for interactive review and editing
 - `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
@@ -97,7 +97,7 @@ This ensures you always get comprehensive release notes, even for very large rel
 ## Examples
 
 ```bash
-# Generate release notes from origin/HEAD to HEAD
+# Generate release notes using auto-detected default reference to HEAD
 kodrdriv release
 
 # Generate release notes between specific versions
