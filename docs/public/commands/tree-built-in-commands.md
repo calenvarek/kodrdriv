@@ -7,11 +7,12 @@ The tree command supports executing kodrdriv's built-in commands across multiple
 Built-in commands provide dependency-aware execution of core kodrdriv functionality:
 
 ```bash
-kodrdriv tree commit    # Run commit operations across packages
-kodrdriv tree publish   # Run publish operations across packages
-kodrdriv tree link      # Link workspace packages across packages
-kodrdriv tree unlink    # Unlink workspace packages across packages
-kodrdriv tree branches  # Display branch and status information across packages
+kodrdriv tree commit      # Run commit operations across packages
+kodrdriv tree publish     # Run publish operations across packages
+kodrdriv tree link        # Link workspace packages across packages
+kodrdriv tree unlink      # Unlink workspace packages across packages
+kodrdriv tree development # Set up development environments across packages
+kodrdriv tree branches    # Display branch and status information across packages
 ```
 
 ## Key Features
@@ -169,6 +170,51 @@ kodrdriv tree unlink --dry-run
 kodrdriv tree unlink --start-from my-package
 ```
 
+### `kodrdriv tree development`
+
+Sets up development environments across all packages in the workspace.
+
+**What it does:**
+- Runs `kodrdriv development` in each package directory
+- Manages branch transitions and version bumping per package
+- Creates package-specific development versions and milestones
+- Maintains individual package git workflows
+
+**Usage:**
+```bash
+# Set up development environment across all packages
+kodrdriv tree development
+
+# Set up with minor version bumps
+kodrdriv tree development --target-version minor
+
+# Resume from a specific package
+kodrdriv tree development --start-from my-package
+
+# Exclude certain packages
+kodrdriv tree development --excluded-patterns "test-*" "build-*"
+
+# Disable milestone integration across workspace
+kodrdriv tree development --no-milestones
+```
+
+**Configuration:**
+Each package can have its own development settings:
+```json
+{
+  "development": {
+    "targetVersion": "minor",
+    "noMilestones": false
+  }
+}
+```
+
+**Use Cases:**
+- **Workspace-wide Development Setup**: Prepare all packages for new development cycle
+- **Coordinated Version Bumping**: Ensure consistent development versioning across packages
+- **Branch Management**: Standardize working branch setup across the workspace
+- **Milestone Coordination**: Create aligned milestones for workspace-wide feature development
+
 ### `kodrdriv tree branches`
 
 Displays a comprehensive branch and status overview across all packages in tabular format.
@@ -314,6 +360,7 @@ kodrdriv tree branches
 
 # 2. Set up development environment
 kodrdriv tree --cmd "npm install"
+kodrdriv tree development
 kodrdriv tree link
 
 # 3. Development iteration

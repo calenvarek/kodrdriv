@@ -13,7 +13,7 @@ import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
-import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
+import { validateReleaseSummary, safeJsonParse, type ReleaseSummary } from '../util/validation';
 import * as GitHub from '../util/github';
 import {
     getUserChoice,
@@ -223,7 +223,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         try {
             const storage = createStorage({ log: () => {} });
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-            const packageJson = JSON.parse(packageJsonContents);
+            const packageJson = safeJsonParse(packageJsonContents, 'package.json');
             const currentVersion = packageJson.version;
 
             if (currentVersion) {

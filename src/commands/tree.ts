@@ -65,13 +65,25 @@ interface TreeExecutionContext {
 let publishedVersions: PublishedVersion[] = [];
 let executionContext: TreeExecutionContext | null = null;
 
+// Function to reset global state (for testing)
+export const __resetGlobalState = () => {
+    publishedVersions = [];
+    executionContext = null;
+};
+
 // Simple mutex to prevent race conditions in global state access
 class SimpleMutex {
     private locked = false;
     private queue: Array<() => void> = [];
+    private destroyed = false;
 
     async lock(): Promise<void> {
-        return new Promise<void>((resolve) => {
+        return new Promise<void>((resolve, reject) => {
+            if (this.destroyed) {
+                reject(new Error('Mutex has been destroyed'));
+                return;
+            }
+
             if (!this.locked) {
                 this.locked = true;
                 resolve();
@@ -82,12 +94,48 @@ class SimpleMutex {
     }
 
     unlock(): void {
+        if (this.destroyed) {
+            return;
+        }
+
         this.locked = false;
         const next = this.queue.shift();
         if (next) {
             this.locked = true;
-            next();
+            try {
+                next();
+            } catch {
+                // If resolver throws, unlock and continue with next in queue
+                this.locked = false;
+                const nextInQueue = this.queue.shift();
+                if (nextInQueue) {
+                    this.locked = true;
+                    nextInQueue();
+                }
+            }
         }
+    }
+
+    destroy(): void {
+        this.destroyed = true;
+        this.locked = false;
+
+        // Reject all queued promises to prevent memory leaks
+        while (this.queue.length > 0) {
+            const resolver = this.queue.shift();
+            if (resolver) {
+                try {
+                    // Treat as rejected promise to clean up
+                    (resolver as any)(new Error('Mutex destroyed'));
+                } catch {
+                    // Ignore errors from rejected resolvers
+                }
+            }
+        }
+    }
+
+    isDestroyed(): boolean {
+        return this.destroyed;
     }
 }
 
@@ -205,7 +253,7 @@ const loadExecutionContext = async (outputDirectory?: string): Promise<TreeExecu
         }
 
         const contextContent = await storage.readFile(contextFilePath, 'utf-8');
-        const contextData = JSON.parse(contextContent);
+        const contextData = safeJsonParse(contextContent, contextFilePath);
 
         // Restore dates from ISO strings
         return {
@@ -692,15 +740,21 @@ const executePackage = async (
         if (isDryRun) {
             // Handle inter-project dependency updates for publish commands in dry run mode
             if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
-                await globalStateMutex.lock();
-                let versionSnapshot: PublishedVersion[];
+                let mutexLocked = false;
                 try {
+                    await globalStateMutex.lock();
+                    mutexLocked = true;
                     packageLogger.info('Would check for inter-project dependency updates before publish...');
-                    versionSnapshot = [...publishedVersions]; // Create safe copy
-                } finally {
+                    const versionSnapshot = [...publishedVersions]; // Create safe copy
                     globalStateMutex.unlock();
+                    mutexLocked = false;
+                    await updateInterProjectDependencies(packageDir, versionSnapshot, allPackageNames, packageLogger, isDryRun);
+                } catch (error) {
+                    if (mutexLocked) {
+                        globalStateMutex.unlock();
+                    }
+                    throw error;
                 }
-                await updateInterProjectDependencies(packageDir, versionSnapshot, allPackageNames, packageLogger, isDryRun);
             }
 
             // Use main logger for the specific message tests expect
@@ -773,12 +827,19 @@ const executePackage = async (
                 if (isBuiltInCommand && commandToRun.includes('publish')) {
                     const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
                     if (publishedVersion) {
-                        await globalStateMutex.lock();
+                        let mutexLocked = false;
                         try {
+                            await globalStateMutex.lock();
+                            mutexLocked = true;
                             publishedVersions.push(publishedVersion);
                             packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
-                        } finally {
                             globalStateMutex.unlock();
+                            mutexLocked = false;
+                        } catch (error) {
+                            if (mutexLocked) {
+                                globalStateMutex.unlock();
+                            }
+                            throw error;
                         }
                     }
                 }
@@ -833,11 +894,18 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info(`Previously completed: ${savedContext.completedPackages.length}/${savedContext.buildOrder.length} packages`);
 
             // Restore state safely
-            await globalStateMutex.lock();
+            let mutexLocked = false;
             try {
+                await globalStateMutex.lock();
+                mutexLocked = true;
                 publishedVersions = savedContext.publishedVersions;
-            } finally {
                 globalStateMutex.unlock();
+                mutexLocked = false;
+            } catch (error) {
+                if (mutexLocked) {
+                    globalStateMutex.unlock();
+                }
+                throw error;
             }
             executionContext = savedContext;
 
@@ -1032,6 +1100,36 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
         }
 
+        // Helper function to determine version scope indicator
+        const getVersionScopeIndicator = (versionRange: string): string => {
+            // Remove whitespace and check the pattern
+            const cleanRange = versionRange.trim();
+
+            // Preserve the original prefix (^, ~, >=, etc.)
+            const prefixMatch = cleanRange.match(/^([^0-9]*)/);
+            const prefix = prefixMatch ? prefixMatch[1] : '';
+
+            // Extract the version part after the prefix
+            const versionPart = cleanRange.substring(prefix.length);
+
+            // Count the number of dots to determine scope
+            const dotCount = (versionPart.match(/\./g) || []).length;
+
+            if (dotCount >= 2) {
+                // Has patch version (e.g., "^4.4.32" -> "^P")
+                return prefix + 'P';
+            } else if (dotCount === 1) {
+                // Has minor version only (e.g., "^4.4" -> "^m")
+                return prefix + 'm';
+            } else if (dotCount === 0 && versionPart.match(/^\d+$/)) {
+                // Has major version only (e.g., "^4" -> "^M")
+                return prefix + 'M';
+            }
+
+            // For complex ranges or non-standard formats, return as-is
+            return cleanRange;
+        };
+
         // Helper function to find packages that consume a given package
         const findConsumingPackagesForBranches = async (
             targetPackageName: string,
@@ -1052,19 +1150,29 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
                     const packageJson = validatePackageJson(parsed, packageJsonPath);
 
-                    // Check if this package depends on the target package
+                    // Check if this package depends on the target package and get the version range
                     const dependencyTypes = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
-                    const hasDependency = dependencyTypes.some(depType =>
-                        packageJson[depType] && packageJson[depType][targetPackageName]
-                    );
+                    let versionRange: string | null = null;
 
-                    if (hasDependency) {
+                    for (const depType of dependencyTypes) {
+                        if (packageJson[depType] && packageJson[depType][targetPackageName]) {
+                            versionRange = packageJson[depType][targetPackageName];
+                            break;
+                        }
+                    }
+
+                    if (versionRange) {
                         // Apply scope substitution for consumers in the same scope
                         let consumerDisplayName = packageName;
                         if (targetScope && packageName.startsWith(targetScope)) {
                             // Replace scope with "./" (e.g., "@fjell/core" -> "./core")
                             consumerDisplayName = './' + packageName.substring(targetScope.length);
                         }
+
+                        // Add version scope indicator
+                        const scopeIndicator = getVersionScopeIndicator(versionRange);
+                        consumerDisplayName += ` (${scopeIndicator})`;
+
                         consumers.push(consumerDisplayName);
                     }
                 } catch {
@@ -1169,10 +1277,13 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     // Add asterisk to consumers that are actively linking to globally linked packages
                     // and check for link problems to highlight in red
                     const consumersWithLinkStatus = await Promise.all(consumers.map(async (consumer) => {
+                        // Extract the base consumer name from the format "package-name (^P)" or "./scoped-name (^m)"
+                        const baseConsumerName = consumer.replace(/ \([^)]+\)$/, ''); // Remove version scope indicator
+
                         // Get the original package name from display name (remove scope substitution)
-                        const originalConsumerName = consumer.startsWith('./')
-                            ? consumer.replace('./', packageName.split('/')[0] + '/')
-                            : consumer;
+                        const originalConsumerName = baseConsumerName.startsWith('./')
+                            ? baseConsumerName.replace('./', packageName.split('/')[0] + '/')
+                            : baseConsumerName;
 
                         // Find the consumer package info to get its path
                         const consumerPackageInfo = Array.from(dependencyGraph.packages.values())
@@ -1317,6 +1428,10 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Add legend explaining the symbols and colors
             logger.info('Legend:');
             logger.info('  * = Consumer is actively linking to this package');
+            logger.info('  (^P) = Patch-level dependency (e.g., "^4.4.32")');
+            logger.info('  (^m) = Minor-level dependency (e.g., "^4.4")');
+            logger.info('  (^M) = Major-level dependency (e.g., "^4")');
+            logger.info('  (~P), (>=M), etc. = Other version prefixes preserved');
             if (supportsAnsi) {
                 logger.info('  \x1b[31mRed text\x1b[0m = Consumer has link problems (version mismatches) with this package');
             } else {
@@ -1698,5 +1813,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
         const errorMessage = `Failed to analyze workspace: ${error.message}`;
         logger.error(errorMessage);
         throw new Error(errorMessage);
+    } finally {
+        // Clean up mutex resources to prevent memory leaks
+        globalStateMutex.destroy();
     }
 };

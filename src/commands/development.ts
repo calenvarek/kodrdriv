@@ -20,7 +20,7 @@ import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
-import { run } from '../util/child';
+import { run, runSecure, validateGitRef } from '../util/child';
 import { localBranchExists, safeSyncBranchWithRemote } from '../util/git';
 import { incrementMinorVersion, incrementPatchVersion, incrementMajorVersion, validateVersionString } from '../util/general';
 import * as GitHub from '../util/github';
@@ -121,7 +121,11 @@ async function getCurrentBranch(): Promise<string> {
  */
 async function getVersionFromBranch(branchName: string): Promise<string> {
     try {
-        const { stdout } = await run(`git show ${branchName}:package.json`);
+        // Validate branch name to prevent injection
+        if (!validateGitRef(branchName)) {
+            throw new Error(`Invalid branch name: ${branchName}`);
+        }
+        const { stdout } = await runSecure('git', ['show', `${branchName}:package.json`]);
         const packageJson = safeJsonParse(stdout, 'package.json');
         const validated = validatePackageJson(packageJson, 'package.json');
         return validated.version;

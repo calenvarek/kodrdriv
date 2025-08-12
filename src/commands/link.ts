@@ -1,6 +1,6 @@
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
-import { run } from '../util/child';
+import { run, runSecure } from '../util/child';
 import {
     findAllPackageJsonFiles
 } from '../util/performance';
@@ -434,7 +434,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                                 logger.info(`DRY RUN: Would run 'npm link ${pkg.name}' in: ${consumer.path}`);
                             } else {
                                 logger.verbose(`Running 'npm link ${pkg.name}' in consumer: ${consumer.path}`);
-                                await run(`npm link ${pkg.name}`);
+                                await runSecure('npm', ['link', pkg.name]);
                                 logger.info(`✅ Consumer linked: ${consumer.name} -> ${pkg.name}`);
                             }
                         } finally {

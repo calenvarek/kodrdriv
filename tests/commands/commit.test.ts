@@ -32,9 +32,15 @@ vi.mock('../../src/prompt/commit', () => ({
 }));
 
 vi.mock('../../src/util/child', () => ({
-    // @ts-ignore
     run: vi.fn(),
-    runWithDryRunSupport: vi.fn()
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
 }));
 
 vi.mock('../../src/util/openai', () => ({

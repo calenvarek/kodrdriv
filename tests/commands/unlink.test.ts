@@ -10,7 +10,15 @@ vi.mock('../../src/util/storage', () => ({
 }));
 
 vi.mock('../../src/util/child', () => ({
-    run: vi.fn()
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn()
 }));
 
 // Mock the logger
@@ -45,6 +53,7 @@ vi.mock('../../src/util/validation', () => ({
 describe('Unlink Command', () => {
     let mockStorage: any;
     let mockRun: any;
+    let mockRunSecure: any;
     let mockFindAllPackageJsonFiles: any;
     let mockSafeJsonParse: any;
     let mockValidatePackageJson: any;
@@ -63,8 +72,9 @@ describe('Unlink Command', () => {
         };
         (Storage.create as any).mockReturnValue(mockStorage);
 
-        // Mock child.run
+        // Mock child.run and runSecure
         mockRun = vi.mocked(Child.run);
+        mockRunSecure = vi.mocked(Child.runSecure);
 
         // Mock findAllPackageJsonFiles
         const { findAllPackageJsonFiles } = await import('../../src/util/performance');
@@ -648,11 +658,12 @@ describe('Unlink Command', () => {
                 ]);
 
                 mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+                mockRunSecure.mockResolvedValue({ stdout: '', stderr: '' });
 
                 const result = await Unlink.execute(config, '@fjell/core');
 
-                // Should unlink consuming packages first
-                expect(mockRun).toHaveBeenCalledWith('npm unlink @fjell/core');
+                // Should unlink consuming packages first (using runSecure)
+                expect(mockRunSecure).toHaveBeenCalledWith('npm', ['unlink', '@fjell/core']);
                 expect(mockChdir).toHaveBeenCalledWith('/test/packages/app');
                 expect(mockChdir).toHaveBeenCalledWith('/test/packages/website');
                 // Then unlink the source package
@@ -698,10 +709,11 @@ describe('Unlink Command', () => {
                 });
 
                 mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+                mockRunSecure.mockResolvedValue({ stdout: '', stderr: '' });
 
                 const result = await Unlink.execute(config, '@fjell/core');
 
-                expect(mockRun).toHaveBeenCalledWith('npm unlink @fjell/core');
+                expect(mockRunSecure).toHaveBeenCalledWith('npm', ['unlink', '@fjell/core']);
                 expect(mockChdir).toHaveBeenCalledWith('/test/packages/app');
             });
 

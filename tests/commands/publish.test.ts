@@ -37,7 +37,14 @@ vi.mock('../../src/logging', () => ({
 
 vi.mock('../../src/util/child', () => ({
     run: vi.fn(),
-    runWithDryRunSupport: vi.fn()
+    runSecure: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn()
 }));
 
 vi.mock('../../src/util/github', () => ({

@@ -10,7 +10,15 @@ vi.mock('../../src/util/storage', () => ({
 }));
 
 vi.mock('../../src/util/child', () => ({
-    run: vi.fn()
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
 }));
 
 // Mock fs/promises with proper module structure
@@ -72,6 +80,7 @@ vi.mock('../../src/util/validation', () => ({
 describe('Link Command', () => {
     let mockStorage: any;
     let mockRun: any;
+    let mockRunSecure: any;
     let mockFindAllPackageJsonFiles: any;
     let mockSafeJsonParse: any;
     let mockValidatePackageJson: any;
@@ -97,8 +106,9 @@ describe('Link Command', () => {
         };
         (Storage.create as any).mockReturnValue(mockStorage);
 
-        // Mock child.run
+        // Mock child.run and runSecure
         mockRun = vi.mocked(Child.run);
+        mockRunSecure = vi.mocked(Child.runSecure);
 
         // Mock fs/promises
         const fs = await import('fs/promises');
@@ -827,6 +837,7 @@ describe('Link Command', () => {
                     .mockResolvedValueOnce('{"name": "api-app", "version": "1.0.0", "devDependencies": {"@fjell/core": "^1.0.0"}}');
 
                 mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+                mockRunSecure.mockResolvedValue({ stdout: '', stderr: '' });
 
                 const originalChdir = process.chdir;
                 const mockChdir = vi.fn();
@@ -837,8 +848,8 @@ describe('Link Command', () => {
 
                     expect(result).toContain('Successfully linked 1 package(s): @fjell/core');
                     expect(mockRun).toHaveBeenCalledWith('npm link'); // Source package
-                    expect(mockRun).toHaveBeenCalledWith('npm link @fjell/core'); // Consumer packages
-                    expect(mockRun).toHaveBeenCalledTimes(3); // 1 source + 2 consumers
+                    expect(mockRunSecure).toHaveBeenCalledWith('npm', ['link', '@fjell/core']); // Consumer packages
+                    expect(mockRunSecure).toHaveBeenCalledTimes(2); // 2 consumers
                 } finally {
                     process.chdir = originalChdir;
                 }
@@ -923,6 +934,7 @@ describe('Link Command', () => {
                     .mockResolvedValueOnce('{"name": "optdep-app", "version": "1.0.0", "optionalDependencies": {"@fjell/core": "^1.0.0"}}');
 
                 mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+                mockRunSecure.mockResolvedValue({ stdout: '', stderr: '' });
 
                 const originalChdir = process.chdir;
                 const mockChdir = vi.fn();
@@ -933,8 +945,8 @@ describe('Link Command', () => {
 
                     expect(result).toContain('Successfully linked 1 package(s): @fjell/core');
                     expect(mockRun).toHaveBeenCalledWith('npm link'); // Source
-                    expect(mockRun).toHaveBeenCalledWith('npm link @fjell/core'); // Consumers
-                    expect(mockRun).toHaveBeenCalledTimes(5); // 1 source + 4 consumers
+                    expect(mockRunSecure).toHaveBeenCalledWith('npm', ['link', '@fjell/core']); // Consumers
+                    expect(mockRunSecure).toHaveBeenCalledTimes(4); // 4 consumers
                 } finally {
                     process.chdir = originalChdir;
                 }
@@ -1053,9 +1065,8 @@ describe('Link Command', () => {
                     .mockResolvedValueOnce('{"name": "@fjell/core", "version": "1.0.0"}')
                     .mockResolvedValueOnce('{"name": "web-app", "version": "1.0.0", "dependencies": {"@fjell/core": "^1.0.0"}}');
 
-                mockRun
-                    .mockResolvedValueOnce({ stdout: '', stderr: '' }) // Source succeeds
-                    .mockRejectedValueOnce(new Error('consumer link failed')); // Consumer fails
+                mockRun.mockResolvedValue({ stdout: '', stderr: '' }); // Source succeeds
+                mockRunSecure.mockRejectedValue(new Error('consumer link failed')); // Consumer fails
 
                 const originalChdir = process.chdir;
                 const mockChdir = vi.fn();
@@ -1091,6 +1102,7 @@ describe('Link Command', () => {
                     .mockResolvedValueOnce('{"name": "@fjell/core", "version": "1.0.0"}');
 
                 mockRun.mockResolvedValue({ stdout: '', stderr: '' });
+                mockRunSecure.mockResolvedValue({ stdout: '', stderr: '' });
 
                 const originalChdir = process.chdir;
                 const mockChdir = vi.fn();

@@ -5,6 +5,14 @@ import * as GitHub from '../../src/util/github';
 
 vi.mock('../../src/util/child', () => ({
     run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
 }));
 
 vi.mock('@octokit/rest');

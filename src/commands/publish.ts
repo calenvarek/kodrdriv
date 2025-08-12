@@ -6,7 +6,7 @@ import * as Release from './release';
 
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
-import { run, runWithDryRunSupport } from '../util/child';
+import { run, runWithDryRunSupport, runSecure, validateGitRef } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively } from '../util/general';
@@ -492,39 +492,43 @@ export const execute = async (runConfig: Config): Promise<void> => {
         tagName = 'v1.0.0'; // Mock version for dry run
     } else {
         const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-        const { version } = JSON.parse(packageJsonContents);
+        const { version } = safeJsonParse(packageJsonContents, 'package.json');
         tagName = `v${version}`;
 
         // Check if tag already exists locally
         try {
-            const { stdout } = await run(`git tag -l ${tagName}`);
+            // Validate tag name to prevent injection
+            if (!validateGitRef(tagName)) {
+                throw new Error(`Invalid tag name: ${tagName}`);
+            }
+            const { stdout } = await runSecure('git', ['tag', '-l', tagName]);
             if (stdout.trim() === tagName) {
                 logger.info(`Tag ${tagName} already exists locally, skipping tag creation`);
             } else {
-                await run(`git tag ${tagName}`);
+                await runSecure('git', ['tag', tagName]);
                 logger.info(`Created local tag: ${tagName}`);
             }
         } catch (error) {
             // If git tag -l fails, create the tag anyway
-            await run(`git tag ${tagName}`);
+            await runSecure('git', ['tag', tagName]);
             logger.info(`Created local tag: ${tagName}`);
         }
 
         // Check if tag exists on remote before pushing
         let tagWasPushed = false;
         try {
-            const { stdout } = await run(`git ls-remote origin refs/tags/${tagName}`);
+            const { stdout } = await runSecure('git', ['ls-remote', 'origin', `refs/tags/${tagName}`]);
             if (stdout.trim()) {
                 logger.info(`Tag ${tagName} already exists on remote, skipping push`);
             } else {
-                await run(`git push origin ${tagName}`);
+                await runSecure('git', ['push', 'origin', tagName]);
                 logger.info(`Pushed tag to remote: ${tagName}`);
                 tagWasPushed = true;
             }
         } catch (error) {
             // If ls-remote fails, try to push anyway (might be a new remote)
             try {
-                await run(`git push origin ${tagName}`);
+                await runSecure('git', ['push', 'origin', tagName]);
                 logger.info(`Pushed tag to remote: ${tagName}`);
                 tagWasPushed = true;
             } catch (pushError: any) {

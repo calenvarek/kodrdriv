@@ -1,5 +1,5 @@
 import { getLogger } from '../logging';
-import { run } from './child';
+import { run, runSecure, validateGitRef } from './child';
 import fs from 'fs/promises';
 import path from 'path';
 import { exec } from 'child_process';
@@ -12,7 +12,11 @@ import { safeJsonParse, validatePackageJson } from './validation';
  */
 const isValidGitRefSilent = async (ref: string): Promise<boolean> => {
     try {
-        await run(`git rev-parse --verify ${ref} >/dev/null 2>&1`);
+        // Validate the ref first to prevent injection
+        if (!validateGitRef(ref)) {
+            return false;
+        }
+        await runSecure('git', ['rev-parse', '--verify', ref], { stdio: 'ignore' });
         return true;
     } catch {
         return false;
@@ -25,7 +29,12 @@ const isValidGitRefSilent = async (ref: string): Promise<boolean> => {
 export const isValidGitRef = async (ref: string): Promise<boolean> => {
     const logger = getLogger();
     try {
-        await run(`git rev-parse --verify ${ref} >/dev/null 2>&1`);
+        // Validate the ref first to prevent injection
+        if (!validateGitRef(ref)) {
+            logger.debug(`Git reference '${ref}' contains invalid characters`);
+            return false;
+        }
+        await runSecure('git', ['rev-parse', '--verify', ref], { stdio: 'ignore' });
         logger.debug(`Git reference '${ref}' is valid`);
         return true;
     } catch (error) {
@@ -138,7 +147,11 @@ export const remoteBranchExists = async (branchName: string, remote: string = 'o
  * Gets the commit SHA for a given branch (local or remote)
  */
 export const getBranchCommitSha = async (branchRef: string): Promise<string> => {
-    const { stdout } = await run(`git rev-parse ${branchRef}`);
+    // Validate the ref first to prevent injection
+    if (!validateGitRef(branchRef)) {
+        throw new Error(`Invalid git reference: ${branchRef}`);
+    }
+    const { stdout } = await runSecure('git', ['rev-parse', branchRef]);
     return stdout.trim();
 };
 
@@ -156,8 +169,16 @@ export const isBranchInSyncWithRemote = async (branchName: string, remote: strin
     const logger = getLogger();
 
     try {
+        // Validate inputs first to prevent injection
+        if (!validateGitRef(branchName)) {
+            throw new Error(`Invalid branch name: ${branchName}`);
+        }
+        if (!validateGitRef(remote)) {
+            throw new Error(`Invalid remote name: ${remote}`);
+        }
+
         // First, fetch latest remote refs without affecting working directory
-        await run(`git fetch ${remote} --quiet`);
+        await runSecure('git', ['fetch', remote, '--quiet']);
 
         const localExists = await localBranchExists(branchName);
         const remoteExists = await remoteBranchExists(branchName, remote);
@@ -219,12 +240,20 @@ export const safeSyncBranchWithRemote = async (branchName: string, remote: strin
     const logger = getLogger();
 
     try {
+        // Validate inputs first to prevent injection
+        if (!validateGitRef(branchName)) {
+            throw new Error(`Invalid branch name: ${branchName}`);
+        }
+        if (!validateGitRef(remote)) {
+            throw new Error(`Invalid remote name: ${remote}`);
+        }
+
         // Check current branch to restore later if needed
-        const { stdout: currentBranch } = await run('git branch --show-current');
+        const { stdout: currentBranch } = await runSecure('git', ['branch', '--show-current']);
         const originalBranch = currentBranch.trim();
 
         // Fetch latest remote refs
-        await run(`git fetch ${remote} --quiet`);
+        await runSecure('git', ['fetch', remote, '--quiet']);
 
         // Check if local branch exists
         const localExists = await localBranchExists(branchName);
@@ -239,7 +268,7 @@ export const safeSyncBranchWithRemote = async (branchName: string, remote: strin
 
         if (!localExists) {
             // Create local branch tracking the remote
-            await run(`git branch ${branchName} ${remote}/${branchName}`);
+            await runSecure('git', ['branch', branchName, `${remote}/${branchName}`]);
             logger.debug(`Created local branch '${branchName}' tracking '${remote}/${branchName}'`);
             return { success: true };
         }
@@ -249,7 +278,7 @@ export const safeSyncBranchWithRemote = async (branchName: string, remote: strin
 
         if (needToSwitch) {
             // Check for uncommitted changes before switching
-            const { stdout: statusOutput } = await run('git status --porcelain');
+            const { stdout: statusOutput } = await runSecure('git', ['status', '--porcelain']);
             if (statusOutput.trim()) {
                 return {
                     success: false,
@@ -258,17 +287,17 @@ export const safeSyncBranchWithRemote = async (branchName: string, remote: strin
             }
 
             // Switch to target branch
-            await run(`git checkout ${branchName}`);
+            await runSecure('git', ['checkout', branchName]);
         }
 
         try {
             // Try to pull with fast-forward only
-            await run(`git pull ${remote} ${branchName} --ff-only`);
+            await runSecure('git', ['pull', remote, branchName, '--ff-only']);
             logger.debug(`Successfully synced '${branchName}' with '${remote}/${branchName}'`);
 
             // Switch back to original branch if we switched
             if (needToSwitch && originalBranch) {
-                await run(`git checkout ${originalBranch}`);
+                await runSecure('git', ['checkout', originalBranch]);
             }
 
             return { success: true };
@@ -277,7 +306,7 @@ export const safeSyncBranchWithRemote = async (branchName: string, remote: strin
             // Switch back to original branch if we switched
             if (needToSwitch && originalBranch) {
                 try {
-                    await run(`git checkout ${originalBranch}`);
+                    await runSecure('git', ['checkout', originalBranch]);
                 } catch (checkoutError) {
                     logger.warn(`Failed to switch back to original branch '${originalBranch}': ${checkoutError}`);
                 }
@@ -313,7 +342,7 @@ export const safeSyncBranchWithRemote = async (branchName: string, remote: strin
  * Gets the current branch name
  */
 export const getCurrentBranch = async (): Promise<string> => {
-    const { stdout } = await run('git branch --show-current');
+    const { stdout } = await runSecure('git', ['branch', '--show-current']);
     return stdout.trim();
 };
 
@@ -343,7 +372,7 @@ export const getGitStatusSummary = async (workingDir?: string): Promise<{
             const branch = await getCurrentBranch();
 
             // Get git status for unstaged and uncommitted changes
-            const { stdout: statusOutput } = await run('git status --porcelain');
+            const { stdout: statusOutput } = await runSecure('git', ['status', '--porcelain']);
             const statusLines = statusOutput.trim().split('\n').filter(line => line.trim());
 
             // Count different types of changes
@@ -378,14 +407,14 @@ export const getGitStatusSummary = async (workingDir?: string): Promise<{
 
             try {
                 // First fetch to get latest remote refs
-                await run('git fetch origin --quiet');
+                await runSecure('git', ['fetch', 'origin', '--quiet']);
 
                 // Check if remote branch exists
                 const remoteExists = await remoteBranchExists(branch);
 
                 if (remoteExists) {
-                    // Get count of commits ahead of remote
-                    const { stdout: aheadOutput } = await run(`git rev-list --count origin/${branch}..HEAD`);
+                    // Get count of commits ahead of remote (branch already validated in calling function)
+                    const { stdout: aheadOutput } = await runSecure('git', ['rev-list', '--count', `origin/${branch}..HEAD`]);
                     unpushedCount = parseInt(aheadOutput.trim()) || 0;
                     hasUnpushedCommits = unpushedCount > 0;
                 }
@@ -452,7 +481,7 @@ export const getGloballyLinkedPackages = async (): Promise<Set<string>> => {
 
     try {
         const { stdout } = await execPromise('npm ls --link -g --json');
-        const result = JSON.parse(stdout);
+        const result = safeJsonParse(stdout, 'npm ls global output');
 
         if (result.dependencies && typeof result.dependencies === 'object') {
             return new Set(Object.keys(result.dependencies));
@@ -463,7 +492,7 @@ export const getGloballyLinkedPackages = async (): Promise<Set<string>> => {
         // Try to parse from error stdout if available
         if (error.stdout) {
             try {
-                const result = JSON.parse(error.stdout);
+                const result = safeJsonParse(error.stdout, 'npm ls global error output');
                 if (result.dependencies && typeof result.dependencies === 'object') {
                     return new Set(Object.keys(result.dependencies));
                 }
@@ -484,7 +513,7 @@ export const getLinkedDependencies = async (packageDir: string): Promise<Set<str
 
     try {
         const { stdout } = await execPromise('npm ls --link --json', { cwd: packageDir });
-        const result = JSON.parse(stdout);
+        const result = safeJsonParse(stdout, 'npm ls local output');
 
         if (result.dependencies && typeof result.dependencies === 'object') {
             return new Set(Object.keys(result.dependencies));
@@ -495,7 +524,7 @@ export const getLinkedDependencies = async (packageDir: string): Promise<Set<str
         // npm ls --link often exits with non-zero code but still provides valid JSON in stdout
         if (error.stdout) {
             try {
-                const result = JSON.parse(error.stdout);
+                const result = safeJsonParse(error.stdout, 'npm ls local error output');
                 if (result.dependencies && typeof result.dependencies === 'object') {
                     return new Set(Object.keys(result.dependencies));
                 }
@@ -664,7 +693,7 @@ export const getLinkProblems = async (packageDir: string): Promise<Set<string>> 
 
     try {
         const { stdout } = await execPromise('npm ls --link --json', { cwd: packageDir });
-        const result = JSON.parse(stdout);
+        const result = safeJsonParse(stdout, 'npm ls troubleshoot output');
 
         const problemDependencies = new Set<string>();
 
@@ -703,7 +732,7 @@ export const getLinkProblems = async (packageDir: string): Promise<Set<string>> 
         // but still provides valid JSON in stdout
         if (error.stdout) {
             try {
-                const result = JSON.parse(error.stdout);
+                const result = safeJsonParse(error.stdout, 'npm ls troubleshoot error output');
                 const problemDependencies = new Set<string>();
 
                 // Check if there are any problems reported
@@ -760,7 +789,7 @@ export const isNpmLinked = async (packageDir: string): Promise<boolean> => {
         }
 
         const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
-        const packageJson = JSON.parse(packageJsonContent);
+        const packageJson = safeJsonParse(packageJsonContent, packageJsonPath);
         const packageName = packageJson.name;
 
         if (!packageName) {
@@ -769,8 +798,8 @@ export const isNpmLinked = async (packageDir: string): Promise<boolean> => {
 
         // Check if the package is globally linked by running npm ls -g --depth=0
         try {
-            const { stdout } = await run(`npm ls -g --depth=0 --json`);
-            const globalPackages = JSON.parse(stdout);
+            const { stdout } = await runSecure('npm', ['ls', '-g', '--depth=0', '--json']);
+            const globalPackages = safeJsonParse(stdout, 'npm ls global depth check output');
 
             // Check if our package is in the global dependencies
             if (globalPackages.dependencies && globalPackages.dependencies[packageName]) {

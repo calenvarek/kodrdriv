@@ -38,6 +38,14 @@ vi.mock('../../src/util/validation', () => ({
 // Mock the child process module
 vi.mock('../../src/util/child', () => ({
     run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
 }));
 
 // Mock the git utilities
@@ -81,7 +89,7 @@ describe('development command', () => {
         // Import modules after mocking
         const { getDryRunLogger } = await import('../../src/logging');
         const { create: createStorage } = await import('../../src/util/storage');
-        const { run } = await import('../../src/util/child');
+        const { run, runSecure, validateGitRef } = await import('../../src/util/child');
         const { localBranchExists, safeSyncBranchWithRemote } = await import('../../src/util/git');
         const { safeJsonParse, validatePackageJson } = await import('../../src/util/validation');
         const { execute: commitExecute } = await import('../../src/commands/commit');
@@ -95,6 +103,12 @@ describe('development command', () => {
         mockSafeJsonParse = safeJsonParse as any;
         mockValidatePackageJson = validatePackageJson as any;
         mockCommitExecute = commitExecute as any;
+
+        // Configure validateGitRef mock to return true for valid branch names
+        (validateGitRef as any).mockReturnValue(true);
+
+        // Configure runSecure mock to return expected structure for git commands
+        (runSecure as any).mockResolvedValue({ stdout: '{"version": "1.0.0"}', stderr: '' });
     });
 
     describe('execute', () => {

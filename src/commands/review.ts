@@ -79,8 +79,18 @@ const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeou
         });
 
         let timeout: NodeJS.Timeout | undefined;
+        let timeoutCleared = false;
+
+        const clearTimeoutSafely = () => {
+            if (timeout && !timeoutCleared) {
+                clearTimeout(timeout);
+                timeoutCleared = true;
+            }
+        };
+
         if (timeoutMs) {
             timeout = setTimeout(() => {
+                clearTimeoutSafely(); // Clear the timeout immediately when it fires
                 logger.warn(`Editor timed out after ${timeoutMs}ms, terminating...`);
                 child.kill('SIGTERM');
 
@@ -97,9 +107,7 @@ const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeou
         }
 
         child.on('exit', (code, signal) => {
-            if (timeout) {
-                clearTimeout(timeout);
-            }
+            clearTimeoutSafely();
             logger.debug(`Editor exited with code ${code}, signal ${signal}`);
 
             if (signal === 'SIGTERM' || signal === 'SIGKILL') {
@@ -112,9 +120,7 @@ const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeou
         });
 
         child.on('error', (error) => {
-            if (timeout) {
-                clearTimeout(timeout);
-            }
+            clearTimeoutSafely();
             logger.error(`Editor error: ${error.message}`);
             reject(new Error(`Failed to launch editor '${editorCmd}': ${error.message}`));
         });

@@ -82,6 +82,8 @@ export class CountdownTimer {
     private isFirstDisplay: boolean = true;
     private supportsAnsi: boolean;
     private logger = getLogger();
+    private cleanupHandlers: Array<() => void> = [];
+    private isDestroyed = false;
 
     constructor(options: CountdownOptions) {
         this.options = {
@@ -94,6 +96,9 @@ export class CountdownTimer {
         };
         this.currentSeconds = this.options.durationSeconds;
         this.supportsAnsi = supportsAnsi();
+
+        // Set up cleanup handlers for process termination
+        this.setupCleanupHandlers();
     }
 
     /**
@@ -105,6 +110,11 @@ export class CountdownTimer {
             this.displayCountdown();
 
             this.intervalId = setInterval(() => {
+                // Check if destroyed before processing
+                if (this.isDestroyed) {
+                    return;
+                }
+
                 this.currentSeconds--;
 
                 // Check for beep warning
@@ -133,6 +143,10 @@ export class CountdownTimer {
      * Stop the countdown timer
      */
     stop(): void {
+        if (this.isDestroyed) {
+            return;
+        }
+
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = null;
@@ -182,6 +196,72 @@ export class CountdownTimer {
 
         process.stdout.write(output + '\n');
         this.isFirstDisplay = false;
+    }
+
+    /**
+     * Set up cleanup handlers for process termination and uncaught exceptions
+     */
+    private setupCleanupHandlers(): void {
+        // Skip setting up process listeners in test environments to avoid listener leaks
+        if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
+            return;
+        }
+
+        const cleanup = () => {
+            this.destroy();
+        };
+
+        // Handle various exit scenarios
+        const exitHandler = () => cleanup();
+        const uncaughtExceptionHandler = (error: Error) => {
+            cleanup();
+            // Re-throw to maintain normal error handling
+            throw error;
+        };
+
+        process.on('exit', exitHandler);
+        process.on('SIGINT', exitHandler);
+        process.on('SIGTERM', exitHandler);
+        process.on('uncaughtException', uncaughtExceptionHandler);
+        process.on('unhandledRejection', cleanup);
+
+        // Store handlers for removal during destroy
+        this.cleanupHandlers = [
+            () => process.removeListener('exit', exitHandler),
+            () => process.removeListener('SIGINT', exitHandler),
+            () => process.removeListener('SIGTERM', exitHandler),
+            () => process.removeListener('uncaughtException', uncaughtExceptionHandler),
+            () => process.removeListener('unhandledRejection', cleanup)
+        ];
+    }
+
+    /**
+     * Destroy the timer and clean up all resources
+     */
+    destroy(): void {
+        if (this.isDestroyed) {
+            return;
+        }
+
+        this.isDestroyed = true;
+        this.stop();
+
+        // Remove all process event listeners
+        this.cleanupHandlers.forEach(handler => {
+            try {
+                handler();
+            } catch {
+                // Ignore errors during cleanup
+            }
+        });
+        this.cleanupHandlers = [];
+    }
+
+    /**
+     * Check if the timer has been destroyed
+     */
+    isTimerDestroyed(): boolean {
+        return this.isDestroyed;
     }
 }
 

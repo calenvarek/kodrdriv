@@ -734,7 +734,15 @@ describe('checkIfTagExists', () => {
         // Mock the dynamic import of child module
         mockRun = vi.fn();
         vi.doMock('../../src/util/child', () => ({
-            run: mockRun
+            run: mockRun,
+            runSecure: mockRun, // Use the same mock for both since we're testing the same behavior
+            validateGitRef: vi.fn(() => true),
+            escapeShellArg: vi.fn((arg) => `'${arg}'`),
+            validateFilePath: vi.fn(() => true),
+            runSecureWithInheritedStdio: vi.fn(),
+            runWithInheritedStdio: vi.fn(),
+            runWithDryRunSupport: vi.fn(),
+            runSecureWithDryRunSupport: vi.fn()
         }));
     });
 
@@ -748,7 +756,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(true);
     });
 
@@ -757,7 +765,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(false);
     });
 
@@ -766,7 +774,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(false);
     });
 
@@ -775,7 +783,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(false);
     });
 
@@ -784,7 +792,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l 1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', '1.2.3']);
         expect(result).toBe(true);
     });
 
@@ -793,7 +801,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(true);
     });
 
@@ -802,7 +810,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(false);
     });
 
@@ -811,7 +819,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('release/1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l release/1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'release/1.2.3']);
         expect(result).toBe(true);
     });
 
@@ -820,7 +828,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l ');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', '']);
         expect(result).toBe(true); // Empty stdout matches empty tagName after trim
     });
 
@@ -829,7 +837,7 @@ describe('checkIfTagExists', () => {
 
         const result = await checkIfTagExists('v1.2.3');
 
-        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(mockRun).toHaveBeenCalledWith('git', ['tag', '-l', 'v1.2.3']);
         expect(result).toBe(false); // Because stdout.trim() !== tagName
     });
 });

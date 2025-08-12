@@ -324,4 +324,95 @@ describe('countdown', () => {
             }
         });
     });
+
+    describe('Memory Leak Prevention', () => {
+                it('should properly clean up event listeners on destroy', () => {
+            // Temporarily override NODE_ENV to ensure process listeners are set up
+            const originalNodeEnv = process.env.NODE_ENV;
+            const originalVitest = process.env.VITEST;
+            delete process.env.NODE_ENV;
+            delete process.env.VITEST;
+
+            try {
+                const timer = new CountdownTimer({ durationSeconds: 5 });
+
+                // Mock process event listeners to track them
+                const addListenerSpy = vi.spyOn(process, 'on');
+                const removeListenerSpy = vi.spyOn(process, 'removeListener');
+
+                // Creating timer should set up cleanup handlers
+                timer.start();
+
+                // Destroy the timer
+                timer.destroy();
+
+                // Verify cleanup handlers were called
+                expect(removeListenerSpy).toHaveBeenCalledWith('exit', expect.any(Function));
+                expect(removeListenerSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
+                expect(removeListenerSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+                expect(removeListenerSpy).toHaveBeenCalledWith('uncaughtException', expect.any(Function));
+                expect(removeListenerSpy).toHaveBeenCalledWith('unhandledRejection', expect.any(Function));
+
+                addListenerSpy.mockRestore();
+                removeListenerSpy.mockRestore();
+            } finally {
+                // Restore original environment
+                if (originalNodeEnv !== undefined) {
+                    process.env.NODE_ENV = originalNodeEnv;
+                }
+                if (originalVitest !== undefined) {
+                    process.env.VITEST = originalVitest;
+                }
+            }
+        });
+
+        it('should not crash when destroyed multiple times', () => {
+            const timer = new CountdownTimer({ durationSeconds: 5 });
+
+            timer.start();
+            timer.destroy();
+
+            // Should not throw when destroyed again
+            expect(() => timer.destroy()).not.toThrow();
+            expect(timer.isTimerDestroyed()).toBe(true);
+        });
+
+        it('should not allow operations after destruction', () => {
+            const timer = new CountdownTimer({ durationSeconds: 5 });
+
+            timer.destroy();
+
+            // Operations should be no-ops after destruction
+            expect(() => timer.stop()).not.toThrow();
+            expect(timer.isTimerDestroyed()).toBe(true);
+        });
+
+                                                                                it('should clear interval timer on destruction', () => {
+            const onTick = vi.fn();
+            const timer = new CountdownTimer({
+                durationSeconds: 5,
+                onTick: onTick
+            });
+
+            // Start the timer to create an interval
+            timer.start();
+
+            // Advance time to ensure the timer is running
+            vi.advanceTimersByTime(1000);
+            expect(onTick).toHaveBeenCalledWith(4); // Should have ticked once
+
+            // Clear the mock call count for easier tracking
+            onTick.mockClear();
+
+            // Destroy the timer while it's running
+            timer.destroy();
+
+            // Advance time more - the timer should no longer tick
+            vi.advanceTimersByTime(2000);
+
+            // onTick should not have been called again after destruction
+            expect(onTick).not.toHaveBeenCalled();
+            expect(timer.isTimerDestroyed()).toBe(true);
+        });
+    });
 });

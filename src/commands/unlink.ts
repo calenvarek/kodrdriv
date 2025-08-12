@@ -1,7 +1,7 @@
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { run } from '../util/child';
+import { run, runSecure } from '../util/child';
 import {
     findAllPackageJsonFiles
 } from '../util/performance';
@@ -230,7 +230,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 
             if (packageScope && result.stdout.trim()) {
                 try {
-                    const linksData = JSON.parse(result.stdout);
+                    const linksData = safeJsonParse(result.stdout, 'npm ls output after unlink');
                     const linkedPackages = Object.keys(linksData.dependencies || {});
                     const scopeLinkedPackages = linkedPackages.filter(pkg => pkg.startsWith(packageScope + '/'));
 
@@ -311,7 +311,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                             logger.info(`DRY RUN: Would run 'npm unlink ${pkg.name}' in: ${consumer.path}`);
                         } else {
                             logger.verbose(`Running 'npm unlink ${pkg.name}' in consumer: ${consumer.path}`);
-                            await run(`npm unlink ${pkg.name}`);
+                            await runSecure('npm', ['unlink', pkg.name]);
                             logger.info(`✅ Consumer unlinked: ${consumer.name} -/-> ${pkg.name}`);
                         }
                     } finally {
