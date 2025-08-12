@@ -280,18 +280,18 @@ describe('incrementPatchVersion', () => {
     });
 
     test('should handle pre-release versions', () => {
-        expect(incrementPatchVersion('4.6.24-dev.0')).toBe('4.6.25');
-        expect(incrementPatchVersion('v4.6.24-dev.0')).toBe('4.6.25');
-        expect(incrementPatchVersion('1.2.3-alpha.1')).toBe('1.2.4');
-        expect(incrementPatchVersion('1.2.3-beta')).toBe('1.2.4');
-        expect(incrementPatchVersion('1.2.3-rc.1')).toBe('1.2.4');
-        expect(incrementPatchVersion('1.2.3-snapshot')).toBe('1.2.4');
+        expect(incrementPatchVersion('4.6.24-dev.0')).toBe('4.6.24');
+        expect(incrementPatchVersion('v4.6.24-dev.0')).toBe('4.6.24');
+        expect(incrementPatchVersion('1.2.3-alpha.1')).toBe('1.2.3');
+        expect(incrementPatchVersion('1.2.3-beta')).toBe('1.2.3');
+        expect(incrementPatchVersion('1.2.3-rc.1')).toBe('1.2.3');
+        expect(incrementPatchVersion('1.2.3-snapshot')).toBe('1.2.3');
     });
 
     test('should handle complex pre-release versions', () => {
-        expect(incrementPatchVersion('2.0.0-alpha.beta.1')).toBe('2.0.1');
-        expect(incrementPatchVersion('v1.0.0-x.7.z.92')).toBe('1.0.1');
-        expect(incrementPatchVersion('1.2.10-20130313144700')).toBe('1.2.11');
+        expect(incrementPatchVersion('2.0.0-alpha.beta.1')).toBe('2.0.0');
+        expect(incrementPatchVersion('v1.0.0-x.7.z.92')).toBe('1.0.0');
+        expect(incrementPatchVersion('1.2.10-20130313144700')).toBe('1.2.10');
     });
 
     test('should throw error for invalid version string format', () => {
@@ -310,7 +310,7 @@ describe('incrementPatchVersion', () => {
     test('should handle version strings with leading zeros', () => {
         expect(incrementPatchVersion('1.2.03')).toBe('1.2.4');
         expect(incrementPatchVersion('01.02.00')).toBe('01.02.1');
-        expect(incrementPatchVersion('v1.2.03-dev.0')).toBe('1.2.4');
+        expect(incrementPatchVersion('v1.2.03-dev.0')).toBe('1.2.03');
     });
 
     test('should handle versions with non-numeric major or minor parts', () => {
@@ -324,7 +324,7 @@ describe('incrementPatchVersion', () => {
         // Note: parseInt('-1', 10) returns -1, which is a valid number, so it gets incremented
         expect(incrementPatchVersion('1.2.-1')).toBe('1.2.0');
         expect(incrementPatchVersion('1.2.-5')).toBe('1.2.-4');
-        expect(incrementPatchVersion('v1.2.-1-dev.0')).toBe('1.2.0');
+        expect(incrementPatchVersion('v1.2.-1-dev.0')).toBe('1.2.-1');
     });
 
     test('should handle multiple dots in version (more than 3 parts)', () => {
@@ -336,8 +336,8 @@ describe('incrementPatchVersion', () => {
     test('should handle edge cases with pre-release identifiers', () => {
         // Note: '1.2.3a' parses as 3 via parseInt, so it doesn't throw
         expect(incrementPatchVersion('1.2.3a')).toBe('1.2.4');
-        expect(incrementPatchVersion('1.2.3-')).toBe('1.2.4');
-        expect(incrementPatchVersion('v1.2.3-')).toBe('1.2.4');
+        expect(incrementPatchVersion('1.2.3-')).toBe('1.2.3');
+        expect(incrementPatchVersion('v1.2.3-')).toBe('1.2.3');
     });
 });
 
@@ -572,7 +572,7 @@ describe('calculateTargetVersion', () => {
     });
 
     test('should handle pre-release versions in current version', () => {
-        expect(calculateTargetVersion('1.2.3-alpha.1', 'patch')).toBe('1.2.4');
+        expect(calculateTargetVersion('1.2.3-alpha.1', 'patch')).toBe('1.2.3');
         expect(calculateTargetVersion('1.2.3-dev.0', 'minor')).toBe('1.3.0');
         expect(calculateTargetVersion('1.2.3-rc.1', 'major')).toBe('2.0.0');
     });

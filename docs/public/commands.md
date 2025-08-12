@@ -511,7 +511,7 @@ kodrdriv publish --sendit
   - **Explicit version**: Provide a specific version number (e.g., "4.30.0")
   - **Semantic bumps**: Use "patch", "minor", or "major" for automatic version increments
   - **Default**: "patch" (automatically increments patch version)
-  - **Pre-release handling**: Converts versions like "4.23.3-dev.1" to clean releases like "4.23.4" (patch), "4.24.0" (minor), or "5.0.0" (major)
+  - **Pre-release handling**: Graduates pre-release versions like "4.23.3-dev.1" to their base version "4.23.3" (patch), or increments normally for minor/major bumps
   - **Tag conflict detection**: Automatically checks if the target version tag already exists and prevents conflicts
 - `--interactive`: Present release notes for interactive review and editing
   - Allows you to modify the generated release notes before they're used in the GitHub release
