@@ -92,24 +92,40 @@ export const incrementPatchVersion = (version: string): string => {
     // Split the patch part on '-' to separate patch number from pre-release
     const patchPart = parts[2];
     let patchNumber: number;
+    let originalPatchString: string;
+    let hasPrerelease = false;
 
     if (patchPart.startsWith('-')) {
-        // Handle negative patch numbers like "-1" or "-5"
-        patchNumber = parseInt(patchPart, 10);
+        // Handle negative patch numbers like "-1" or "-5" or "-1-dev.0"
+        const negativeComponents = patchPart.split('-');
+        // For "-1-dev.0", negativeComponents will be ['', '1', 'dev.0']
+        if (negativeComponents.length > 2) {
+            // This is a negative number with pre-release like "-1-dev.0"
+            originalPatchString = `-${negativeComponents[1]}`;
+            patchNumber = parseInt(`-${negativeComponents[1]}`, 10);
+            hasPrerelease = true;
+        } else {
+            // This is just a negative number like "-1"
+            patchNumber = parseInt(patchPart, 10);
+            originalPatchString = patchPart;
+        }
     } else {
         // Handle normal patch numbers with possible pre-release like "24-dev.0"
         const patchComponents = patchPart.split('-');
+        originalPatchString = patchComponents[0];
         patchNumber = parseInt(patchComponents[0], 10);
+        hasPrerelease = patchComponents.length > 1;
     }
 
     if (isNaN(patchNumber)) {
         throw new Error(`Invalid patch version: ${patchPart}`);
     }
 
-    // Increment the patch number and rebuild the version
-    const newPatchNumber = patchNumber + 1;
+    // For pre-release versions, graduate to the base version (drop pre-release identifier)
+    // For stable versions, increment the patch number
+    const newPatchNumber = hasPrerelease ? originalPatchString : (patchNumber + 1).toString();
 
-    // For pre-release versions, we'll create a clean release version by dropping the pre-release identifier
+    // Create clean release version
     const newVersion = `${parts[0]}.${parts[1]}.${newPatchNumber}`;
 
     return newVersion;
