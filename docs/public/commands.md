@@ -30,6 +30,7 @@ kodrdriv tree commit
 kodrdriv tree publish
 kodrdriv tree link
 kodrdriv tree unlink
+kodrdriv tree development
 ```
 
 The tree command provides two execution modes:
@@ -46,6 +47,74 @@ The tree command provides two execution modes:
 **See:**
 - [Tree Command Documentation](commands/tree.md) for complete usage
 - [Tree Built-in Commands](commands/tree-built-in-commands.md) for detailed built-in command documentation
+
+## Development Command
+
+Manage transition from main to working branch with development version setup:
+
+```bash
+kodrdriv development
+```
+
+The development command automates the workflow of moving from the main branch to a working branch while setting up proper development versioning. It handles branch management, version bumping, milestone creation, and automated commits.
+
+### Development Command Options
+
+- `--target-version <targetVersion>`: Specify version bump type or explicit version (default: 'patch')
+  - **Semantic bumps**: Use "patch", "minor", or "major" for automatic version increments
+  - **Explicit version**: Provide a specific version number (e.g., "2.1.0")
+- `--no-milestones`: Disable GitHub milestone integration
+
+### Examples
+
+```bash
+# Basic development setup (patch bump)
+kodrdriv development
+
+# Minor version development bump
+kodrdriv development --target-version minor
+
+# Explicit version development setup
+kodrdriv development --target-version 2.1.0
+
+# Development setup without milestone management
+kodrdriv development --no-milestones
+```
+
+**See:** [Development Command Documentation](commands/development.md) for complete usage
+
+## Versions Command
+
+Update dependency versions in package.json files across workspace packages:
+
+```bash
+kodrdriv versions <subcommand>
+```
+
+The versions command helps manage dependency versions across packages in a workspace environment. It provides tools for normalizing and updating dependency version patterns to maintain consistency across related packages.
+
+### Supported Subcommands
+
+- `minor`: Normalize same-scope dependencies to major.minor format
+
+### Versions Command Options
+
+- `--directories [directories...]`: Directories to scan for packages (defaults to current directory)
+
+### Examples
+
+```bash
+# Normalize same-scope dependencies in current directory
+kodrdriv versions minor
+
+# Process specific directories
+kodrdriv versions minor --directories ./packages ./apps
+
+# See what changes would be made
+kodrdriv versions minor --dry-run
+```
+
+**See:** [Versions Command Documentation](commands/versions.md) for complete usage
 
 ## Commit Command
 
@@ -281,7 +350,7 @@ The release command analyzes changes between two Git references and generates st
 > [!TIP]
 > ### Custom Release Range
 >
-> The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it compares changes between the `main` branch and `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
+> The `kodrdriv release` command supports customizing the range of commits to analyze using the `--from` and `--to` options. By default, it automatically detects the best comparison reference (trying `main`, then `master`, then `origin/main`) and compares to `HEAD`, but you can specify any valid Git reference (branch, tag, or commit hash) for either endpoint. This flexibility allows you to generate release notes for specific version ranges or between different branches.
 
 > [!TIP]
 > ### Comparing Releases
@@ -290,7 +359,7 @@ The release command analyzes changes between two Git references and generates st
 
 ### Release Command Options
 
-- `--from <from>`: Branch or reference to generate release notes from (default: 'main')
+- `--from <from>`: Branch or reference to generate release notes from (default: automatically detected - tries `main`, then `master`, then `origin/main`)
 - `--to <to>`: Branch or reference to generate release notes to (default: 'HEAD')
 - `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
 - `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 50). Reducing this number can make the summary more focused, while increasing it provides broader historical context.

@@ -52,29 +52,208 @@ export async function getUserChoice(
         return 's'; // Default to skip
     }
 
-    return new Promise(resolve => {
-        // Ensure stdin is referenced so the process doesn't exit while waiting for input
-        if (typeof process.stdin.ref === 'function') {
-            process.stdin.ref();
-        }
+    return new Promise((resolve, reject) => {
+        let isResolved = false;
+        let dataHandler: ((key: Buffer) => void) | null = null;
+        let errorHandler: ((error: Error) => void) | null = null;
 
-        process.stdin.setRawMode(true);
-        process.stdin.resume();
-        process.stdin.on('data', (key) => {
-            const keyStr = key.toString().toLowerCase();
-            const choice = choices.find(c => c.key === keyStr);
-            if (choice) {
-                process.stdin.setRawMode(false);
+        const cleanup = () => {
+            if (dataHandler) {
+                process.stdin.removeListener('data', dataHandler);
+            }
+            if (errorHandler) {
+                process.stdin.removeListener('error', errorHandler);
+            }
+
+            try {
+                if (process.stdin.setRawMode) {
+                    process.stdin.setRawMode(false);
+                }
                 process.stdin.pause();
                 // Detach stdin again now that we're done
                 if (typeof process.stdin.unref === 'function') {
                     process.stdin.unref();
                 }
-                logger.info(`Selected: ${choice.label}\n`);
-                resolve(choice.key);
+            } catch {
+                // Ignore cleanup errors
             }
-        });
+        };
+
+        const safeResolve = (value: string) => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
+                resolve(value);
+            }
+        };
+
+        const safeReject = (error: Error) => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
+                reject(error);
+            }
+        };
+
+        try {
+            // Ensure stdin is referenced so the process doesn't exit while waiting for input
+            if (typeof process.stdin.ref === 'function') {
+                process.stdin.ref();
+            }
+
+            process.stdin.setRawMode(true);
+            process.stdin.resume();
+
+            dataHandler = (key: Buffer) => {
+                try {
+                    const keyStr = key.toString().toLowerCase();
+                    const choice = choices.find(c => c.key === keyStr);
+                    if (choice) {
+                        logger.info(`Selected: ${choice.label}\n`);
+                        safeResolve(choice.key);
+                    }
+                } catch (error) {
+                    safeReject(error instanceof Error ? error : new Error('Unknown error processing input'));
+                }
+            };
+
+            errorHandler = (error: Error) => {
+                safeReject(error);
+            };
+
+            process.stdin.on('data', dataHandler);
+            process.stdin.on('error', errorHandler);
+
+        } catch (error) {
+            safeReject(error instanceof Error ? error : new Error('Failed to setup input handlers'));
+        }
     });
+}
+
+/**
+ * Secure temporary file handle that prevents TOCTOU vulnerabilities
+ */
+export class SecureTempFile {
+    private fd: fs.FileHandle | null = null;
+    private filePath: string;
+    private isCleanedUp = false;
+
+    private constructor(filePath: string, fd: fs.FileHandle) {
+        this.filePath = filePath;
+        this.fd = fd;
+    }
+
+    /**
+     * Create a secure temporary file with proper permissions and atomic operations
+     * @param prefix Prefix for the temporary filename
+     * @param extension File extension (e.g., '.txt', '.md')
+     * @returns Promise resolving to SecureTempFile instance
+     */
+    static async create(prefix: string = 'kodrdriv', extension: string = '.txt'): Promise<SecureTempFile> {
+        const tmpDir = os.tmpdir();
+
+        // Ensure temp directory exists and is writable (skip check in test environments)
+        if (!process.env.VITEST) {
+            try {
+                await fs.access(tmpDir, fs.constants.W_OK);
+            } catch (error: any) {
+                // Try to create the directory if it doesn't exist
+                try {
+                    await fs.mkdir(tmpDir, { recursive: true, mode: 0o700 });
+                } catch (mkdirError: any) {
+                    throw new Error(`Temp directory not writable: ${tmpDir} - ${error.message}. Failed to create: ${mkdirError.message}`);
+                }
+            }
+        }
+
+        const tmpFilePath = path.join(tmpDir, `${prefix}_${Date.now()}_${Math.random().toString(36).substring(7)}${extension}`);
+
+        // Create file with exclusive access and restrictive permissions (owner read/write only)
+        // Using 'wx' flag ensures exclusive creation (fails if file exists)
+        let fd: fs.FileHandle;
+        try {
+            fd = await fs.open(tmpFilePath, 'wx', 0o600);
+        } catch (error: any) {
+            if (error.code === 'EEXIST') {
+                // Highly unlikely with timestamp + random suffix, but handle it
+                throw new Error(`Temporary file already exists: ${tmpFilePath}`);
+            }
+            throw new Error(`Failed to create temporary file: ${error.message}`);
+        }
+
+        return new SecureTempFile(tmpFilePath, fd);
+    }
+
+    /**
+     * Get the file path (use with caution in external commands)
+     */
+    get path(): string {
+        if (this.isCleanedUp) {
+            throw new Error('Temp file has been cleaned up');
+        }
+        return this.filePath;
+    }
+
+    /**
+     * Write content to the temporary file
+     */
+    async writeContent(content: string): Promise<void> {
+        if (!this.fd || this.isCleanedUp) {
+            throw new Error('Temp file is not available for writing');
+        }
+        await this.fd.writeFile(content, 'utf8');
+    }
+
+    /**
+     * Read content from the temporary file
+     */
+    async readContent(): Promise<string> {
+        if (!this.fd || this.isCleanedUp) {
+            throw new Error('Temp file is not available for reading');
+        }
+        const content = await this.fd.readFile('utf8');
+        return content;
+    }
+
+    /**
+     * Close the file handle
+     */
+    async close(): Promise<void> {
+        if (this.fd && !this.isCleanedUp) {
+            await this.fd.close();
+            this.fd = null;
+        }
+    }
+
+    /**
+     * Securely cleanup the temporary file - prevents TOCTOU by using file descriptor
+     */
+    async cleanup(): Promise<void> {
+        if (this.isCleanedUp) {
+            return; // Already cleaned up
+        }
+
+        try {
+            // Close file descriptor first if still open
+            if (this.fd) {
+                await this.fd.close();
+                this.fd = null;
+            }
+
+            // Now safely remove the file
+            // Use fs.unlink which is safer than checking existence first
+            await fs.unlink(this.filePath);
+        } catch (error: any) {
+            // Only ignore ENOENT (file not found) errors
+            if (error.code !== 'ENOENT') {
+                const logger = getDryRunLogger(false);
+                logger.warn(`Failed to cleanup temp file ${this.filePath}: ${error.message}`);
+                // Don't throw here to avoid masking main operations
+            }
+        } finally {
+            this.isCleanedUp = true;
+        }
+    }
 }
 
 /**
@@ -82,20 +261,18 @@ export async function getUserChoice(
  * @param prefix Prefix for the temporary filename
  * @param extension File extension (e.g., '.txt', '.md')
  * @returns Promise resolving to the temporary file path
+ * @deprecated Use SecureTempFile.create() for better security
  */
 export async function createSecureTempFile(prefix: string = 'kodrdriv', extension: string = '.txt'): Promise<string> {
-    const tmpDir = os.tmpdir();
-    const tmpFilePath = path.join(tmpDir, `${prefix}_${Date.now()}_${Math.random().toString(36).substring(7)}${extension}`);
-
-    // Create file with restrictive permissions (owner read/write only)
-    const fd = await fs.open(tmpFilePath, 'w', 0o600);
-    await fd.close();
-    return tmpFilePath;
+    const secureTempFile = await SecureTempFile.create(prefix, extension);
+    await secureTempFile.close();
+    return secureTempFile.path;
 }
 
 /**
  * Clean up a temporary file
  * @param filePath Path to the temporary file to clean up
+ * @deprecated Use SecureTempFile.cleanup() for better security
  */
 export async function cleanupTempFile(filePath: string): Promise<void> {
     try {
@@ -129,11 +306,8 @@ export async function editContentInEditor(
     const logger = getDryRunLogger(false);
     const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
 
-    let tmpFilePath: string | null = null;
+    const secureTempFile = await SecureTempFile.create('kodrdriv_edit', fileExtension);
     try {
-        // Create secure temporary file
-        tmpFilePath = await createSecureTempFile('kodrdriv_edit', fileExtension);
-
         // Build template content
         const templateContent = [
             ...templateLines,
@@ -142,19 +316,20 @@ export async function editContentInEditor(
             '',
         ].join('\n');
 
-        await fs.writeFile(tmpFilePath, templateContent, 'utf8');
+        await secureTempFile.writeContent(templateContent);
+        await secureTempFile.close(); // Close before external editor access
 
         logger.info(`📝 Opening ${editor} to edit content...`);
 
         // Open the editor synchronously
-        const result = spawnSync(editor, [tmpFilePath], { stdio: 'inherit' });
+        const result = spawnSync(editor, [secureTempFile.path], { stdio: 'inherit' });
 
         if (result.error) {
             throw new Error(`Failed to launch editor '${editor}': ${result.error.message}`);
         }
 
         // Read the file back in, stripping comment lines
-        const fileContent = (await fs.readFile(tmpFilePath, 'utf8'))
+        const fileContent = (await fs.readFile(secureTempFile.path, 'utf8'))
             .split('\n')
             .filter(line => !line.trim().startsWith('#'))
             .join('\n')
@@ -172,10 +347,8 @@ export async function editContentInEditor(
         };
 
     } finally {
-        // Always clean up the temp file
-        if (tmpFilePath) {
-            await cleanupTempFile(tmpFilePath);
-        }
+        // Always clean up the temp file securely
+        await secureTempFile.cleanup();
     }
 }
 
@@ -224,51 +397,85 @@ export async function getUserTextInput(
 
     return new Promise((resolve, reject) => {
         let inputBuffer = '';
-
-        // Ensure stdin is referenced so the process doesn't exit while waiting for input
-        if (typeof process.stdin.ref === 'function') {
-            process.stdin.ref();
-        }
-
-        process.stdin.setEncoding('utf8');
-        process.stdin.resume();
-
-        const onData = (chunk: string) => {
-            inputBuffer += chunk;
-
-            // Check if user pressed Enter (newline character)
-            if (inputBuffer.includes('\n')) {
-                cleanup();
-                const userInput = inputBuffer.replace(/\n$/, '').trim();
-
-                if (userInput === '') {
-                    logger.warn('Empty input received. Please provide feedback text.');
-                    reject(new Error('Empty input received'));
-                } else {
-                    logger.info(`✅ Received feedback: "${userInput}"\n`);
-                    resolve(userInput);
-                }
-            }
-        };
-
-        const onError = (error: Error) => {
-            cleanup();
-            reject(error);
-        };
+        let isResolved = false;
+        let dataHandler: ((chunk: string) => void) | null = null;
+        let errorHandler: ((error: Error) => void) | null = null;
 
         const cleanup = () => {
-            process.stdin.pause();
-            process.stdin.removeListener('data', onData);
-            process.stdin.removeListener('error', onError);
+            if (dataHandler) {
+                process.stdin.removeListener('data', dataHandler);
+            }
+            if (errorHandler) {
+                process.stdin.removeListener('error', errorHandler);
+            }
 
-            // Detach stdin again now that we're done
-            if (typeof process.stdin.unref === 'function') {
-                process.stdin.unref();
+            try {
+                process.stdin.pause();
+                // Detach stdin again now that we're done
+                if (typeof process.stdin.unref === 'function') {
+                    process.stdin.unref();
+                }
+            } catch {
+                // Ignore cleanup errors
             }
         };
 
-        process.stdin.on('data', onData);
-        process.stdin.on('error', onError);
+        const safeResolve = (value: string) => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
+                resolve(value);
+            }
+        };
+
+        const safeReject = (error: Error) => {
+            if (!isResolved) {
+                isResolved = true;
+                cleanup();
+                reject(error);
+            }
+        };
+
+        try {
+            // Ensure stdin is referenced so the process doesn't exit while waiting for input
+            if (typeof process.stdin.ref === 'function') {
+                process.stdin.ref();
+            }
+
+            process.stdin.setEncoding('utf8');
+            process.stdin.resume();
+
+            dataHandler = (chunk: string) => {
+                try {
+                    inputBuffer += chunk;
+
+                    // Check if user pressed Enter (newline character)
+                    if (inputBuffer.includes('\n')) {
+                        const userInput = inputBuffer.replace(/\n$/, '').trim();
+
+                        if (userInput === '') {
+                            logger.warn('Empty input received. Please provide feedback text.');
+                            safeReject(new Error('Empty input received'));
+                        } else {
+                            logger.info(`✅ Received feedback: "${userInput}"\n`);
+                            safeResolve(userInput);
+                        }
+                    }
+                } catch (error) {
+                    safeReject(error instanceof Error ? error : new Error('Unknown error processing input'));
+                }
+            };
+
+            errorHandler = (error: Error) => {
+                safeReject(error);
+            };
+
+            process.stdin.on('data', dataHandler);
+            process.stdin.on('error', errorHandler);
+
+        } catch (error) {
+            safeReject(error instanceof Error ? error : new Error('Failed to setup input handlers'));
+        }
     });
 }
 

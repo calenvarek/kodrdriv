@@ -5,6 +5,14 @@ import * as GitHub from '../../src/util/github';
 
 vi.mock('../../src/util/child', () => ({
     run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
 }));
 
 vi.mock('@octokit/rest');
@@ -51,10 +59,17 @@ describe('GitHub Utilities', () => {
         issues: {
             listForRepo: vi.fn(),
             create: vi.fn(),
+            listMilestones: vi.fn(),
+            createMilestone: vi.fn(),
+            updateMilestone: vi.fn(),
+            update: vi.fn(),
+            get: vi.fn(),
+            listComments: vi.fn(),
         },
         actions: {
             listRepoWorkflows: vi.fn(),
             listWorkflowRuns: vi.fn(),
+            listWorkflowRunsForRepo: vi.fn(),
         },
     };
 
@@ -2484,6 +2499,150 @@ jobs:
             await expect(promise).resolves.toBeUndefined();
         });
 
+        it('should proceed when workflows exist but no workflow runs match the PR branch', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'release/v1.0.0' }
+                }
+            });
+
+            // No checks found for 6 consecutive attempts
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+            // Workflows are configured in the repository
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // But no workflow runs match the PR (different branch patterns)
+            mockOctokit.actions.listWorkflowRunsForRepo
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }) // No runs for SHA
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }); // No runs for branch
+
+            const promise = GitHub.waitForPullRequestChecks(123, { skipUserConfirmation: true });
+
+            // Advance through the consecutive no-checks period
+            for (let i = 0; i < 6; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(mockOctokit.actions.listRepoWorkflows).toHaveBeenCalled();
+            expect(mockOctokit.actions.listWorkflowRunsForRepo).toHaveBeenCalledTimes(2);
+        });
+
+        it('should prompt user when workflows exist but no workflow runs match the PR branch (interactive mode)', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'release/v1.0.0' }
+                }
+            });
+
+            // No checks found for 6 consecutive attempts
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+            // Workflows are configured in the repository
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // But no workflow runs match the PR
+            mockOctokit.actions.listWorkflowRunsForRepo
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }) // No runs for SHA
+                .mockResolvedValueOnce({ data: { workflow_runs: [] } }); // No runs for branch
+
+            promptConfirmation.mockResolvedValue(true);
+
+            const promise = GitHub.waitForPullRequestChecks(123, { skipUserConfirmation: false });
+
+            // Advance through the consecutive no-checks period
+            for (let i = 0; i < 6; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(promptConfirmation).toHaveBeenCalledWith(
+                expect.stringContaining('GitHub Actions workflows are configured in this repository, but none appear to be triggered by PR #123')
+            );
+        });
+
+        it('should continue waiting when workflow runs are detected for the PR', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'main' }
+                }
+            });
+
+            // No checks found initially, then checks appear
+            mockOctokit.checks.listForRef
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [] } })
+                .mockResolvedValueOnce({ data: { check_runs: [{ status: 'completed', conclusion: 'success' }] } });
+
+            // Workflows are configured
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // Workflow runs are found for this PR
+            mockOctokit.actions.listWorkflowRunsForRepo
+                .mockResolvedValueOnce({
+                    data: {
+                        workflow_runs: [
+                            { head_sha: 'test-sha', head_branch: 'main', created_at: new Date().toISOString() }
+                        ]
+                    }
+                });
+
+            const promise = GitHub.waitForPullRequestChecks(123);
+
+            // Wait for several consecutive no-checks attempts, workflow detection, then final success
+            for (let i = 0; i < 7; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            await expect(promise).resolves.toBeUndefined();
+            expect(mockOctokit.actions.listWorkflowRunsForRepo).toHaveBeenCalled();
+        });
+
+        it('should handle workflow run detection API errors gracefully', async () => {
+            mockOctokit.pulls.get.mockResolvedValue({
+                data: {
+                    head: { sha: 'test-sha', ref: 'main' }
+                }
+            });
+
+            // No checks found for 6 consecutive attempts
+            mockOctokit.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+            // Workflows are configured
+            mockOctokit.actions.listRepoWorkflows.mockResolvedValue({
+                data: { workflows: [{ name: 'CI Workflow' }] }
+            });
+
+            // API error when checking workflow runs (should assume runs exist)
+            mockOctokit.actions.listWorkflowRunsForRepo.mockRejectedValue(new Error('API Error'));
+
+            const promise = GitHub.waitForPullRequestChecks(123);
+
+            // Since API error is treated as "runs might exist", it should continue waiting
+            // Let's check it continues and doesn't exit immediately
+            for (let i = 0; i < 7; i++) {
+                await vi.advanceTimersByTimeAsync(10000);
+            }
+
+            // Since we assume runs exist when there's an API error, it should keep waiting
+            // In this test, we won't get resolution - the mock will keep returning no checks
+            // This is expected behavior when API errors occur (conservative approach)
+
+            // Let's verify the workflow run detection was attempted despite the error
+            expect(mockOctokit.actions.listWorkflowRunsForRepo).toHaveBeenCalled();
+        });
+
         it('should provide specific recovery instructions based on failure types', async () => {
             const { PullRequestCheckError } = await import('../../src/error/CommandErrors');
 
@@ -3690,6 +3849,1339 @@ jobs:
 
                 vi.clearAllMocks();
             }
+        });
+    });
+
+    describe('findMilestoneByTitle', () => {
+        it('should find milestone by title', async () => {
+            const mockMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0',
+                state: 'open',
+                description: 'Release 1.0.0'
+            };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [mockMilestone]
+            });
+
+            const result = await GitHub.findMilestoneByTitle('release/1.0.0');
+
+            expect(mockOctokit.issues.listMilestones).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'all',
+                per_page: 100,
+            });
+            expect(result).toEqual(mockMilestone);
+        });
+
+        it('should return null if milestone not found', async () => {
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: []
+            });
+
+            const result = await GitHub.findMilestoneByTitle('nonexistent');
+
+            expect(result).toBeNull();
+        });
+
+        it('should handle API errors', async () => {
+            const error = new Error('API Error');
+            mockOctokit.issues.listMilestones.mockRejectedValue(error);
+
+            await expect(GitHub.findMilestoneByTitle('release/1.0.0')).rejects.toThrow('API Error');
+        });
+
+        it('should find milestone among multiple milestones', async () => {
+            const milestones = [
+                { id: 1, title: 'release/0.9.0', state: 'closed' },
+                { id: 2, title: 'release/1.0.0', state: 'open' },
+                { id: 3, title: 'release/1.1.0', state: 'open' }
+            ];
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: milestones
+            });
+
+            const result = await GitHub.findMilestoneByTitle('release/1.0.0');
+
+            expect(result).toEqual(milestones[1]);
+        });
+    });
+
+    describe('createMilestone', () => {
+        it('should create milestone with title and description', async () => {
+            const mockMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0',
+                description: 'Release 1.0.0'
+            };
+
+            mockOctokit.issues.createMilestone.mockResolvedValue({
+                data: mockMilestone
+            });
+
+            const result = await GitHub.createMilestone('release/1.0.0', 'Release 1.0.0');
+
+            expect(mockOctokit.issues.createMilestone).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                title: 'release/1.0.0',
+                description: 'Release 1.0.0',
+            });
+            expect(result).toEqual(mockMilestone);
+        });
+
+        it('should create milestone without description', async () => {
+            const mockMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0'
+            };
+
+            mockOctokit.issues.createMilestone.mockResolvedValue({
+                data: mockMilestone
+            });
+
+            const result = await GitHub.createMilestone('release/1.0.0');
+
+            expect(mockOctokit.issues.createMilestone).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                title: 'release/1.0.0',
+                description: undefined,
+            });
+            expect(result).toEqual(mockMilestone);
+        });
+
+        it('should handle API errors', async () => {
+            const error = new Error('Failed to create milestone');
+            mockOctokit.issues.createMilestone.mockRejectedValue(error);
+
+            await expect(GitHub.createMilestone('release/1.0.0')).rejects.toThrow('Failed to create milestone');
+        });
+
+        it('should handle duplicate milestone error', async () => {
+            const error = new Error('Validation Failed: Already exists');
+            mockOctokit.issues.createMilestone.mockRejectedValue(error);
+
+            await expect(GitHub.createMilestone('release/1.0.0')).rejects.toThrow('Validation Failed: Already exists');
+        });
+    });
+
+    describe('closeMilestone', () => {
+        it('should close milestone by number', async () => {
+            mockOctokit.issues.updateMilestone.mockResolvedValue({
+                data: { number: 1, state: 'closed' }
+            });
+
+            await GitHub.closeMilestone(1);
+
+            expect(mockOctokit.issues.updateMilestone).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                milestone_number: 1,
+                state: 'closed',
+            });
+        });
+
+        it('should handle API errors', async () => {
+            const error = new Error('Failed to close milestone');
+            mockOctokit.issues.updateMilestone.mockRejectedValue(error);
+
+            await expect(GitHub.closeMilestone(1)).rejects.toThrow('Failed to close milestone');
+        });
+
+        it('should handle non-existent milestone', async () => {
+            const error = new Error('Not Found');
+            mockOctokit.issues.updateMilestone.mockRejectedValue(error);
+
+            await expect(GitHub.closeMilestone(999)).rejects.toThrow('Not Found');
+        });
+    });
+
+    describe('getOpenIssuesForMilestone', () => {
+        it('should get open issues for milestone', async () => {
+            const mockIssues = [
+                { number: 1, title: 'Issue 1', pull_request: null },
+                { number: 2, title: 'Issue 2', pull_request: null },
+                { number: 3, title: 'PR 1', pull_request: { url: 'test' } } // This should be filtered out
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getOpenIssuesForMilestone(1);
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'open',
+                milestone: '1',
+                per_page: 100,
+            });
+            expect(result).toHaveLength(2);
+            expect(result).toEqual([mockIssues[0], mockIssues[1]]);
+        });
+
+        it('should handle empty results', async () => {
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: []
+            });
+
+            const result = await GitHub.getOpenIssuesForMilestone(1);
+
+            expect(result).toEqual([]);
+        });
+
+        it('should handle API errors', async () => {
+            const error = new Error('API Error');
+            mockOctokit.issues.listForRepo.mockRejectedValue(error);
+
+            await expect(GitHub.getOpenIssuesForMilestone(1)).rejects.toThrow('API Error');
+        });
+    });
+
+    describe('moveIssueToMilestone', () => {
+        it('should move issue to milestone', async () => {
+            mockOctokit.issues.update.mockResolvedValue({
+                data: { number: 1, milestone: { number: 2 } }
+            });
+
+            await GitHub.moveIssueToMilestone(1, 2);
+
+            expect(mockOctokit.issues.update).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                issue_number: 1,
+                milestone: 2,
+            });
+        });
+
+        it('should handle API errors', async () => {
+            const error = new Error('Failed to update issue');
+            mockOctokit.issues.update.mockRejectedValue(error);
+
+            await expect(GitHub.moveIssueToMilestone(1, 2)).rejects.toThrow('Failed to update issue');
+        });
+
+        it('should handle non-existent issue', async () => {
+            const error = new Error('Not Found');
+            mockOctokit.issues.update.mockRejectedValue(error);
+
+            await expect(GitHub.moveIssueToMilestone(999, 2)).rejects.toThrow('Not Found');
+        });
+
+        it('should handle non-existent milestone', async () => {
+            const error = new Error('Validation Failed');
+            mockOctokit.issues.update.mockRejectedValue(error);
+
+            await expect(GitHub.moveIssueToMilestone(1, 999)).rejects.toThrow('Validation Failed');
+        });
+    });
+
+    describe('moveOpenIssuesToNewMilestone', () => {
+        it('should move multiple issues to new milestone', async () => {
+            const mockIssues = [
+                { number: 1, title: 'Issue 1' },
+                { number: 2, title: 'Issue 2' }
+            ];
+
+            // Mock getOpenIssuesForMilestone
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            // Mock moveIssueToMilestone calls
+            mockOctokit.issues.update.mockResolvedValue({
+                data: { number: 1, milestone: { number: 2 } }
+            });
+
+            const result = await GitHub.moveOpenIssuesToNewMilestone(1, 2);
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'open',
+                milestone: '1',
+                per_page: 100,
+            });
+            expect(mockOctokit.issues.update).toHaveBeenCalledTimes(2);
+            expect(result).toBe(2);
+        });
+
+        it('should return 0 when no issues to move', async () => {
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: []
+            });
+
+            const result = await GitHub.moveOpenIssuesToNewMilestone(1, 2);
+
+            expect(result).toBe(0);
+        });
+
+        it('should handle errors during issue moves', async () => {
+            const mockIssues = [
+                { number: 1, title: 'Issue 1' }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const error = new Error('Failed to move issue');
+            mockOctokit.issues.update.mockRejectedValue(error);
+
+            await expect(GitHub.moveOpenIssuesToNewMilestone(1, 2)).rejects.toThrow('Failed to move issue');
+        });
+    });
+
+    describe('getClosedIssuesForMilestone', () => {
+        it('should get closed issues for milestone with default limit', async () => {
+            const mockIssues = [
+                { number: 1, title: 'Issue 1', pull_request: null, state_reason: 'completed' },
+                { number: 2, title: 'Issue 2', pull_request: null, state_reason: 'completed' },
+                { number: 3, title: 'Issue 3', pull_request: null, state_reason: 'not_planned' }, // Should be filtered out
+                { number: 4, title: 'PR 1', pull_request: { url: 'test' }, state_reason: 'completed' } // Should be filtered out
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getClosedIssuesForMilestone(1);
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'closed',
+                milestone: '1',
+                per_page: 50,
+                sort: 'updated',
+                direction: 'desc',
+            });
+            expect(result).toHaveLength(2);
+            expect(result).toEqual([mockIssues[0], mockIssues[1]]);
+        });
+
+        it('should respect custom limit', async () => {
+            const mockIssues = [
+                { number: 1, title: 'Issue 1', pull_request: null, state_reason: 'completed' }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            await GitHub.getClosedIssuesForMilestone(1, 25);
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'closed',
+                milestone: '1',
+                per_page: 25,
+                sort: 'updated',
+                direction: 'desc',
+            });
+        });
+
+        it('should cap limit at 100', async () => {
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: []
+            });
+
+            await GitHub.getClosedIssuesForMilestone(1, 150);
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'closed',
+                milestone: '1',
+                per_page: 100,
+                sort: 'updated',
+                direction: 'desc',
+            });
+        });
+
+        it('should handle API errors', async () => {
+            const error = new Error('API Error');
+            mockOctokit.issues.listForRepo.mockRejectedValue(error);
+
+            await expect(GitHub.getClosedIssuesForMilestone(1)).rejects.toThrow('API Error');
+        });
+    });
+
+    describe('ensureMilestoneForVersion', () => {
+        it('should do nothing if milestone already exists', async () => {
+            const existingMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0',
+                state: 'open'
+            };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [existingMilestone]
+            });
+
+            await GitHub.ensureMilestoneForVersion('1.0.0');
+
+            expect(mockOctokit.issues.listMilestones).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'all',
+                per_page: 100,
+            });
+            expect(mockOctokit.issues.createMilestone).not.toHaveBeenCalled();
+        });
+
+        it('should create milestone if it does not exist', async () => {
+            const newMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0'
+            };
+
+            // First call - milestone doesn't exist
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: []
+            });
+
+            // Second call - milestone created
+            mockOctokit.issues.createMilestone.mockResolvedValue({
+                data: newMilestone
+            });
+
+            await GitHub.ensureMilestoneForVersion('1.0.0');
+
+            expect(mockOctokit.issues.createMilestone).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                title: 'release/1.0.0',
+                description: 'Release 1.0.0',
+            });
+        });
+
+        it('should move issues from previous milestone when fromVersion provided', async () => {
+            const newMilestone = { id: 123, number: 2, title: 'release/1.0.0' };
+            const previousMilestone = { id: 456, number: 1, title: 'release/0.9.0', state: 'closed' };
+            const issuesFromPrevious = [
+                { number: 1, title: 'Issue 1' },
+                { number: 2, title: 'Issue 2' }
+            ];
+
+            // Mock milestone search calls
+            mockOctokit.issues.listMilestones
+                .mockResolvedValueOnce({ data: [] }) // New milestone doesn't exist
+                .mockResolvedValueOnce({ data: [previousMilestone] }); // Previous milestone exists
+
+            // Mock milestone creation
+            mockOctokit.issues.createMilestone.mockResolvedValue({
+                data: newMilestone
+            });
+
+            // Mock getting issues from previous milestone
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: issuesFromPrevious
+            });
+
+            // Mock moving issues
+            mockOctokit.issues.update.mockResolvedValue({
+                data: { number: 1, milestone: { number: 2 } }
+            });
+
+            await GitHub.ensureMilestoneForVersion('1.0.0', '0.9.0');
+
+            expect(mockOctokit.issues.createMilestone).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                title: 'release/1.0.0',
+                description: 'Release 1.0.0',
+            });
+
+            expect(mockOctokit.issues.update).toHaveBeenCalledTimes(2);
+        });
+
+        it('should handle errors gracefully and continue', async () => {
+            mockOctokit.issues.listMilestones.mockRejectedValue(new Error('API Error'));
+
+            // Should not throw
+            await expect(GitHub.ensureMilestoneForVersion('1.0.0')).resolves.toBeUndefined();
+        });
+
+        it('should not move issues if previous milestone is not closed', async () => {
+            const newMilestone = { id: 123, number: 2, title: 'release/1.0.0' };
+            const previousMilestone = { id: 456, number: 1, title: 'release/0.9.0', state: 'open' };
+
+            mockOctokit.issues.listMilestones
+                .mockResolvedValueOnce({ data: [] }) // New milestone doesn't exist
+                .mockResolvedValueOnce({ data: [previousMilestone] }); // Previous milestone exists but open
+
+            mockOctokit.issues.createMilestone.mockResolvedValue({
+                data: newMilestone
+            });
+
+            await GitHub.ensureMilestoneForVersion('1.0.0', '0.9.0');
+
+            expect(mockOctokit.issues.listForRepo).not.toHaveBeenCalled();
+            expect(mockOctokit.issues.update).not.toHaveBeenCalled();
+        });
+
+        it('should not move issues if previous milestone does not exist', async () => {
+            const newMilestone = { id: 123, number: 2, title: 'release/1.0.0' };
+
+            mockOctokit.issues.listMilestones
+                .mockResolvedValueOnce({ data: [] }) // New milestone doesn't exist
+                .mockResolvedValueOnce({ data: [] }); // Previous milestone doesn't exist
+
+            mockOctokit.issues.createMilestone.mockResolvedValue({
+                data: newMilestone
+            });
+
+            await GitHub.ensureMilestoneForVersion('1.0.0', '0.9.0');
+
+            expect(mockOctokit.issues.listForRepo).not.toHaveBeenCalled();
+            expect(mockOctokit.issues.update).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('closeMilestoneForVersion', () => {
+        it('should close milestone if it exists and is open', async () => {
+            const milestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0',
+                state: 'open'
+            };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [milestone]
+            });
+
+            mockOctokit.issues.updateMilestone.mockResolvedValue({
+                data: { ...milestone, state: 'closed' }
+            });
+
+            await GitHub.closeMilestoneForVersion('1.0.0');
+
+            expect(mockOctokit.issues.updateMilestone).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                milestone_number: 1,
+                state: 'closed',
+            });
+        });
+
+        it('should do nothing if milestone does not exist', async () => {
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: []
+            });
+
+            await GitHub.closeMilestoneForVersion('1.0.0');
+
+            expect(mockOctokit.issues.updateMilestone).not.toHaveBeenCalled();
+        });
+
+        it('should do nothing if milestone is already closed', async () => {
+            const milestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0',
+                state: 'closed'
+            };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [milestone]
+            });
+
+            await GitHub.closeMilestoneForVersion('1.0.0');
+
+            expect(mockOctokit.issues.updateMilestone).not.toHaveBeenCalled();
+        });
+
+        it('should handle errors gracefully and continue', async () => {
+            mockOctokit.issues.listMilestones.mockRejectedValue(new Error('API Error'));
+
+            // Should not throw
+            await expect(GitHub.closeMilestoneForVersion('1.0.0')).resolves.toBeUndefined();
+        });
+
+        it('should handle close operation errors gracefully', async () => {
+            const milestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0',
+                state: 'open'
+            };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [milestone]
+            });
+
+            mockOctokit.issues.updateMilestone.mockRejectedValue(new Error('Close failed'));
+
+            // Should not throw
+            await expect(GitHub.closeMilestoneForVersion('1.0.0')).resolves.toBeUndefined();
+        });
+    });
+
+    describe('getIssueDetails', () => {
+        it('should get issue details with comments', async () => {
+            const mockIssue = {
+                number: 1,
+                title: 'Test Issue',
+                body: 'This is a test issue description'
+            };
+
+            const mockComments = [
+                {
+                    user: { login: 'user1' },
+                    body: 'This is a comment',
+                    created_at: '2023-01-01T00:00:00Z'
+                },
+                {
+                    user: { login: 'user2' },
+                    body: 'Another comment',
+                    created_at: '2023-01-02T00:00:00Z'
+                }
+            ];
+
+            mockOctokit.issues.get.mockResolvedValue({
+                data: mockIssue
+            });
+
+            mockOctokit.issues.listComments.mockResolvedValue({
+                data: mockComments
+            });
+
+            const result = await GitHub.getIssueDetails(1);
+
+            expect(mockOctokit.issues.get).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                issue_number: 1,
+            });
+
+            expect(mockOctokit.issues.listComments).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                issue_number: 1,
+                per_page: 100,
+            });
+
+            expect(result.title).toBe('Test Issue');
+            expect(result.body).toBe('This is a test issue description');
+            expect(result.comments).toHaveLength(2);
+            expect(result.comments[0].author).toBe('user1');
+            expect(result.totalTokens).toBeGreaterThan(0);
+        });
+
+        it('should handle issue without body', async () => {
+            const mockIssue = {
+                number: 1,
+                title: 'Test Issue',
+                body: null
+            };
+
+            mockOctokit.issues.get.mockResolvedValue({
+                data: mockIssue
+            });
+
+            mockOctokit.issues.listComments.mockResolvedValue({
+                data: []
+            });
+
+            const result = await GitHub.getIssueDetails(1);
+
+            expect(result.title).toBe('Test Issue');
+            expect(result.body).toBe('');
+            expect(result.comments).toHaveLength(0);
+        });
+
+        it('should respect token limit and skip comments if needed', async () => {
+            // Calculate: Title (10 chars = 3 tokens) + Body (36000 chars = 9000 tokens) = 9003 tokens
+            // 90% of 10000 tokens = 9000 tokens, so 9003 > 9000 should skip comments
+            const longText = 'A'.repeat(36000);
+            const mockIssue = {
+                number: 1,
+                title: 'Test Issue',
+                body: longText
+            };
+
+            mockOctokit.issues.get.mockResolvedValue({
+                data: mockIssue
+            });
+
+            const result = await GitHub.getIssueDetails(1, 10000); // Token limit
+
+            expect(result.title).toBe('Test Issue');
+            expect(result.body).toBe(longText);
+            expect(result.comments).toHaveLength(0);
+            expect(mockOctokit.issues.listComments).not.toHaveBeenCalled();
+        });
+
+        it('should stop adding comments when token limit is reached', async () => {
+            const mockIssue = {
+                number: 1,
+                title: 'Short',
+                body: 'Short'
+            };
+
+            // Each comment is about 2500 tokens (10000 chars / 4)
+            // With title + body being minimal (~3 tokens), limit of 3000 allows first but not second
+            const longComment = 'A'.repeat(10000);
+            const mockComments = [
+                {
+                    user: { login: 'user1' },
+                    body: longComment,
+                    created_at: '2023-01-01T00:00:00Z'
+                },
+                {
+                    user: { login: 'user2' },
+                    body: longComment, // Also long so it definitely exceeds limit
+                    created_at: '2023-01-02T00:00:00Z'
+                }
+            ];
+
+            mockOctokit.issues.get.mockResolvedValue({
+                data: mockIssue
+            });
+
+            mockOctokit.issues.listComments.mockResolvedValue({
+                data: mockComments
+            });
+
+            const result = await GitHub.getIssueDetails(1, 3000); // Token limit that allows first comment but not second
+
+            expect(result.comments).toHaveLength(1);
+            expect(result.comments[0].body).toBe(longComment);
+        });
+
+        it('should handle comments API errors gracefully', async () => {
+            const mockIssue = {
+                number: 1,
+                title: 'Test Issue',
+                body: 'Test body'
+            };
+
+            mockOctokit.issues.get.mockResolvedValue({
+                data: mockIssue
+            });
+
+            mockOctokit.issues.listComments.mockRejectedValue(new Error('Comments API Error'));
+
+            const result = await GitHub.getIssueDetails(1);
+
+            expect(result.title).toBe('Test Issue');
+            expect(result.body).toBe('Test body');
+            expect(result.comments).toHaveLength(0);
+        });
+
+        it('should handle get issue API errors', async () => {
+            const error = new Error('Issue API Error');
+            mockOctokit.issues.get.mockRejectedValue(error);
+
+            await expect(GitHub.getIssueDetails(1)).rejects.toThrow('Issue API Error');
+        });
+
+        it('should handle comments with null body', async () => {
+            const mockIssue = {
+                number: 1,
+                title: 'Test Issue',
+                body: 'Test body'
+            };
+
+            const mockComments = [
+                {
+                    user: { login: 'user1' },
+                    body: null,
+                    created_at: '2023-01-01T00:00:00Z'
+                }
+            ];
+
+            mockOctokit.issues.get.mockResolvedValue({
+                data: mockIssue
+            });
+
+            mockOctokit.issues.listComments.mockResolvedValue({
+                data: mockComments
+            });
+
+            const result = await GitHub.getIssueDetails(1);
+
+            expect(result.comments).toHaveLength(1);
+            expect(result.comments[0].body).toBeNull();
+        });
+    });
+
+    describe('getMilestoneIssuesForRelease', () => {
+        it('should get issues from multiple milestone versions', async () => {
+            const milestone1 = { id: 1, number: 1, title: 'release/1.0.0' };
+            const milestone2 = { id: 2, number: 2, title: 'release/1.1.0' };
+
+            const issues1 = [
+                { number: 1, title: 'Issue 1', updated_at: '2023-01-02T00:00:00Z', pull_request: null, state_reason: 'completed' }
+            ];
+
+            const issues2 = [
+                { number: 2, title: 'Issue 2', updated_at: '2023-01-01T00:00:00Z', pull_request: null, state_reason: 'completed' }
+            ];
+
+            mockOctokit.issues.listMilestones
+                .mockResolvedValueOnce({ data: [milestone1] }) // First version
+                .mockResolvedValueOnce({ data: [milestone2] }); // Second version
+
+            mockOctokit.issues.listForRepo
+                .mockResolvedValueOnce({ data: issues1 }) // Issues for milestone 1
+                .mockResolvedValueOnce({ data: issues2 }); // Issues for milestone 2
+
+            // Mock getIssueDetails calls
+            mockOctokit.issues.get
+                .mockResolvedValueOnce({ data: { number: 1, title: 'Issue 1', body: 'Issue 1 body' } })
+                .mockResolvedValueOnce({ data: { number: 2, title: 'Issue 2', body: 'Issue 2 body' } });
+
+            mockOctokit.issues.listComments
+                .mockResolvedValue({ data: [] });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0', '1.1.0']);
+
+            expect(result).toContain('## Issues Resolved');
+            expect(result).toContain('### #1: Issue 1');
+            expect(result).toContain('### #2: Issue 2');
+            expect(result).toContain('Issue 1 body');
+            expect(result).toContain('Issue 2 body');
+        });
+
+        it('should return empty string when no milestones found', async () => {
+            mockOctokit.issues.listMilestones.mockResolvedValue({ data: [] });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0']);
+
+            expect(result).toBe('');
+        });
+
+        it('should return empty string when no closed issues found', async () => {
+            const milestone = { id: 1, number: 1, title: 'release/1.0.0' };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({ data: [milestone] });
+            mockOctokit.issues.listForRepo.mockResolvedValue({ data: [] });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0']);
+
+            expect(result).toBe('');
+        });
+
+        it('should handle issues with labels', async () => {
+            const milestone = { id: 1, number: 1, title: 'release/1.0.0' };
+            const issue = {
+                number: 1,
+                title: 'Issue 1',
+                updated_at: '2023-01-01T00:00:00Z',
+                pull_request: null,
+                state_reason: 'completed',
+                labels: [
+                    { name: 'bug' },
+                    { name: 'priority-high' }
+                ]
+            };
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({ data: [milestone] });
+            mockOctokit.issues.listForRepo.mockResolvedValue({ data: [issue] });
+            mockOctokit.issues.get.mockResolvedValue({
+                data: { number: 1, title: 'Issue 1', body: 'Issue body' }
+            });
+            mockOctokit.issues.listComments.mockResolvedValue({ data: [] });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0']);
+
+            expect(result).toContain('**Labels:** bug, priority-high');
+        });
+
+        it('should handle issues with comments', async () => {
+            const milestone = { id: 1, number: 1, title: 'release/1.0.0' };
+            const issue = {
+                number: 1,
+                title: 'Issue 1',
+                updated_at: '2023-01-01T00:00:00Z',
+                pull_request: null,
+                state_reason: 'completed'
+            };
+
+            const comments = [
+                {
+                    user: { login: 'user1' },
+                    body: 'Great fix!',
+                    created_at: '2023-01-01T00:00:00Z'
+                }
+            ];
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({ data: [milestone] });
+            mockOctokit.issues.listForRepo.mockResolvedValue({ data: [issue] });
+            mockOctokit.issues.get.mockResolvedValue({
+                data: { number: 1, title: 'Issue 1', body: 'Issue body' }
+            });
+            mockOctokit.issues.listComments.mockResolvedValue({ data: comments });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0']);
+
+            expect(result).toContain('**Key Discussion Points:**');
+            expect(result).toContain('- **user1**: Great fix!');
+        });
+
+        it('should stop adding issues when token limit is reached', async () => {
+            const milestone = { id: 1, number: 1, title: 'release/1.0.0' };
+            const longBody = 'A'.repeat(50000); // Very long issue body
+
+            const issues = [
+                {
+                    number: 1,
+                    title: 'Issue 1',
+                    updated_at: '2023-01-02T00:00:00Z',
+                    pull_request: null,
+                    state_reason: 'completed'
+                },
+                {
+                    number: 2,
+                    title: 'Issue 2',
+                    updated_at: '2023-01-01T00:00:00Z',
+                    pull_request: null,
+                    state_reason: 'completed'
+                }
+            ];
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({ data: [milestone] });
+            mockOctokit.issues.listForRepo.mockResolvedValue({ data: issues });
+            mockOctokit.issues.get
+                .mockResolvedValueOnce({ data: { number: 1, title: 'Issue 1', body: longBody } });
+            mockOctokit.issues.listComments.mockResolvedValue({ data: [] });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0'], 30000); // Small token limit
+
+            expect(result).toContain('### #1: Issue 1');
+            expect(result).not.toContain('### #2: Issue 2');
+        });
+
+        it('should handle errors gracefully and return empty string', async () => {
+            mockOctokit.issues.listMilestones.mockRejectedValue(new Error('API Error'));
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0']);
+
+            expect(result).toBe('');
+        });
+
+        it('should sort issues by updated date (most recent first)', async () => {
+            const milestone = { id: 1, number: 1, title: 'release/1.0.0' };
+            const issues = [
+                {
+                    number: 1,
+                    title: 'Older Issue',
+                    updated_at: '2023-01-01T00:00:00Z',
+                    pull_request: null,
+                    state_reason: 'completed'
+                },
+                {
+                    number: 2,
+                    title: 'Newer Issue',
+                    updated_at: '2023-01-02T00:00:00Z',
+                    pull_request: null,
+                    state_reason: 'completed'
+                }
+            ];
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({ data: [milestone] });
+            mockOctokit.issues.listForRepo.mockResolvedValue({ data: issues });
+            mockOctokit.issues.get
+                .mockResolvedValueOnce({ data: { number: 2, title: 'Newer Issue', body: 'Newer issue body' } })
+                .mockResolvedValueOnce({ data: { number: 1, title: 'Older Issue', body: 'Older issue body' } });
+            mockOctokit.issues.listComments.mockResolvedValue({ data: [] });
+
+            const result = await GitHub.getMilestoneIssuesForRelease(['1.0.0']);
+
+            const newerIssueIndex = result.indexOf('### #2: Newer Issue');
+            const olderIssueIndex = result.indexOf('### #1: Older Issue');
+
+            expect(newerIssueIndex).toBeLessThan(olderIssueIndex);
+        });
+    });
+
+    describe('getRecentClosedIssuesForCommit', () => {
+        it('should get recent closed issues without version context', async () => {
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Fixed bug',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'This is a bug fix',
+                    labels: [{ name: 'bug' }, { name: 'priority-high' }]
+                },
+                {
+                    number: 2,
+                    title: 'Enhancement',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-02T00:00:00Z',
+                    body: 'This is an enhancement',
+                    labels: [{ name: 'enhancement' }]
+                },
+                {
+                    number: 3,
+                    title: 'PR Title',
+                    pull_request: { url: 'test' },
+                    state_reason: 'completed',
+                    closed_at: '2023-01-03T00:00:00Z'
+                }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'closed',
+                per_page: 10,
+                sort: 'updated',
+                direction: 'desc',
+            });
+
+            expect(result).toContain('Issue #1: Fixed bug');
+            expect(result).toContain('Issue #2: Enhancement');
+            expect(result).not.toContain('Issue #3: PR Title'); // PRs should be filtered out
+            expect(result).toContain('Labels: bug, priority-high');
+            expect(result).toContain('Labels: enhancement');
+        });
+
+        it('should prioritize issues from current milestone when version provided', async () => {
+            const currentMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0'
+            };
+
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Milestone issue',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'Issue from milestone',
+                    milestone: { number: 1, title: 'release/1.0.0' },
+                    labels: [{ name: 'bug' }]
+                },
+                {
+                    number: 2,
+                    title: 'Other issue',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-02T00:00:00Z',
+                    body: 'Issue from elsewhere',
+                    milestone: null,
+                    labels: [{ name: 'enhancement' }]
+                }
+            ];
+
+            // Mock milestone search
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [currentMilestone]
+            });
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit('1.0.0');
+
+            expect(result).toContain('## Recent Issues from Current Milestone (release/1.0.0):');
+            expect(result).toContain('Issue #1: Milestone issue');
+            expect(result).toContain('## Other Recent Closed Issues:');
+            expect(result).toContain('Issue #2: Other issue');
+            expect(result).toContain('Milestone: none');
+        });
+
+        it('should handle development version format', async () => {
+            const currentMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0'
+            };
+
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Milestone issue',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'Issue from milestone',
+                    milestone: { number: 1, title: 'release/1.0.0' },
+                    labels: []
+                }
+            ];
+
+            // Mock milestone search for base version (1.0.0 extracted from 1.0.0-dev.0)
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [currentMilestone]
+            });
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit('1.0.0-dev.0');
+
+            expect(result).toContain('## Recent Issues from Current Milestone (release/1.0.0):');
+            expect(result).toContain('Issue #1: Milestone issue');
+        });
+
+        it('should respect limit parameter', async () => {
+            const mockIssues = Array.from({ length: 20 }, (_, i) => ({
+                number: i + 1,
+                title: `Issue ${i + 1}`,
+                pull_request: null,
+                state_reason: 'completed',
+                closed_at: '2023-01-01T00:00:00Z',
+                body: `Body ${i + 1}`,
+                labels: []
+            }));
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            await GitHub.getRecentClosedIssuesForCommit(undefined, 5);
+
+            expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith({
+                owner: 'test-owner',
+                repo: 'test-repo',
+                state: 'closed',
+                per_page: 5,
+                sort: 'updated',
+                direction: 'desc',
+            });
+        });
+
+        it('should handle empty results', async () => {
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: []
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(result).toBe('');
+        });
+
+        it('should handle issues with no body', async () => {
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Issue without body',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: null,
+                    labels: []
+                }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(result).toContain('Body: No description');
+        });
+
+        it('should truncate long issue bodies', async () => {
+            const longBody = 'A'.repeat(500);
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Issue with long body',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: longBody,
+                    labels: []
+                }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(result).toContain('Body: ' + longBody.substring(0, 300) + '...');
+        });
+
+        it('should filter out issues with state_reason not "completed"', async () => {
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Completed issue',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'Completed',
+                    labels: []
+                },
+                {
+                    number: 2,
+                    title: 'Not planned issue',
+                    pull_request: null,
+                    state_reason: 'not_planned',
+                    closed_at: '2023-01-02T00:00:00Z',
+                    body: 'Not planned',
+                    labels: []
+                }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(result).toContain('Issue #1: Completed issue');
+            expect(result).not.toContain('Issue #2: Not planned issue');
+        });
+
+        it('should handle API errors gracefully', async () => {
+            mockOctokit.issues.listForRepo.mockRejectedValue(new Error('API Error'));
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(result).toBe('');
+        });
+
+        it('should handle milestone not found', async () => {
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: []
+            });
+
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Issue',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'Issue body',
+                    milestone: null,
+                    labels: []
+                }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit('1.0.0');
+
+            expect(result).toContain('Issue #1: Issue');
+            expect(result).not.toContain('Current Milestone');
+        });
+
+        it('should balance milestone and other issues based on limit', async () => {
+            const currentMilestone = {
+                id: 123,
+                number: 1,
+                title: 'release/1.0.0'
+            };
+
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Milestone issue 1',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'Issue 1',
+                    milestone: { number: 1, title: 'release/1.0.0' },
+                    labels: []
+                },
+                {
+                    number: 2,
+                    title: 'Milestone issue 2',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-02T00:00:00Z',
+                    body: 'Issue 2',
+                    milestone: { number: 1, title: 'release/1.0.0' },
+                    labels: []
+                },
+                {
+                    number: 3,
+                    title: 'Other issue 1',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-03T00:00:00Z',
+                    body: 'Issue 3',
+                    milestone: null,
+                    labels: []
+                },
+                {
+                    number: 4,
+                    title: 'Other issue 2',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-04T00:00:00Z',
+                    body: 'Issue 4',
+                    milestone: null,
+                    labels: []
+                }
+            ];
+
+            mockOctokit.issues.listMilestones.mockResolvedValue({
+                data: [currentMilestone]
+            });
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit('1.0.0', 3);
+
+            // Should include 2 milestone issues and 1 other issue (total 3)
+            expect(result).toContain('Issue #1: Milestone issue 1');
+            expect(result).toContain('Issue #2: Milestone issue 2');
+            expect(result).toContain('Issue #3: Other issue 1');
+            expect(result).not.toContain('Issue #4: Other issue 2');
+        });
+
+        it('should handle string labels correctly', async () => {
+            const mockIssues = [
+                {
+                    number: 1,
+                    title: 'Issue with string labels',
+                    pull_request: null,
+                    state_reason: 'completed',
+                    closed_at: '2023-01-01T00:00:00Z',
+                    body: 'Issue body',
+                    labels: ['bug', 'priority-high'], // String labels instead of objects
+                    milestone: null
+                }
+            ];
+
+            mockOctokit.issues.listForRepo.mockResolvedValue({
+                data: mockIssues
+            });
+
+            const result = await GitHub.getRecentClosedIssuesForCommit();
+
+            expect(result).toContain('Labels: bug, priority-high');
         });
     });
 });

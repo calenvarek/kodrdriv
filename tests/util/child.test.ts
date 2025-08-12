@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { run, runWithDryRunSupport, runWithInheritedStdio } from '../../src/util/child';
+import { run, runWithDryRunSupport, runWithInheritedStdio, runSecure, runSecureWithInheritedStdio, validateGitRef, validateFilePath } from '../../src/util/child';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { getLogger } from '../../src/logging';
@@ -614,8 +614,8 @@ describe('child.ts - runWithDryRunSupport function', () => {
 
         const result = await runWithDryRunSupport(command, isDryRun, {}, useInheritedStdio);
 
-        expect(mockSpawn).toHaveBeenCalledWith(command, [], {
-            shell: true,
+        expect(mockSpawn).toHaveBeenCalledWith('echo', ['"test', 'with', 'stdio"'], {
+            shell: false,
             stdio: 'inherit'
         });
         expect(result).toEqual({ stdout: '', stderr: '' });
@@ -644,9 +644,9 @@ describe('child.ts - runWithDryRunSupport function', () => {
 
         const result = await runWithDryRunSupport(command, isDryRun, options, useInheritedStdio);
 
-        expect(mockSpawn).toHaveBeenCalledWith(command, [], {
+        expect(mockSpawn).toHaveBeenCalledWith('npm', ['test'], {
             ...options,
-            shell: true,
+            shell: false,
             stdio: 'inherit'
         });
         expect(result).toEqual({ stdout: '', stderr: '' });
@@ -820,11 +820,11 @@ describe('child.ts - runWithInheritedStdio function', () => {
         const promise = runWithInheritedStdio('echo "hello world"');
 
         await expect(promise).resolves.toBeUndefined();
-        expect(mockSpawn).toHaveBeenCalledWith('echo "hello world"', [], {
-            shell: true,
+        expect(mockSpawn).toHaveBeenCalledWith('echo', ['"hello', 'world"'], {
+            shell: false,
             stdio: 'inherit'
         });
-        expect(mockLogger.verbose).toHaveBeenCalledWith('Executing command with inherited stdio: echo "hello world"');
+        expect(mockLogger.verbose).toHaveBeenCalledWith('Executing command securely with inherited stdio: echo "hello world"');
         expect(mockLogger.verbose).toHaveBeenCalledWith('Command completed successfully with code 0');
     });
 
@@ -847,9 +847,9 @@ describe('child.ts - runWithInheritedStdio function', () => {
 
         await runWithInheritedStdio('npm test', options);
 
-        expect(mockSpawn).toHaveBeenCalledWith('npm test', [], {
+        expect(mockSpawn).toHaveBeenCalledWith('npm', ['test'], {
             ...options,
-            shell: true,
+            shell: false,
             stdio: 'inherit'
         });
         expect(mockLogger.verbose).toHaveBeenCalledWith('Working directory: /custom/directory');
@@ -920,10 +920,10 @@ describe('child.ts - runWithInheritedStdio function', () => {
         await runWithInheritedStdio('');
 
         expect(mockSpawn).toHaveBeenCalledWith('', [], {
-            shell: true,
+            shell: false,
             stdio: 'inherit'
         });
-        expect(mockLogger.verbose).toHaveBeenCalledWith('Executing command with inherited stdio: ');
+        expect(mockLogger.verbose).toHaveBeenCalledWith('Executing command securely with inherited stdio:  ');
     });
 
     test('should handle complex commands with special characters', async () => {
@@ -941,8 +941,8 @@ describe('child.ts - runWithInheritedStdio function', () => {
 
         await runWithInheritedStdio(command);
 
-        expect(mockSpawn).toHaveBeenCalledWith(command, [], {
-            shell: true,
+        expect(mockSpawn).toHaveBeenCalledWith('echo', ['"Complex', '&', 'command;', 'with', '|', 'pipes"'], {
+            shell: false,
             stdio: 'inherit'
         });
     });
@@ -986,7 +986,7 @@ describe('child.ts - runWithInheritedStdio function', () => {
         expect(options).toEqual(originalOptions);
         expect(mockSpawn).toHaveBeenCalledWith('test-command', [], {
             ...options,
-            shell: true,
+            shell: false,
             stdio: 'inherit'
         });
     });

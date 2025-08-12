@@ -13,11 +13,26 @@ import * as Release from './commands/release';
 import * as Review from './commands/review';
 import * as SelectAudio from './commands/select-audio';
 import * as Unlink from './commands/unlink';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, DEFAULT_CONFIG_DIR } from './constants';
+import * as Development from './commands/development';
+import * as Versions from './commands/versions';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR } from './constants';
 import { getLogger, setLogLevel } from './logging';
 import { Config, ConfigSchema, SecureConfig } from './types';
 import { UserCancellationError } from './error/CommandErrors';
 import { VERSION } from './constants';
+
+/**
+ * Print debug information about the command being executed when debug flag is enabled.
+ */
+function printDebugCommandInfo(commandName: string, runConfig: Config): void {
+    if (runConfig.debug) {
+        const logger = getLogger();
+        logger.info('=== KODRDRIV DEBUG INFO ===');
+        logger.info('Command: %s', commandName);
+        logger.info('Version: %s', VERSION);
+        logger.info('===========================');
+    }
+}
 
 /**
  * Configure early logging based on command line flags.
@@ -117,7 +132,7 @@ export async function runApplication(): Promise<void> {
     // Handle special case for tree command with built-in command argument
     if (command === 'tree' && process.argv[3]) {
         const treeBuiltInCommand = process.argv[3];
-        const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink'];
+        const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development'];
         if (supportedBuiltInCommands.includes(treeBuiltInCommand)) {
             // This is a tree command with built-in command, keep commandName as 'tree'
             commandName = 'tree';
@@ -127,13 +142,18 @@ export async function runApplication(): Promise<void> {
         }
     }
     // If we have a specific command argument, use that
-    else if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio') {
+    else if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio' || command === 'development' || command === 'versions') {
         commandName = command;
     }
 
     let summary: string = '';
 
     try {
+        // Print debug info at the start of command execution
+        if (commandName) {
+            printDebugCommandInfo(commandName, runConfig);
+        }
+
         if (commandName === COMMAND_COMMIT) {
             summary = await Commit.execute(runConfig);
         } else if (commandName === COMMAND_AUDIO_COMMIT) {
@@ -169,6 +189,10 @@ export async function runApplication(): Promise<void> {
         } else if (commandName === COMMAND_SELECT_AUDIO) {
             await SelectAudio.execute(runConfig);
             summary = 'Audio selection completed successfully.';
+        } else if (commandName === COMMAND_DEVELOPMENT) {
+            summary = await Development.execute(runConfig);
+        } else if (commandName === COMMAND_VERSIONS) {
+            summary = await Versions.execute(runConfig);
         }
 
         // eslint-disable-next-line no-console

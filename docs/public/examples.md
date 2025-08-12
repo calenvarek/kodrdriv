@@ -49,6 +49,31 @@ kodrdriv commit --excluded-paths "node_modules" "dist"
 # Includes critical files while excluding build artifacts
 ```
 
+**GitHub Issues Integration Examples:**
+
+```bash
+# Large feature implementation - GitHub issues provide valuable context
+git add -A
+kodrdriv commit "implement user authentication system"
+# Output: Commit message references relevant issues like "Fixes #42, addresses #56"
+# The AI understands which issues your changes solve
+
+# Working on a specific release milestone
+# Issues from release/1.2.0 milestone get priority when version is 1.2.0-dev.0
+kodrdriv commit --interactive
+# Shows generated commit with issue references, allows you to review and edit
+
+# Even without GitHub access, commits work normally
+# (No GITHUB_TOKEN set or API failure)
+kodrdriv commit --sendit
+# Generates commit based on code changes only, no GitHub context
+
+# Complex bugfix addressing multiple issues
+git add src/auth/ src/security/ tests/
+kodrdriv commit "security improvements for authentication"
+# Generated message explains which specific bugs were fixed based on GitHub issues
+```
+
 ### Release Examples
 
 Basic release notes generation:

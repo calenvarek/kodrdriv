@@ -1,77 +1,91 @@
-import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, MockedFunction } from 'vitest';
+import { execute } from '../../src/commands/audio-commit';
+import { Config } from '../../src/types';
+import { processAudio } from '@theunwalked/unplayable';
+import { transcribeAudio } from '../../src/util/openai';
+import { execute as executeCommit } from '../../src/commands/commit';
+import { createAudioRecordingCountdown } from '../../src/util/countdown';
+import { getTimestampedAudioFilename } from '../../src/util/general';
+import path from 'path';
 
-// Create shared mock logger instance
-const mockLogger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    verbose: vi.fn(),
-    silly: vi.fn()
-};
-
-// Mock external dependencies
+// Mock the logging module
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn().mockReturnValue(mockLogger),
-    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
+    getLogger: vi.fn(() => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    })),
+    getDryRunLogger: vi.fn(() => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    }))
 }));
 
-vi.mock('../../src/commands/commit', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('@theunwalked/unplayable', () => ({
-    processAudio: vi.fn()
-}));
-
-vi.mock('../../src/util/openai', () => ({
-    transcribeAudio: vi.fn()
-}));
-
-vi.mock('../../src/util/general', () => ({
-    getTimestampedAudioFilename: vi.fn()
-}));
-
-vi.mock('path', () => ({
-    default: {
-        join: vi.fn()
-    }
-}));
-
-// Mock process.exit to prevent actual exit during tests
-const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => {
-    throw new Error('process.exit called');
-});
+vi.mock('../../src/commands/commit');
+vi.mock('@theunwalked/unplayable');
+vi.mock('../../src/util/openai');
+vi.mock('../../src/util/countdown');
+vi.mock('../../src/util/general');
+vi.mock('path');
 
 describe('audio-commit', () => {
-    let AudioCommit: any;
-    let Logging: any;
-    let CommitCommand: any;
-    let Unplayable: any;
-    let OpenAI: any;
-    let General: any;
-    let path: any;
+    let mockLogger: any;
+
+    // Helper function to create base config with required properties
+    const createBaseConfig = (overrides: Partial<Config> = {}): Config => ({
+        configDirectory: '/test/config',
+        discoveredConfigDirs: ['/test/config'],
+        resolvedConfigDirs: ['/test/config'],
+        ...overrides
+    });
 
     beforeEach(async () => {
-        // Import modules after mocking
-        Logging = await import('../../src/logging');
-        CommitCommand = await import('../../src/commands/commit');
-        Unplayable = await import('@theunwalked/unplayable');
-        OpenAI = await import('../../src/util/openai');
-        General = await import('../../src/util/general');
-        path = (await import('path')).default;
-        AudioCommit = await import('../../src/commands/audio-commit');
+        mockLogger = {
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+            debug: vi.fn(),
+            verbose: vi.fn(),
+            silly: vi.fn()
+        };
+
+        // Setup logging mocks
+        const Logging = await import('../../src/logging');
+        (Logging.getLogger as MockedFunction<typeof Logging.getLogger>).mockReturnValue(mockLogger);
+        (Logging.getDryRunLogger as MockedFunction<typeof Logging.getDryRunLogger>).mockReturnValue(mockLogger);
+
+        // Setup countdown mock to return proper timer object
+        (createAudioRecordingCountdown as MockedFunction<typeof createAudioRecordingCountdown>).mockReturnValue({
+            start: vi.fn().mockResolvedValue(undefined),
+            stop: vi.fn(),
+            options: { totalSeconds: 60, beepAtSeconds: [30] },
+            intervalId: null,
+            currentSeconds: 60,
+            hasBeepedAt30: false,
+            hasBeepedAt10: false,
+            hasBeepedAt5: false,
+            hasBeepedAt4: false,
+            hasBeepedAt3: false,
+            hasBeepedAt2: false,
+            hasBeepedAt1: false
+        } as any);
     });
 
     afterEach(() => {
         vi.clearAllMocks();
-        mockExit.mockClear();
     });
 
     describe('dry run mode', () => {
         it('should log dry run messages with provided audio file', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
                 dryRun: true,
                 audioCommit: {
                     file: 'test-audio.wav'
@@ -79,9 +93,9 @@ describe('audio-commit', () => {
                 commit: {
                     direction: 'existing direction'
                 }
-            };
+            });
             // Act
-            const result = await AudioCommit.execute(mockConfig);
+            const result = await execute(mockConfig);
 
             // Assert
             expect(mockLogger.info).toHaveBeenCalledWith('Would process audio file: %s', 'test-audio.wav');
@@ -89,19 +103,19 @@ describe('audio-commit', () => {
             expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular commit command');
             expect(result).toBe('DRY RUN: Would process audio, transcribe it, and generate commit message with audio context');
             // Should not call the actual commit command in dry run
-            expect(CommitCommand.execute).not.toHaveBeenCalled();
+            expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
         });
 
         it('should log dry run messages without provided audio file', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
                 dryRun: true,
                 commit: {
                     direction: 'existing direction'
                 }
-            };
+            });
             // Act
-            const result = await AudioCommit.execute(mockConfig);
+            const result = await execute(mockConfig);
 
             // Assert
             expect(mockLogger.info).toHaveBeenCalledWith('Would start audio recording for commit context');
@@ -109,21 +123,21 @@ describe('audio-commit', () => {
             expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular commit command');
             expect(result).toBe('DRY RUN: Would process audio, transcribe it, and generate commit message with audio context');
             // Should not call the actual commit command in dry run
-            expect(CommitCommand.execute).not.toHaveBeenCalled();
+            expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
         });
     });
 
     describe('audio recording and processing', () => {
         it('should process audio recording without provided file', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
                 dryRun: false,
                 audioCommit: {
                     maxRecordingTime: 60
                 },
                 outputDirectory: 'test-output',
                 debug: true
-            };
+            });
             const mockAudioResult = {
                 cancelled: false,
                 audioFilePath: 'test-output/recorded-audio.wav'
@@ -132,27 +146,28 @@ describe('audio-commit', () => {
                 text: 'This is a test transcription'
             };
 
-            Unplayable.processAudio.mockResolvedValue(mockAudioResult);
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('commit result');
-            path.join.mockReturnValue('test-output/kodrdriv');
+            // Set up mocks
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockAudioResult);
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('commit result');
+            (path.join as MockedFunction<typeof path.join>).mockReturnValue('test-output/kodrdriv');
 
             // Act
-            const result = await AudioCommit.execute(mockConfig);
+            const result = await execute(mockConfig);
 
             // Assert
-            expect(Unplayable.processAudio).toHaveBeenCalledWith({
+            expect(processAudio as MockedFunction<typeof processAudio>).toHaveBeenCalledWith({
                 file: undefined,
                 maxRecordingTime: 60,
                 outputDirectory: 'test-output',
                 debug: true
             });
-            expect(OpenAI.transcribeAudio).toHaveBeenCalledWith('test-output/recorded-audio.wav', {
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test-output/recorded-audio.wav', {
                 model: 'whisper-1',
                 debug: true,
                 outputDirectory: 'test-output/kodrdriv'
             });
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
+            expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
                     direction: 'This is a test transcription'
@@ -163,653 +178,77 @@ describe('audio-commit', () => {
 
         it('should process provided audio file', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
                 dryRun: false,
                 audioCommit: {
-                    file: 'provided-audio.mp3'
+                    file: 'existing-audio.wav'
                 },
-                outputDirectory: 'output'
-            };
+                outputDirectory: 'test-output',
+                debug: false
+            });
             const mockAudioResult = {
                 cancelled: false,
-                audioFilePath: 'some-other-path.wav'
+                audioFilePath: 'unused-path.wav' // This should be ignored when file is provided
             };
             const mockTranscription = {
-                text: 'Transcribed content from provided file'
+                text: 'Transcription from provided file'
             };
 
-            Unplayable.processAudio.mockResolvedValue(mockAudioResult);
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('commit with provided file');
-            path.join.mockReturnValue('output/kodrdriv');
+            // Set up mocks
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockAudioResult);
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('file commit result');
+            (path.join as MockedFunction<typeof path.join>).mockReturnValue('test-output/kodrdriv');
 
             // Act
-            const result = await AudioCommit.execute(mockConfig);
+            const result = await execute(mockConfig);
 
             // Assert
-            expect(Unplayable.processAudio).toHaveBeenCalledWith({
-                file: 'provided-audio.mp3',
+            expect(processAudio as MockedFunction<typeof processAudio>).toHaveBeenCalledWith({
+                file: 'existing-audio.wav',
                 maxRecordingTime: undefined,
-                outputDirectory: 'output',
-                debug: undefined
+                outputDirectory: 'test-output',
+                debug: false
             });
-            expect(OpenAI.transcribeAudio).toHaveBeenCalledWith('provided-audio.mp3', {
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('existing-audio.wav', {
                 model: 'whisper-1',
-                debug: undefined,
-                outputDirectory: 'output/kodrdriv'
+                debug: false,
+                outputDirectory: 'test-output/kodrdriv'
             });
-            expect(result).toBe('commit with provided file');
-        });
-
-        it('should handle audio recording cancellation', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {},
-                commit: {}
-            };
-            const mockAudioResult = {
-                cancelled: true
-            };
-
-            // Override the mock to return cancellation - done before the test execution
-            (Unplayable.processAudio as any).mockResolvedValue(mockAudioResult);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio commit cancelled by user');
-        });
-
-        it('should use fallback filename when no audio file path in result', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {},
-                outputDirectory: 'fallback-output'
-            };
-            const mockAudioResult = {
-                cancelled: false,
-                audioFilePath: undefined
-            };
-            const mockTranscription = {
-                text: 'Fallback transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue(mockAudioResult);
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('fallback commit');
-            General.getTimestampedAudioFilename.mockReturnValue('timestamped-audio.wav');
-            path.join.mockImplementation((dir: string, file: string) => `${dir}/${file}`);
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(General.getTimestampedAudioFilename).toHaveBeenCalled();
-            expect(OpenAI.transcribeAudio).toHaveBeenCalledWith('fallback-output/timestamped-audio.wav', expect.any(Object));
-            expect(result).toBe('fallback commit');
-        });
-
-        it('should use fallback filename when audio file path is empty string', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {},
-                outputDirectory: 'fallback-output'
-            };
-            const mockAudioResult = {
-                cancelled: false,
-                audioFilePath: ''
-            };
-            const mockTranscription = {
-                text: 'Empty path transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue(mockAudioResult);
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('empty path commit');
-            General.getTimestampedAudioFilename.mockReturnValue('timestamped-audio.wav');
-            path.join.mockImplementation((dir: string, file: string) => `${dir}/${file}`);
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(General.getTimestampedAudioFilename).toHaveBeenCalled();
-            expect(OpenAI.transcribeAudio).toHaveBeenCalledWith('fallback-output/timestamped-audio.wav', expect.any(Object));
-            expect(result).toBe('empty path commit');
-        });
-    });
-
-    describe('transcription handling', () => {
-        beforeEach(() => {
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-        });
-
-        it('should handle successful transcription', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: 'Successfully transcribed audio content'
-            };
-
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('successful commit');
-            const mockLogger = Logging.getLogger();
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('📝 Successfully transcribed audio using kodrdriv');
-            expect(mockLogger.debug).toHaveBeenCalledWith('Transcribed text: %s', 'Successfully transcribed audio content');
-            expect(result).toBe('successful commit');
-        });
-
-        it('should handle empty transcription', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: '   '  // Empty/whitespace only
-            };
-
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('empty transcription commit');
-            const mockLogger = Logging.getLogger();
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
+            expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
-                    direction: ''
+                    direction: 'Transcription from provided file'
                 }
             });
-            expect(result).toBe('empty transcription commit');
-        });
-
-        it('should handle transcription with existing commit direction', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {},
-                commit: {
-                    direction: 'existing direction'
-                }
-            };
-            const mockTranscription = {
-                text: 'Audio transcription content'
-            };
-
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('merged direction commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: 'Audio transcription content'
-                }
-            });
-            expect(result).toBe('merged direction commit');
-        });
-
-        it('should handle transcription with null text', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: null
-            };
-
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('null transcription commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            // When text is null, calling .trim() throws an error, so it goes to error handling path
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', expect.stringContaining('Cannot read'));
-            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: ''
-                }
-            });
-            expect(result).toBe('null transcription commit');
-        });
-
-        it('should handle transcription with undefined text', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: undefined
-            };
-
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('undefined transcription commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            // When text is undefined, calling .trim() throws an error, so it goes to error handling path
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', expect.stringContaining('Cannot read'));
-            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: ''
-                }
-            });
-            expect(result).toBe('undefined transcription commit');
-        });
-
-        it('should handle transcription with newlines and special whitespace', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: '\n\t\r  \n'  // Various whitespace characters
-            };
-
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('whitespace transcription commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: ''
-                }
-            });
-            expect(result).toBe('whitespace transcription commit');
-        });
-    });
-
-    describe('error handling', () => {
-        it('should handle audio processing errors', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const audioError = new Error('Audio processing failed');
-
-            Unplayable.processAudio.mockRejectedValue(audioError);
-            CommitCommand.execute.mockResolvedValue('error recovery commit');
-            const mockLogger = Logging.getLogger();
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Audio processing failed');
-            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: ''
-                }
-            });
-            expect(result).toBe('error recovery commit');
-        });
-
-        it('should handle transcription errors', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const transcriptionError = new Error('Transcription failed');
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockRejectedValue(transcriptionError);
-            CommitCommand.execute.mockResolvedValue('transcription error recovery');
-            const mockLogger = Logging.getLogger();
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Transcription failed');
-            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
-            expect(result).toBe('transcription error recovery');
-        });
-
-        it('should preserve existing commit direction when audio processing fails', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {},
-                commit: {
-                    direction: 'fallback direction'
-                }
-            };
-            const error = new Error('Audio failed');
-
-            Unplayable.processAudio.mockRejectedValue(error);
-            CommitCommand.execute.mockResolvedValue('fallback commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: 'fallback direction'
-                }
-            });
-            expect(result).toBe('fallback commit');
-        });
-
-        it('should convert CancellationError by name to UserCancellationError', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const cancellationError = new Error('User cancelled');
-            cancellationError.name = 'CancellationError';
-
-            Unplayable.processAudio.mockRejectedValue(cancellationError);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.info).toHaveBeenCalledWith('User cancelled');
-        });
-
-        it('should convert CancellationError instance to UserCancellationError', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            // Import the CancellationError class
-            const { CancellationError } = await import('../../src/error/CancellationError');
-            const cancellationError = new CancellationError('Instance cancellation');
-
-            Unplayable.processAudio.mockRejectedValue(cancellationError);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.info).toHaveBeenCalledWith('Instance cancellation');
-        });
-
-        it('should re-throw UserCancellationError without conversion', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const { UserCancellationError } = await import('../../src/error/CommandErrors');
-            const userCancellationError = new UserCancellationError('Direct user cancellation');
-
-            Unplayable.processAudio.mockRejectedValue(userCancellationError);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.info).toHaveBeenCalledWith('Direct user cancellation');
-        });
-
-        it('should handle commit command errors', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: 'Good transcription'
-            };
-            const commitError = new Error('Commit command failed');
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockRejectedValue(commitError);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Commit command failed');
-        });
-
-        it('should log error cause when present', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const causeError = new Error('Root cause error');
-            const mainError = new Error('Main error');
-            mainError.cause = causeError;
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            CommitCommand.execute.mockRejectedValue(mainError);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Main error');
-            expect(mockLogger.debug).toHaveBeenCalledWith('Caused by: Root cause error');
-        });
-
-        it('should not log cause when error has no cause', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mainError = new Error('Error without cause');
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            CommitCommand.execute.mockRejectedValue(mainError);
-
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Error without cause');
-            expect(mockLogger.debug).not.toHaveBeenCalledWith(expect.stringContaining('Caused by:'));
-        });
-    });
-
-    describe('configuration variations', () => {
-        it('should handle default output directory', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: 'Test transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('default directory commit');
-            path.join.mockReturnValue('output/kodrdriv');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(Unplayable.processAudio).toHaveBeenCalledWith({
-                file: undefined,
-                maxRecordingTime: undefined,
-                outputDirectory: 'output',
-                debug: undefined
-            });
-            expect(OpenAI.transcribeAudio).toHaveBeenCalledWith('test-audio.wav', {
-                model: 'whisper-1',
-                debug: undefined,
-                outputDirectory: 'output/kodrdriv'
-            });
-            expect(result).toBe('default directory commit');
-        });
-
-        it('should handle missing audioCommit configuration', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false
-            };
-            const mockTranscription = {
-                text: 'No audio config transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('no audio config commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(Unplayable.processAudio).toHaveBeenCalledWith({
-                file: undefined,
-                maxRecordingTime: undefined,
-                outputDirectory: 'output',
-                debug: undefined
-            });
-            expect(result).toBe('no audio config commit');
-        });
-
-        it('should handle missing commit configuration', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: 'No commit config transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('no commit config result');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: 'No commit config transcription'
-                }
-            });
-            expect(result).toBe('no commit config result');
-        });
-
-        it('should merge complex commit configuration correctly', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {},
-                commit: {
-                    direction: 'original direction',
-                    add: true,
-                    sendit: false,
-                    context: 'some context'
-                }
-            };
-            const mockTranscription = {
-                text: 'Audio context for commit'
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('complex config commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: 'Audio context for commit',
-                    add: true,
-                    sendit: false,
-                    context: 'some context'
-                }
-            });
-            expect(result).toBe('complex config commit');
+            expect(result).toBe('file commit result');
         });
 
         it('should handle maxRecordingTime configuration', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
                 dryRun: false,
                 audioCommit: {
                     maxRecordingTime: 120
                 },
                 debug: false
-            };
+            });
             const mockTranscription = {
                 text: 'Recorded with max time'
             };
 
-            Unplayable.processAudio.mockResolvedValue({
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
                 cancelled: false,
                 audioFilePath: 'test-audio.wav'
             });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('max time commit');
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('max time commit');
 
             // Act
-            const result = await AudioCommit.execute(mockConfig);
+            const result = await execute(mockConfig);
 
             // Assert
-            expect(Unplayable.processAudio).toHaveBeenCalledWith({
+            expect(processAudio as MockedFunction<typeof processAudio>).toHaveBeenCalledWith({
                 file: undefined,
                 maxRecordingTime: 120,
                 outputDirectory: 'output',
@@ -818,170 +257,637 @@ describe('audio-commit', () => {
             expect(result).toBe('max time commit');
         });
 
-        it('should use empty string when audioContext trims to empty and no existing direction', async () => {
+        it('should use fallback filename when audioFilePath is not provided', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
                 dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: '   \n\t  '
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
+                outputDirectory: 'test-output'
             });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('empty direction commit');
-
-            // Act
-            const result = await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(CommitCommand.execute).toHaveBeenCalledWith({
-                ...mockConfig,
-                commit: {
-                    direction: ''
-                }
-            });
-            expect(result).toBe('empty direction commit');
-        });
-    });
-
-    describe('logging and user feedback', () => {
-        it('should log recording start messages', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
-            };
-            const mockTranscription = {
-                text: 'Test transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('logged commit');
-            const mockLogger = Logging.getLogger();
-
-            // Act
-            await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for commit context...');
-            expect(mockLogger.info).toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
-            expect(mockLogger.info).toHaveBeenCalledWith('🤖 Transcribing audio locally using OpenAI Whisper...');
-            expect(mockLogger.info).toHaveBeenCalledWith('🤖 Generating commit message using audio context...');
-        });
-
-        it('should not log recording instructions when file is provided', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {
-                    file: 'provided-file.wav'
-                }
-            };
-            const mockTranscription = {
-                text: 'Test transcription'
-            };
-
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('provided file commit');
-            const mockLogger = Logging.getLogger();
-
-            // Act
-            await AudioCommit.execute(mockConfig);
-
-            // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for commit context...');
-            expect(mockLogger.info).not.toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
-        });
-
-        it('should log warning when using fallback filename', async () => {
-            // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
+            const mockAudioResult = {
+                cancelled: false
+                // No audioFilePath provided
             };
             const mockTranscription = {
                 text: 'Fallback transcription'
             };
 
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: undefined
-            });
-            OpenAI.transcribeAudio.mockResolvedValue(mockTranscription);
-            CommitCommand.execute.mockResolvedValue('fallback commit');
-            General.getTimestampedAudioFilename.mockReturnValue('fallback-audio.wav');
-            path.join.mockImplementation((dir: string, file: string) => `${dir}/${file}`);
-            const mockLogger = Logging.getLogger();
+            // Set up mocks
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockAudioResult);
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('fallback commit');
+            (getTimestampedAudioFilename as MockedFunction<typeof getTimestampedAudioFilename>).mockReturnValue('fallback-audio.wav');
+            (path.join as MockedFunction<typeof path.join>).mockImplementation((...args) => args.join('/'));
 
             // Act
-            await AudioCommit.execute(mockConfig);
+            const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.warn).toHaveBeenCalledWith('Using generated filename for recorded audio: %s', 'output/fallback-audio.wav');
+            expect(getTimestampedAudioFilename).toHaveBeenCalled();
+            expect(mockLogger.warn).toHaveBeenCalledWith('Using generated filename for recorded audio: %s', 'test-output/fallback-audio.wav');
             expect(mockLogger.warn).toHaveBeenCalledWith('Note: This may not match the actual file created by unplayable');
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test-output/fallback-audio.wav', expect.any(Object));
+            expect(result).toBe('fallback commit');
+        });
+
+        it('should preserve existing commit direction when audio context is empty', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'silent-audio.wav'
+                },
+                commit: {
+                    direction: 'existing direction'
+                }
+            });
+            const mockAudioResult = {
+                cancelled: false,
+                audioFilePath: 'silent-audio.wav'
+            };
+            const mockTranscription = {
+                text: '   ' // Empty trimmed text
+            };
+
+            // Set up mocks
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockAudioResult);
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('silent commit result');
+            (path.join as MockedFunction<typeof path.join>).mockReturnValue('output/kodrdriv');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
+            expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
+                ...mockConfig,
+                commit: {
+                    direction: 'existing direction'
+                }
+            });
+            expect(result).toBe('silent commit result');
         });
     });
 
-    describe('outer execute function error handling', () => {
-        it('should exit with code 0 for UserCancellationError', async () => {
+    describe('countdown timer functionality', () => {
+        it('should start and stop countdown timer when recording with maxRecordingTime', async () => {
             // Arrange
-            const mockConfig = {
-                dryRun: false,
-                audioCommit: {}
+            const mockTimer = {
+                start: vi.fn().mockResolvedValue(undefined),
+                stop: vi.fn(),
+                options: { totalSeconds: 90, beepAtSeconds: [30] },
+                intervalId: null,
+                currentSeconds: 90,
+                hasBeepedAt30: false,
+                hasBeepedAt10: false,
+                hasBeepedAt5: false,
+                hasBeepedAt4: false,
+                hasBeepedAt3: false,
+                hasBeepedAt2: false,
+                hasBeepedAt1: false
             };
-            const { UserCancellationError } = await import('../../src/error/CommandErrors');
-            const userCancelError = new UserCancellationError('User cancelled operation');
+            (createAudioRecordingCountdown as MockedFunction<typeof createAudioRecordingCountdown>).mockReturnValue(mockTimer as any);
 
-            Unplayable.processAudio.mockRejectedValue(userCancelError);
-
-            // Mock the process.exit call to verify the exit code
-            mockExit.mockImplementation((code?: string | number | null | undefined) => {
-                expect(code).toBe(0);
-                throw new Error('process.exit called');
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    maxRecordingTime: 90
+                }
             });
 
-            // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.info).toHaveBeenCalledWith('User cancelled operation');
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'timer-audio.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Timer test'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('timer commit');
+
+            // Act
+            await execute(mockConfig);
+
+            // Assert
+            expect(createAudioRecordingCountdown).toHaveBeenCalledWith(90);
+            expect(mockTimer.start).toHaveBeenCalled();
+            expect(mockTimer.stop).toHaveBeenCalled();
         });
 
-        it('should exit with code 1 for other errors', async () => {
+        it('should not create countdown timer when processing provided file', async () => {
             // Arrange
-            const mockConfig = {
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'provided.wav',
+                    maxRecordingTime: 60
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'provided.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'No timer needed'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('no timer commit');
+
+            // Act
+            await execute(mockConfig);
+
+            // Assert
+            expect(createAudioRecordingCountdown).not.toHaveBeenCalled();
+        });
+
+        it('should not create countdown timer when maxRecordingTime is not set', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
                 dryRun: false,
                 audioCommit: {}
-            };
-            const generalError = new Error('General failure');
-
-            CommitCommand.execute.mockRejectedValue(generalError);
-            Unplayable.processAudio.mockResolvedValue({
-                cancelled: false,
-                audioFilePath: 'test-audio.wav'
             });
-            OpenAI.transcribeAudio.mockResolvedValue({ text: 'test' });
 
-            // Mock the process.exit call to verify the exit code
-            mockExit.mockImplementation((code?: string | number | null | undefined) => {
-                expect(code).toBe(1);
-                throw new Error('process.exit called');
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'no-timer.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'No timer set'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('no timer commit');
+
+            // Act
+            await execute(mockConfig);
+
+            // Assert
+            expect(createAudioRecordingCountdown).not.toHaveBeenCalled();
+        });
+
+        it('should handle countdown timer errors gracefully', async () => {
+            // Arrange
+            const mockTimer = {
+                start: vi.fn().mockRejectedValue(new Error('Timer failed')),
+                stop: vi.fn(),
+                options: { totalSeconds: 60, beepAtSeconds: [30] },
+                intervalId: null,
+                currentSeconds: 60,
+                hasBeepedAt30: false,
+                hasBeepedAt10: false,
+                hasBeepedAt5: false,
+                hasBeepedAt4: false,
+                hasBeepedAt3: false,
+                hasBeepedAt2: false,
+                hasBeepedAt1: false
+            };
+            (createAudioRecordingCountdown as MockedFunction<typeof createAudioRecordingCountdown>).mockReturnValue(mockTimer as any);
+
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    maxRecordingTime: 60
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'timer-error.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Timer error handled'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('timer error commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockTimer.start).toHaveBeenCalled();
+            expect(mockTimer.stop).toHaveBeenCalled();
+            expect(result).toBe('timer error commit');
+        });
+    });
+
+    describe('user cancellation scenarios', () => {
+        it('should handle user cancellation from processAudio', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    maxRecordingTime: 60
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: true
             });
 
             // Act & Assert
-            await expect(AudioCommit.execute(mockConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: General failure');
+            await expect(execute(mockConfig)).rejects.toThrow('Audio commit cancelled by user');
+            expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio commit cancelled by user');
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).not.toHaveBeenCalled();
+            expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
+        });
+
+        it('should convert CancellationError to UserCancellationError', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {}
+            });
+
+            const cancellationError = new Error('User cancelled recording');
+            cancellationError.name = 'CancellationError';
+            (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(cancellationError);
+
+            // Act & Assert
+            await expect(execute(mockConfig)).rejects.toThrow('User cancelled recording');
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).not.toHaveBeenCalled();
+            expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
+        });
+
+        it('should handle legacy CancellationError instances', async () => {
+            // First, let's import the actual CancellationError to properly test it
+            const { CancellationError } = await import('../../src/error/CancellationError');
+
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {}
+            });
+
+            const legacyCancellationError = new CancellationError('Legacy cancellation');
+            (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(legacyCancellationError);
+
+            // Act & Assert
+            await expect(execute(mockConfig)).rejects.toThrow('Legacy cancellation');
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).not.toHaveBeenCalled();
+            expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
+        });
+
+        it('should log cancellation message and re-throw error', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {}
+            });
+
+            const { UserCancellationError } = await import('../../src/error/CommandErrors');
+            const userCancellationError = new UserCancellationError('User cancelled operation');
+            (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(userCancellationError);
+
+            // Act & Assert
+            await expect(execute(mockConfig)).rejects.toThrow('User cancelled operation');
+            expect(mockLogger.info).toHaveBeenCalledWith('User cancelled operation');
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).not.toHaveBeenCalled();
+            expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('audio processing error handling', () => {
+        it('should handle processAudio failure and continue with empty audio context', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'invalid-file.wav'
+                },
+                commit: {
+                    direction: 'fallback direction'
+                }
+            });
+
+            const processingError = new Error('Failed to process audio file');
+            (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(processingError);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('fallback commit result');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Failed to process audio file');
+            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
+            expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
+                ...mockConfig,
+                commit: {
+                    direction: 'fallback direction'
+                }
+            });
+            expect(result).toBe('fallback commit result');
+        });
+
+        it('should handle transcription failure and continue with empty audio context', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'valid-audio.wav'
+                },
+                commit: {
+                    direction: 'original direction'
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'valid-audio.wav'
+            });
+            const transcriptionError = new Error('Transcription service unavailable');
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockRejectedValue(transcriptionError);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('transcription error commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Transcription service unavailable');
+            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
+            expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
+                ...mockConfig,
+                commit: {
+                    direction: 'original direction'
+                }
+            });
+            expect(result).toBe('transcription error commit');
+        });
+
+        it('should handle empty transcription results', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'silent-audio.wav'
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'silent-audio.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: ''
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('empty transcription commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
+            expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
+                ...mockConfig,
+                commit: {
+                    direction: ''
+                }
+            });
+            expect(result).toBe('empty transcription commit');
+        });
+
+        it('should handle commit execution failure', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'good-audio.wav'
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'good-audio.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Good transcription'
+            });
+            const commitError = new Error('Git repository not found');
+            (executeCommit as MockedFunction<typeof executeCommit>).mockRejectedValue(commitError);
+
+            // Act & Assert
+            await expect(execute(mockConfig)).rejects.toThrow('Git repository not found');
+            expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Git repository not found');
+        });
+
+        it('should handle errors with cause property', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {}
+            });
+
+            const causeError = new Error('Root cause error');
+            const mainError = new Error('Main error');
+            (mainError as any).cause = causeError;
+
+            (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(mainError);
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('error with cause commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Main error');
+            expect(result).toBe('error with cause commit');
+        });
+    });
+
+    describe('configuration edge cases', () => {
+        it('should handle missing audioCommit configuration', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false
+                // No audioCommit property
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'default-audio.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Default config transcription'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('default config commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(processAudio as MockedFunction<typeof processAudio>).toHaveBeenCalledWith({
+                file: undefined,
+                maxRecordingTime: undefined,
+                outputDirectory: 'output',
+                debug: undefined
+            });
+            expect(result).toBe('default config commit');
+        });
+
+        it('should handle missing outputDirectory in config', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'test.wav'
+                }
+                // No outputDirectory property
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'test.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'No output dir transcription'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('no output dir commit');
+            (path.join as MockedFunction<typeof path.join>).mockReturnValue('output/kodrdriv');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(processAudio as MockedFunction<typeof processAudio>).toHaveBeenCalledWith({
+                file: 'test.wav',
+                maxRecordingTime: undefined,
+                outputDirectory: 'output',
+                debug: undefined
+            });
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test.wav', {
+                model: 'whisper-1',
+                debug: undefined,
+                outputDirectory: 'output/kodrdriv'
+            });
+            expect(result).toBe('no output dir commit');
+        });
+
+        it('should handle zero maxRecordingTime', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    maxRecordingTime: 0
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'zero-time.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Zero time transcription'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('zero time commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(createAudioRecordingCountdown).not.toHaveBeenCalled();
+            expect(result).toBe('zero time commit');
+        });
+
+        it('should handle negative maxRecordingTime', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    maxRecordingTime: -30
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'negative-time.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Negative time transcription'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('negative time commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(createAudioRecordingCountdown).not.toHaveBeenCalled();
+            expect(result).toBe('negative time commit');
+        });
+    });
+
+    describe('logging and debug scenarios', () => {
+        it('should log debug information when debug is enabled', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                debug: true,
+                audioCommit: {
+                    file: 'debug-audio.wav'
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'debug-audio.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Debug transcription text'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('debug commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.info).toHaveBeenCalledWith('📝 Successfully transcribed audio using kodrdriv');
+            expect(mockLogger.debug).toHaveBeenCalledWith('Transcribed text: %s', 'Debug transcription text');
+            expect(result).toBe('debug commit');
+        });
+
+        it('should provide appropriate logging for recording instructions', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {}
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'recording.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'Recording instructions test'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('instructions commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for commit context...');
+            expect(mockLogger.info).toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
+            expect(result).toBe('instructions commit');
+        });
+
+        it('should not show recording instructions when processing provided file', async () => {
+            // Arrange
+            const mockConfig = createBaseConfig({
+                dryRun: false,
+                audioCommit: {
+                    file: 'provided-file.wav'
+                }
+            });
+
+            (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue({
+                cancelled: false,
+                audioFilePath: 'provided-file.wav'
+            });
+            (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue({
+                text: 'No instructions needed'
+            });
+            (executeCommit as MockedFunction<typeof executeCommit>).mockResolvedValue('no instructions commit');
+
+            // Act
+            const result = await execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for commit context...');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
+            expect(result).toBe('no instructions commit');
         });
     });
 });

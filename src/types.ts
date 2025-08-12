@@ -38,6 +38,7 @@ export const ConfigSchema = z.object({
         focus: z.string().optional(),
         maxDiffBytes: z.number().optional(),
         model: z.string().optional(),
+        noMilestones: z.boolean().optional(),
     }).optional(),
     review: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -83,30 +84,45 @@ export const ConfigSchema = z.object({
         unlinkWorkspacePackages: z.boolean().optional(),
         checksTimeout: z.number().optional(),
         skipUserConfirmation: z.boolean().optional(),
+        syncTarget: z.boolean().optional(),
         sendit: z.boolean().optional(),
         waitForReleaseWorkflows: z.boolean().optional(),
         releaseWorkflowsTimeout: z.number().optional(),
         releaseWorkflowNames: z.array(z.string()).optional(),
         targetBranch: z.string().optional(),
+        noMilestones: z.boolean().optional(),
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
         dryRun: z.boolean().optional(),
+        packageArgument: z.string().optional(),
     }).optional(),
     unlink: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
         workspaceFile: z.string().optional(),
         dryRun: z.boolean().optional(),
         cleanNodeModules: z.boolean().optional(),
+        packageArgument: z.string().optional(),
     }).optional(),
     tree: z.object({
         directories: z.array(z.string()).optional(),
         excludedPatterns: z.array(z.string()).optional(),
         startFrom: z.string().optional(),
+        stopAt: z.string().optional(),
         cmd: z.string().optional(),
         parallel: z.boolean().optional(),
         builtInCommand: z.string().optional(),
         continue: z.boolean().optional(),
+        packageArgument: z.string().optional(),
+        cleanNodeModules: z.boolean().optional(),
+    }).optional(),
+    development: z.object({
+        targetVersion: z.string().optional(),
+        noMilestones: z.boolean().optional(),
+    }).optional(),
+    versions: z.object({
+        subcommand: z.string().optional(),
+        directories: z.array(z.string()).optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
 });
@@ -204,11 +220,18 @@ export type AudioCommitConfig = {
     keepTemp?: boolean;
 }
 
+export type LinkConfig = {
+    scopeRoots?: Record<string, string>;
+    dryRun?: boolean;
+    packageArgument?: string;
+}
+
 export type UnlinkConfig = {
     scopeRoots?: Record<string, string>;
     workspaceFile?: string;
     dryRun?: boolean;
     cleanNodeModules?: boolean;
+    packageArgument?: string;
 }
 
 export type PublishConfig = {
@@ -233,8 +256,20 @@ export type TreeConfig = {
     directories?: string[];
     excludedPatterns?: string[];
     startFrom?: string;
+    stopAt?: string;
     cmd?: string;
     parallel?: boolean;
     builtInCommand?: string;
     continue?: boolean; // Continue from previous tree publish execution
+    packageArgument?: string; // Package argument for link/unlink commands (e.g., "@fjell" or "@fjell/core")
+    cleanNodeModules?: boolean; // For unlink command: remove node_modules and package-lock.json, then reinstall dependencies
+}
+
+export type DevelopmentConfig = {
+    targetVersion?: string; // 'patch', 'minor', 'major', or explicit version like '2.1.0' (default: 'patch')
+}
+
+export type VersionsConfig = {
+    subcommand?: string; // 'minor' or other versioning strategies
+    directories?: string[]; // directories to scan for packages
 }

@@ -44,10 +44,36 @@ export const create = async (options: { from?: string, to?: string, limit?: numb
                 logger.debug('Git log output: %s', stdout);
                 return stdout;
             } catch (error: any) {
+                // Check if this is an empty repository (no commits) scenario
+                const errorMessage = error.message || '';
+                const isEmptyRepo = errorMessage.includes('does not have any commits yet') ||
+                                  errorMessage.includes('bad default revision') ||
+                                  errorMessage.includes('unknown revision or path not in the working tree') ||
+                                  errorMessage.includes('ambiguous argument \'HEAD\'');
+
+                if (isEmptyRepo) {
+                    logger.debug('Empty repository detected (no commits): %s', errorMessage);
+                    logger.verbose('No git history available, returning empty log context');
+                    return ''; // Return empty string for empty repositories
+                }
+
                 logger.error('Failed to execute git log: %s', error.message);
                 throw error;
             }
         } catch (error: any) {
+            // Check again at the outer level in case the error wasn't caught by the inner try-catch
+            const errorMessage = error.message || '';
+            const isEmptyRepo = errorMessage.includes('does not have any commits yet') ||
+                              errorMessage.includes('bad default revision') ||
+                              errorMessage.includes('unknown revision or path not in the working tree') ||
+                              errorMessage.includes('ambiguous argument \'HEAD\'');
+
+            if (isEmptyRepo) {
+                logger.debug('Empty repository detected at outer level: %s', errorMessage);
+                logger.verbose('No git history available, returning empty log context');
+                return ''; // Return empty string for empty repositories
+            }
+
             logger.error('Error occurred during gather change phase: %s %s', error.message, error.stack);
             throw new ExitError('Error occurred during gather change phase');
         }

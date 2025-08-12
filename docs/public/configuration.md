@@ -213,9 +213,35 @@ This allows you to use different models for different tasks - for example, using
 
 ### GitHub Configuration
 
-For publish command functionality:
+For GitHub integration features:
 
-- `GITHUB_TOKEN`: Required for GitHub API operations (creating pull requests, releases, etc.)
+- `GITHUB_TOKEN`: Required for GitHub API operations including:
+  - **Publish command**: Creating pull requests, releases, and managing milestones
+  - **Commit command**: Fetching recently closed issues for enhanced commit message context
+  - **Release command**: Accessing milestone information and issue details
+
+#### GitHub Issues Integration
+
+The `GITHUB_TOKEN` enables the commit command to automatically fetch and analyze recently closed GitHub issues to provide better context for commit message generation. This feature:
+
+- **Works automatically** when `GITHUB_TOKEN` is available
+- **Fails gracefully** when the token is missing or API calls fail
+- **Enhances large commits** by understanding which issues your changes address
+- **Respects milestones** by prioritizing issues from your current release milestone
+
+**Setting up GitHub Token:**
+
+1. Create a Personal Access Token in GitHub with `repo` scope
+2. Set it as an environment variable:
+   ```bash
+   export GITHUB_TOKEN=your_token_here
+   ```
+3. Or add it to your `.env` file:
+   ```
+   GITHUB_TOKEN=your_token_here
+   ```
+
+The token should have `repo` access to read issues, milestones, and repository information.
 
 ### Editor Configuration
 

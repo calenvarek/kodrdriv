@@ -37,7 +37,14 @@ vi.mock('../../src/logging', () => ({
 
 vi.mock('../../src/util/child', () => ({
     run: vi.fn(),
-    runWithDryRunSupport: vi.fn()
+    runSecure: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn()
 }));
 
 vi.mock('../../src/util/github', () => ({
@@ -47,7 +54,15 @@ vi.mock('../../src/util/github', () => ({
     waitForPullRequestChecks: vi.fn(),
     mergePullRequest: vi.fn(),
     createRelease: vi.fn(),
-    waitForReleaseWorkflows: vi.fn()
+    waitForReleaseWorkflows: vi.fn(),
+    closeMilestoneForVersion: vi.fn(),
+    ensureMilestoneForVersion: vi.fn(),
+    findMilestoneByTitle: vi.fn(),
+    createMilestone: vi.fn(),
+    closeMilestone: vi.fn(),
+    getOpenIssuesForMilestone: vi.fn(),
+    moveIssueToMilestone: vi.fn(),
+    moveOpenIssuesToNewMilestone: vi.fn(),
 }));
 
 vi.mock('../../src/util/storage', () => ({
@@ -71,6 +86,12 @@ vi.mock('../../src/util/general', () => ({
     getOutputPath: vi.fn()
 }));
 
+vi.mock('../../src/util/git', () => ({
+    isBranchInSyncWithRemote: vi.fn(),
+    safeSyncBranchWithRemote: vi.fn(),
+    localBranchExists: vi.fn()
+}));
+
 describe('publish command', () => {
     let Publish: any;
     let Commit: any;
@@ -81,6 +102,7 @@ describe('publish command', () => {
     let GitHub: any;
     let Storage: any;
     let General: any;
+    let Git: any;
     let mockLogger: any;
     let mockStorage: any;
     let originalEnv: NodeJS.ProcessEnv;
@@ -105,6 +127,7 @@ describe('publish command', () => {
         GitHub = await import('../../src/util/github');
         Storage = await import('../../src/util/storage');
         General = await import('../../src/util/general');
+        Git = await import('../../src/util/git');
         Publish = await import('../../src/commands/publish');
 
         // Setup default mocks
@@ -142,6 +165,11 @@ describe('publish command', () => {
         General.checkIfTagExists.mockResolvedValue(false); // Default: tag doesn't exist
         General.confirmVersionInteractively.mockImplementation(async (current: string, proposed: string) => proposed);
         General.validateVersionString.mockReturnValue(true);
+
+        // Git mocks for branch sync functionality
+        Git.localBranchExists.mockResolvedValue(true);
+        Git.isBranchInSyncWithRemote.mockResolvedValue({ inSync: true, localExists: true, remoteExists: true });
+        Git.safeSyncBranchWithRemote.mockResolvedValue({ success: true });
     });
 
     afterEach(() => {
@@ -2416,4 +2444,237 @@ cache=\${CACHE_DIR}/npm
             }
         });
     });
+
+    describe('branch sync functionality', () => {
+        describe('--sync-target flag', () => {
+            it('should call sync recovery and exit early when --sync-target is provided', async () => {
+                const mockConfig = {
+                    dryRun: false,
+                    outputDirectory: './output',
+                    publish: {
+                        syncTarget: true,
+                        targetBranch: 'main'
+                    }
+                };
+
+                Storage.create.mockReturnValue(mockStorage);
+                Git.safeSyncBranchWithRemote.mockResolvedValue({ success: true });
+
+                await Publish.execute(mockConfig);
+
+                expect(Git.safeSyncBranchWithRemote).toHaveBeenCalledWith('main');
+                // Should not proceed with normal publish flow
+                expect(GitHub.createPullRequest).not.toHaveBeenCalled();
+            });
+
+            it('should handle sync failure with conflicts', async () => {
+                const mockConfig = {
+                    dryRun: false,
+                    outputDirectory: './output',
+                    publish: {
+                        syncTarget: true,
+                        targetBranch: 'main'
+                    }
+                };
+
+                Storage.create.mockReturnValue(mockStorage);
+                Git.safeSyncBranchWithRemote.mockResolvedValue({
+                    success: false,
+                    conflictResolutionRequired: true,
+                    error: 'Branch has diverged'
+                });
+
+                await expect(Publish.execute(mockConfig)).rejects.toThrow('conflicts that require manual resolution');
+                expect(Git.safeSyncBranchWithRemote).toHaveBeenCalledWith('main');
+            });
+        });
+
+        describe('target branch sync check in prechecks', () => {
+                        it('should pass when target branch is in sync', async () => {
+                const mockConfig = {
+                    dryRun: false,
+                    outputDirectory: './output',
+                    publish: {
+                        targetBranch: 'main'
+                    }
+                };
+
+                // Mock setup for successful publish
+                mockStorage.exists.mockResolvedValue(true); // package.json exists
+                mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
+                Storage.create.mockReturnValue(mockStorage);
+
+                Child.run.mockImplementation((command: string) => {
+                    if (command === 'git rev-parse --git-dir') {
+                        return Promise.resolve({ stdout: '.git' });
+                    }
+                    if (command === 'git status --porcelain') {
+                        return Promise.resolve({ stdout: '' });
+                    }
+                    if (command === 'git log -1 --pretty=%B') {
+                        return Promise.resolve({ stdout: 'test commit' });
+                    }
+                    return Promise.resolve({ stdout: '' });
+                });
+                Child.runWithDryRunSupport.mockResolvedValue(undefined);
+
+                Git.localBranchExists.mockResolvedValue(true);
+                Git.isBranchInSyncWithRemote.mockResolvedValue({
+                    inSync: true,
+                    localExists: true,
+                    remoteExists: true
+                });
+
+                GitHub.getCurrentBranchName.mockResolvedValue('feature-branch');
+                GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+                GitHub.createPullRequest.mockResolvedValue({
+                    number: 123,
+                    html_url: 'https://github.com/test/repo/pull/123',
+                    labels: []
+                });
+                Diff.hasStagedChanges.mockResolvedValue(true);
+                Release.execute.mockResolvedValue({ title: 'Release v1.0.1', body: 'Release notes' });
+
+                // Should not throw error
+                await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+                expect(Git.isBranchInSyncWithRemote).toHaveBeenCalledWith('main');
+            });
+
+            it('should fail when target branch is not in sync', async () => {
+                const mockConfig = {
+                    dryRun: false,
+                    outputDirectory: './output',
+                    publish: {
+                        targetBranch: 'main'
+                    }
+                };
+
+                mockStorage.exists.mockResolvedValue(true); // package.json exists
+                mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
+                Storage.create.mockReturnValue(mockStorage);
+
+                Child.run.mockImplementation((command: string) => {
+                    if (command === 'git rev-parse --git-dir') {
+                        return Promise.resolve({ stdout: '.git' });
+                    }
+                    if (command === 'git status --porcelain') {
+                        return Promise.resolve({ stdout: '' });
+                    }
+                    return Promise.resolve({ stdout: '' });
+                });
+
+                GitHub.getCurrentBranchName.mockResolvedValue('feature-branch');
+                Git.localBranchExists.mockResolvedValue(true);
+                Git.isBranchInSyncWithRemote.mockResolvedValue({
+                    inSync: false,
+                    localExists: true,
+                    remoteExists: true,
+                    localSha: 'abc123',
+                    remoteSha: 'def456'
+                });
+
+                await expect(Publish.execute(mockConfig)).rejects.toThrow('not in sync with remote');
+                expect(Git.isBranchInSyncWithRemote).toHaveBeenCalledWith('main');
+            });
+
+                        it('should skip sync check when target branch does not exist locally', async () => {
+                const mockConfig = {
+                    dryRun: false,
+                    outputDirectory: './output',
+                    publish: {
+                        targetBranch: 'main'
+                    }
+                };
+
+                mockStorage.exists.mockResolvedValue(true); // package.json exists
+                mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
+                Storage.create.mockReturnValue(mockStorage);
+
+                Child.run.mockImplementation((command: string) => {
+                    if (command === 'git rev-parse --git-dir') {
+                        return Promise.resolve({ stdout: '.git' });
+                    }
+                    if (command === 'git status --porcelain') {
+                        return Promise.resolve({ stdout: '' });
+                    }
+                    if (command === 'git log -1 --pretty=%B') {
+                        return Promise.resolve({ stdout: 'test commit' });
+                    }
+                    return Promise.resolve({ stdout: '' });
+                });
+                Child.runWithDryRunSupport.mockResolvedValue(undefined);
+
+                GitHub.getCurrentBranchName.mockResolvedValue('feature-branch');
+                Git.localBranchExists.mockResolvedValue(false); // Target branch doesn't exist locally
+
+                GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+                GitHub.createPullRequest.mockResolvedValue({
+                    number: 123,
+                    html_url: 'https://github.com/test/repo/pull/123',
+                    labels: []
+                });
+                Diff.hasStagedChanges.mockResolvedValue(true);
+                Release.execute.mockResolvedValue({ title: 'Release v1.0.1', body: 'Release notes' });
+
+                // Should not throw error and skip sync check
+                await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+                expect(Git.localBranchExists).toHaveBeenCalledWith('main');
+                expect(Git.isBranchInSyncWithRemote).not.toHaveBeenCalled();
+            });
+        });
+
+        describe('target branch sync during checkout', () => {
+                        it('should handle sync conflicts during target branch checkout', async () => {
+                const mockConfig = {
+                    dryRun: false,
+                    outputDirectory: './output',
+                    publish: {
+                        targetBranch: 'main'
+                    }
+                };
+
+                mockStorage.exists.mockResolvedValue(true); // package.json exists
+                mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
+                Storage.create.mockReturnValue(mockStorage);
+
+                // Mock successful initial flow
+                Child.run.mockImplementation((command: string) => {
+                    if (command === 'git rev-parse --git-dir') {
+                        return Promise.resolve({ stdout: '.git' });
+                    }
+                    if (command === 'git status --porcelain') {
+                        return Promise.resolve({ stdout: '' });
+                    }
+                    if (command === 'git log -1 --pretty=%B') {
+                        return Promise.resolve({ stdout: 'test commit' });
+                    }
+                    return Promise.resolve({ stdout: '' });
+                });
+
+                // Mock git pull failure during target branch sync
+                Child.runWithDryRunSupport.mockImplementation((command: string) => {
+                    if (command.includes('git pull origin main')) {
+                        return Promise.reject(new Error('CONFLICT: Merge conflict in file.txt'));
+                    }
+                    return Promise.resolve(undefined);
+                });
+
+                GitHub.getCurrentBranchName.mockResolvedValue('feature-branch');
+                GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+                GitHub.createPullRequest.mockResolvedValue({
+                    number: 123,
+                    html_url: 'https://github.com/test/repo/pull/123',
+                    labels: []
+                });
+                GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+                GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+                Diff.hasStagedChanges.mockResolvedValue(true);
+                Release.execute.mockResolvedValue({ title: 'Release v1.0.1', body: 'Release notes' });
+
+
+                await expect(Publish.execute(mockConfig)).rejects.toThrow("Target branch 'main' sync failed");
+            });
+    });
+});
 });

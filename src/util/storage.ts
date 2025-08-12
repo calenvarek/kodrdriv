@@ -110,7 +110,32 @@ export const create = (params: { log?: (message: string, ...args: any[]) => void
 
     const ensureDirectory = async (path: string): Promise<void> => {
         if (!(await exists(path))) {
-            await createDirectory(path);
+            // Before creating the directory, check if any parent directory is blocked by a file
+            try {
+                await fs.promises.mkdir(path, { recursive: true });
+            } catch (mkdirError: any) {
+                // If mkdir fails with ENOTDIR, it means a parent directory is actually a file
+                if (mkdirError.code === 'ENOTDIR') {
+                    // Find which parent directory is the problem
+                    const pathParts = path.split('/').filter(p => p !== '');
+                    let currentPath = '';
+                    for (const part of pathParts) {
+                        currentPath = currentPath ? `${currentPath}/${part}` : part;
+                        if (await exists(currentPath) && !(await isDirectory(currentPath))) {
+                            throw new Error(`Cannot create directory at ${path}: a file exists at ${currentPath} blocking the path`);
+                        }
+                    }
+                }
+                // Re-throw the original error if it's not the file-blocking-path issue or we couldn't find the blocking file
+                throw new Error(`Failed to create output directory ${path}: ${mkdirError.message} ${mkdirError.stack}`);
+            }
+        } else {
+            // Path exists, but we need to check if it's actually a directory
+            if (!(await isDirectory(path))) {
+                // Path exists but is not a directory (likely a file)
+                throw new Error(`Cannot create directory at ${path}: a file already exists at this location`);
+            }
+            // If we reach here, the directory already exists, so nothing to do
         }
     }
 

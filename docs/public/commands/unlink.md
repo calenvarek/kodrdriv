@@ -1,34 +1,56 @@
 # Unlink Command
 
-Remove workspace links and clean up problematic dependencies that could cause CI/CD build failures:
+Remove npm links and clean up local development dependencies that could cause CI/CD build failures:
 
 ```bash
 kodrdriv unlink
 ```
 
-The `unlink` command performs comprehensive cleanup of workspace dependencies by:
+The `unlink` command performs cleanup of local development setup by:
 
-1. **Restoring original dependencies** from backups created by the `link` command
-2. **Scanning and removing problematic dependencies** that cause GitHub build failures:
-   - `file:` dependencies
-   - `link:` dependencies
-   - Relative path patterns (`../`, `./`, `/`)
-   - `workspace:` protocol dependencies
-   - Workspace configurations in package.json
-   - Problematic overrides (npm 8.3+)
-   - Problematic resolutions (Yarn)
-3. **Automatically rebuilding dependencies** with `npm install`
-4. **Verifying cleanup completion** to ensure no problematic dependencies remain
+1. **Removing global npm link** with `npm unlink -g`
+2. **Optionally cleaning node_modules** (with `--clean-node-modules` flag):
+   - Removes `node_modules` and `package-lock.json`
+   - Reinstalls dependencies with `npm install`
+3. **Checking for remaining links** that could cause issues in CI/CD
+4. **Verifying cleanup completion** to ensure no problematic links remain
+
+## Single Project Mode (Default)
+
+When run without arguments, `kodrdriv unlink` operates on the current project:
+
+```bash
+# Basic unlink (removes global link only)
+kodrdriv unlink
+
+# With clean installation (removes node_modules and reinstalls)
+kodrdriv unlink --clean-node-modules
+```
+
+## Scope-based Unlinking
+
+When provided with a scope or package name, unlinks specific packages in the workspace:
+
+```bash
+# Unlink all packages in a scope
+kodrdriv unlink @mycompany
+
+# Unlink a specific package
+kodrdriv unlink @mycompany/core
+```
 
 ## Tree Mode Execution
 
-The unlink command can be executed across multiple packages using the tree command:
+The unlink command can be executed across multiple packages in dependency order using the tree command:
 
 ```bash
-# Execute unlink across all packages in workspace
+# Execute unlink across all packages in dependency order
 kodrdriv tree unlink
 
-# Execute with parallel processing
+# With clean installation for all packages
+kodrdriv tree unlink --clean-node-modules
+
+# Execute with parallel processing by dependency level
 kodrdriv tree unlink --parallel
 
 # Dry run to preview what would be unlinked
@@ -43,10 +65,10 @@ kodrdriv tree unlink --excluded-patterns "build-*" "temp-*"
 
 ### Tree Mode Benefits
 
-- **Configuration Isolation**: Each package uses its own workspace and unlinking configuration
-- **Workspace-wide Cleanup**: Automatically discovers and unlinks all workspace dependencies
+- **Dependency Order**: Unlinks packages in the correct dependency order
+- **Workspace-wide Cleanup**: Automatically discovers and unlinks all workspace packages
 - **Consistent Release Environment**: Ensures all packages are properly prepared for CI/CD
-- **Parallel Execution**: Independent packages can be unlinked simultaneously
+- **Parallel Execution**: Packages at the same dependency level can be unlinked simultaneously
 - **Error Recovery**: Resume from failed packages without affecting completed ones
 
 ### Tree Mode vs Single Package
@@ -54,7 +76,7 @@ kodrdriv tree unlink --excluded-patterns "build-*" "temp-*"
 | Aspect | Single Package | Tree Mode |
 |--------|---------------|-----------|
 | **Scope** | Current package only | All packages in workspace |
-| **Configuration** | Single workspace config | Per-package configuration |
+| **Order** | Single package | Dependency-ordered execution |
 | **Cleanup** | Limited to current package | Workspace-wide cleanup |
 | **Execution** | Single unlinking operation | Coordinated multi-package unlinking |
 | **Release Prep** | Manual coordination required | Automatic workspace-wide preparation |
@@ -91,38 +113,66 @@ For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in
 
 ## Command Options
 
-- `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories (same as link command)
-- `--workspace-file <workspaceFile>`: Workspace file to use (defaults to `pnpm-workspace.yaml`)
+- `--clean-node-modules`: Remove `node_modules` and `package-lock.json`, then reinstall dependencies
+- `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories (for scope-based unlinking)
 - `--dry-run`: Show what would be cleaned up without making any changes
 
 ## How It Works
 
-The unlink command reads from a `.kodrdriv-link-backup.json` file created by the `link` command to restore original dependency versions. It also performs a comprehensive scan of all package.json files to identify and remove various types of problematic dependencies that could cause build failures in CI/CD environments.
+### Single Project Mode
+
+When run without arguments, the unlink command:
+
+1. **Removes global npm link**: Runs `npm unlink -g` to remove the global link for the current package
+2. **Optionally cleans dependencies**: If `--clean-node-modules` is specified:
+   - Removes `node_modules` and `package-lock.json`
+   - Runs `npm install` to reinstall clean dependencies
+3. **Checks for remaining links**: Uses `npm ls --link --json` to detect any remaining linked packages
+4. **Reports warnings**: If links to packages in the same scope are found
+
+### Scope-based Mode
+
+When provided with a scope or package name, the unlink command finds all matching packages in the workspace and for each package:
+
+1. **Unlinks consuming packages**: Finds packages that depend on the target and runs `npm unlink <target>` in each
+2. **Unlinks source package**: Runs `npm unlink` in the target package directory
 
 ## Examples
 
 ```bash
-# Remove workspace links and clean up problematic dependencies
-kodrdriv unlink --scope-roots '{"@mycompany": "../"}'
+# Basic unlink (removes global link only)
+kodrdriv unlink
 
-# Preview what would be cleaned up (dry run)
+# With clean installation (removes node_modules and reinstalls)
+kodrdriv unlink --clean-node-modules
+
+# Preview what would be done (dry run)
 kodrdriv unlink --dry-run
 
-# Use custom workspace file
-kodrdriv unlink --workspace-file "custom-workspace.yaml"
+# Unlink all packages in a scope
+kodrdriv unlink @mycompany
+
+# Unlink a specific package
+kodrdriv unlink @mycompany/core
+
+# Tree mode: unlink all packages in dependency order
+kodrdriv tree unlink
+
+# Tree mode with clean installation
+kodrdriv tree unlink --clean-node-modules
 ```
 
 ## Output
 
 The command provides detailed information about:
-- Number of dependencies restored from backup
-- Number of problematic dependencies cleaned up
-- Verification results
-- npm install status
+- Whether the global link was removed successfully
+- Results of `node_modules` cleanup (if `--clean-node-modules` specified)
+- Dependencies installation status
+- Any remaining links detected
 
 ## Notes
 
-- If no scope roots are configured, the command will still scan for and clean up problematic dependencies
-- The command automatically runs `npm install` after cleanup to rebuild dependencies
-- A verification step ensures no problematic dependencies remain after cleanup
-- The backup file is updated to remove restored entries and deleted if empty
+- Without `--clean-node-modules`, only the global link is removed
+- The `--clean-node-modules` flag provides a more thorough cleanup but is more destructive
+- Link detection helps identify potential CI/CD issues before deployment
+- Tree mode executes unlink commands in dependency order to avoid breaking inter-package dependencies

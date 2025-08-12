@@ -322,5 +322,97 @@ describe('select-audio', () => {
             expect(path.join).toHaveBeenCalledWith('/test/home', '.unplayable', 'audio-device.json');
             expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', '/test/home/.unplayable/audio-device.json');
         });
+
+        it('should handle home directory error in dry run mode', async () => {
+            // Arrange
+            const mockConfig = {
+                dryRun: true,
+                debug: false
+            };
+            const mockLogger = Logging.getLogger();
+
+            // Mock os.homedir to throw an error
+            os.homedir.mockImplementation(() => {
+                throw new Error('Home directory not found');
+            });
+
+            // Act
+            const result = await SelectAudio.execute(mockConfig);
+
+            // Assert
+            expect(mockLogger.warn).toHaveBeenCalledWith('Error determining config path: %s', 'Failed to determine home directory: Home directory not found');
+            expect(result).toBe('Audio device selection completed (dry run)');
+        });
+    });
+
+    describe('home directory error handling', () => {
+        it('should handle home directory error during normal execution', async () => {
+            // Arrange
+            const mockConfig = {
+                dryRun: false,
+                debug: false
+            };
+
+            // Mock os.homedir to throw an error in the normal execution path
+            os.homedir.mockImplementation(() => {
+                throw new Error('Cannot access home directory');
+            });
+
+            // Act & Assert
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Cannot access home directory');
+            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Cannot access home directory');
+        });
+
+        it('should handle specific home directory error message patterns', async () => {
+            // Arrange
+            const mockConfig = {
+                dryRun: false,
+                debug: true
+            };
+
+            // Mock os.homedir to throw an error with specific message pattern
+            os.homedir.mockImplementation(() => {
+                throw new Error('ENOENT: no such file or directory');
+            });
+
+            // Act & Assert
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: ENOENT: no such file or directory');
+            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'ENOENT: no such file or directory');
+        });
+
+        it('should handle path.join error during normal execution', async () => {
+            // Arrange
+            const mockConfig = {
+                dryRun: false,
+                debug: false
+            };
+
+            // Mock path.join to throw an error
+            os.homedir.mockReturnValue('/home/user');
+            path.join.mockImplementation(() => {
+                throw new Error('Path join failed');
+            });
+
+            // Act & Assert
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Path join failed');
+            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Path join failed');
+        });
+
+        it('should handle home directory error with specific error message check', async () => {
+            // Arrange
+            const mockConfig = {
+                dryRun: false,
+                debug: false
+            };
+
+            // Mock os.homedir to throw an error that contains the specific message pattern
+            os.homedir.mockImplementation(() => {
+                throw new Error('Failed to determine home directory: permission denied');
+            });
+
+            // Act & Assert
+            await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Failed to determine home directory: permission denied');
+            expect(mockLogger.error).toHaveBeenCalledWith('❌ %s', 'Failed to determine home directory: permission denied');
+        });
     });
 });
