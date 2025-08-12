@@ -11,6 +11,7 @@ kodrdriv tree commit    # Run commit operations across packages
 kodrdriv tree publish   # Run publish operations across packages
 kodrdriv tree link      # Link workspace packages across packages
 kodrdriv tree unlink    # Unlink workspace packages across packages
+kodrdriv tree branches  # Display branch and status information across packages
 ```
 
 ## Key Features
@@ -168,6 +169,63 @@ kodrdriv tree unlink --dry-run
 kodrdriv tree unlink --start-from my-package
 ```
 
+### `kodrdriv tree branches`
+
+Displays a comprehensive branch and status overview across all packages in tabular format.
+
+**What it does:**
+- Shows current git branch for each package
+- Displays package version from package.json
+- Reports git status (clean, modified, ahead/behind, etc.)
+- Formats information in an easy-to-scan table
+
+**Usage:**
+```bash
+# Display branch status for all packages
+kodrdriv tree branches
+
+# Show branch status for specific directories
+kodrdriv tree branches --directories ./apps ./packages
+
+# Check branch status with package exclusions
+kodrdriv tree branches --excluded-patterns "temp-*" "build-*"
+
+# Analyze branches across multiple directory trees
+kodrdriv tree branches --directories ./client-apps ./server-packages ./shared-libs
+```
+
+**Example Output:**
+```
+Branch Status Summary:
+
+Package         | Branch        | Version | Status
+--------------- | ------------- | ------- | ------
+utils           | main          | 1.2.3   | clean
+core            | feature/auth  | 1.0.1   | modified
+api             | main          | 2.1.0   | ahead
+ui              | develop       | 1.5.2   | behind
+app             | main          | 3.0.0   | clean
+```
+
+**Use Cases:**
+- **Pre-release verification**: Ensure all packages are on the correct branch before publishing
+- **Development coordination**: See what branches team members are working on across packages
+- **Branch synchronization**: Identify packages that need git pulls or pushes
+- **Release preparation**: Verify workspace is ready for coordinated release
+- **Workspace overview**: Get a quick snapshot of the entire workspace state
+
+**Integration with Workflows:**
+```bash
+# Check workspace status before starting work
+kodrdriv tree branches
+
+# Verify all packages are ready for release
+kodrdriv tree branches | grep -v "main.*clean" && echo "Some packages not ready for release"
+
+# Use in CI/CD to verify branch consistency
+kodrdriv tree branches --directories ./packages | grep -v "main" && exit 1
+```
+
 ## Execution Order and Dependencies
 
 ### Dependency Levels
@@ -251,33 +309,45 @@ This continues from where the previous execution failed, skipping successfully c
 ### Complete Development Workflow
 
 ```bash
-# 1. Set up development environment
+# 1. Check workspace status
+kodrdriv tree branches
+
+# 2. Set up development environment
 kodrdriv tree --cmd "npm install"
 kodrdriv tree link
 
-# 2. Development iteration
+# 3. Development iteration
 kodrdriv tree --cmd "npm run build" --parallel
 kodrdriv tree --cmd "npm test"
 
-# 3. Commit changes
+# 4. Verify workspace before commit
+kodrdriv tree branches
+
+# 5. Commit changes
 kodrdriv tree commit
 
-# 4. Prepare for release
+# 6. Prepare for release
 kodrdriv tree unlink
 kodrdriv tree --cmd "npm run build" --parallel
 
-# 5. Publish release
-kodrdriv tree publish
+# 7. Publish release (with stop-at for staged releases)
+kodrdriv tree publish --stop-at main-app
+kodrdriv tree publish --start-from main-app
 ```
 
 ### CI/CD Pipeline Integration
 
 ```bash
 # In CI/CD pipeline
+kodrdriv tree branches                 # Verify branch consistency
 kodrdriv tree --cmd "npm ci"           # Install exact dependencies
 kodrdriv tree --cmd "npm run build"    # Build all packages
 kodrdriv tree --cmd "npm test"         # Test all packages
-kodrdriv tree publish                  # Publish if tests pass
+
+# Staged release process
+kodrdriv tree publish --stop-at integration-app  # Publish core packages first
+kodrdriv tree --cmd "npm run integration-test"   # Run integration tests
+kodrdriv tree publish --start-from integration-app  # Publish remaining packages
 ```
 
 ## Troubleshooting

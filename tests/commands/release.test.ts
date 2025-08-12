@@ -69,7 +69,7 @@ vi.mock('../../src/util/storage', () => ({
 
 vi.mock('../../src/constants', () => ({
     DEFAULT_EXCLUDED_PATTERNS: ['*.test.ts'],
-    DEFAULT_FROM_COMMIT_ALIAS: 'origin/HEAD',
+    DEFAULT_FROM_COMMIT_ALIAS: 'main',
     DEFAULT_TO_COMMIT_ALIAS: 'HEAD',
     DEFAULT_OUTPUT_DIRECTORY: 'output',
     DEFAULT_MAX_DIFF_BYTES: 2048
@@ -106,7 +106,7 @@ vi.mock('@riotprompt/riotprompt', () => ({
 }));
 
 vi.mock('../../src/util/git', () => ({
-    getDefaultFromRef: vi.fn().mockResolvedValue('origin/HEAD')
+    getDefaultFromRef: vi.fn().mockResolvedValue('main')
 }));
 
 describe('release command', () => {
@@ -726,7 +726,7 @@ describe('release command', () => {
             await Release.execute(runConfig);
 
             expect(mockDiff.create).toHaveBeenCalledWith({
-                from: 'origin/HEAD',
+                from: 'main',
                 to: 'HEAD',
                 excludedPatterns: ['*.test.ts'],
                 maxDiffBytes: 1024
@@ -755,7 +755,7 @@ describe('release command', () => {
             await Release.execute(runConfig);
 
             expect(mockLog.create).toHaveBeenCalledWith({
-                from: 'origin/HEAD',
+                from: 'main',
                 to: 'HEAD',
                 limit: 50
             });
@@ -814,12 +814,12 @@ describe('release command', () => {
             const result = await Release.execute(runConfig);
 
             expect(mockLog.create).toHaveBeenCalledWith({
-                from: 'origin/HEAD',
+                from: 'main',
                 to: 'HEAD',
                 limit: undefined
             });
             expect(mockDiff.create).toHaveBeenCalledWith({
-                from: 'origin/HEAD',
+                from: 'main',
                 to: 'HEAD',
                 excludedPatterns: ['*.test.ts'],
                 maxDiffBytes: 2048

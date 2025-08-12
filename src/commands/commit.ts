@@ -18,6 +18,8 @@ import { createCompletionWithRetry, getModelForCommand } from '../util/openai';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
+import { getRecentClosedIssuesForCommit } from '../util/github';
+import { safeJsonParse, validatePackageJson } from '../util/validation';
 import {
     getUserChoice,
     editContentInEditor,
@@ -28,7 +30,18 @@ import {
     LLMImprovementConfig
 } from '../util/interactive';
 
-
+// Helper function to get current version from package.json
+async function getCurrentVersion(storage: any): Promise<string | undefined> {
+    try {
+        const packageJsonContents = await storage.readFile('package.json', 'utf-8');
+        const packageJson = safeJsonParse(packageJsonContents, 'package.json');
+        const validated = validatePackageJson(packageJson, 'package.json');
+        return validated.version;
+    } catch {
+        // Return undefined if we can't read the version (not a critical failure)
+        return undefined;
+    }
+}
 
 // Helper function to edit commit message using editor
 async function editCommitMessageInteractively(commitMessage: string): Promise<string> {
@@ -392,6 +405,35 @@ const executeInternal = async (runConfig: Config) => {
     const log = await Log.create(logOptions);
     const logContext = await log.get();
 
+    // Always ensure output directory exists for request/response files and GitHub issues lookup
+    const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+    const storage = createStorage({ log: logger.info });
+    await storage.ensureDirectory(outputDirectory);
+
+    // Get GitHub issues context for large commits [[memory:5887795]]
+    let githubIssuesContext = '';
+    try {
+        const currentVersion = await getCurrentVersion(storage);
+        if (currentVersion) {
+            logger.debug(`Found current version: ${currentVersion}, fetching related GitHub issues...`);
+            githubIssuesContext = await getRecentClosedIssuesForCommit(currentVersion, 10);
+            if (githubIssuesContext) {
+                logger.debug(`Fetched GitHub issues context (${githubIssuesContext.length} characters)`);
+            } else {
+                logger.debug('No relevant GitHub issues found for commit context');
+            }
+        } else {
+            logger.debug('Could not determine current version, fetching recent issues without milestone filtering...');
+            githubIssuesContext = await getRecentClosedIssuesForCommit(undefined, 10);
+            if (githubIssuesContext) {
+                logger.debug(`Fetched general GitHub issues context (${githubIssuesContext.length} characters)`);
+            }
+        }
+    } catch (error: any) {
+        logger.debug(`Failed to fetch GitHub issues for commit context: ${error.message}`);
+        // Continue without GitHub context - this shouldn't block commit generation
+    }
+
     const promptConfig = {
         overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
@@ -400,6 +442,7 @@ const executeInternal = async (runConfig: Config) => {
         diffContent,
         userDirection: runConfig.commit?.direction,
         isFileContent: isUsingFileContent,
+        githubIssuesContext,
     };
     const promptContext = {
         logContext,
@@ -418,11 +461,6 @@ const executeInternal = async (runConfig: Config) => {
     }
 
     const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
-
-    // Always ensure output directory exists for request/response files
-    const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-    const storage = createStorage({ log: logger.info });
-    await storage.ensureDirectory(outputDirectory);
 
     // Create retry callback that reduces diff size on token limit errors
     const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {

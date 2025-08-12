@@ -39,7 +39,7 @@ kodrdriv tree link --excluded-patterns "test-*"
 kodrdriv tree unlink --dry-run
 ```
 
-**Supported Built-in Commands**: `commit`, `publish`, `link`, `unlink`
+**Supported Built-in Commands**: `commit`, `publish`, `link`, `unlink`, `branches`
 
 > [!IMPORTANT]
 > ### Configuration Isolation in Built-in Command Mode
@@ -67,9 +67,10 @@ For detailed documentation of built-in commands, see [Tree Built-in Commands](tr
 
 ## Command Options
 
-- `[command]`: Built-in kodrdriv command to execute (`commit`, `publish`, `link`, `unlink`)
+- `[command]`: Built-in kodrdriv command to execute (`commit`, `publish`, `link`, `unlink`, `branches`)
 - `--directories [directories...]`: Target directories containing multiple packages (defaults to current directory). Multiple directories can be specified to analyze dependencies across separate directory trees. This option replaces the previous `--directory` option and enables analysis across multiple directory structures.
 - `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
+- `--stop-at <stopAt>`: Stop execution before this package directory name (the specified package will not be executed)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
 - `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
 - `--excluded-patterns [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
@@ -208,6 +209,54 @@ kodrdriv tree publish --start-from my-package
 # Resume custom commands
 kodrdriv tree --cmd "npm run test" --start-from my-package
 ```
+
+### Stop at Specific Package
+
+Stop execution before reaching a specific package (useful for partial operations):
+
+```bash
+# Stop before publishing the main application package
+kodrdriv tree publish --stop-at main-app
+
+# Run tests only up to a certain package
+kodrdriv tree --cmd "npm test" --stop-at integration-tests
+
+# Combine start-from and stop-at for precise range control
+kodrdriv tree commit --start-from package-b --stop-at package-d
+```
+
+The `--stop-at` option is particularly useful for:
+- **Partial deployments**: Stop before certain packages that shouldn't be published yet
+- **Testing workflows**: Run tests only up to a specific point in the dependency chain
+- **Development isolation**: Work on a subset of packages without affecting the entire workspace
+- **Staged releases**: Release packages in controlled batches
+
+### Branch Status Overview
+
+View git branch and status information across all packages:
+
+```bash
+# Display branch status table for all packages
+kodrdriv tree branches
+
+# Show branch status for specific directories
+kodrdriv tree branches --directories ./apps ./packages
+
+# Check branch status with exclusions
+kodrdriv tree branches --excluded-patterns "temp-*" "test-*"
+```
+
+The `branches` command provides a comprehensive overview of:
+- **Current branch** for each package
+- **Package version** from package.json
+- **Git status** (clean, modified, ahead/behind, etc.)
+- **Formatted table** for easy scanning across large workspaces
+
+This is especially useful for:
+- **Pre-release checks**: Ensure all packages are on the correct branch before publishing
+- **Development coordination**: See which packages team members are working on
+- **Branch synchronization**: Identify packages that need branch updates or merges
+- **Release preparation**: Verify all packages are ready for a coordinated release
 
 ### Multiple Custom Directories
 

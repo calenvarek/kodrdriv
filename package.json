@@ -12,7 +12,7 @@
     "url": "git+https://github.com/calenvarek/kodrdriv.git"
   },
   "scripts": {
-    "build": "npm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist",
+    "build": "npm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist && chmod 755 ./dist/main.js",
     "start": "dist/main.js",
     "dev": "vite",
     "watch": "vite build --watch",
@@ -41,6 +41,7 @@
     "@riotprompt/riotprompt": "^0.0.8",
     "@theunwalked/cardigantime": "^0.0.16",
     "@theunwalked/unplayable": "^0.0.21",
+    "@types/semver": "^7.7.0",
     "commander": "^14.0.0",
     "dayjs": "^1.11.13",
     "dotenv": "^17.2.1",
@@ -48,6 +49,7 @@
     "js-yaml": "^4.1.0",
     "moment-timezone": "^0.6.0",
     "openai": "^5.10.2",
+    "semver": "^7.7.2",
     "shell-escape": "^0.2.0",
     "winston": "^3.17.0",
     "zod": "^3.23.8"

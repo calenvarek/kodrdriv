@@ -40,8 +40,11 @@ export const InputSchema = z.object({
     mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
     syncTarget: z.boolean().optional(),
     scopeRoots: z.string().optional(),
+    workspaceFile: z.string().optional(),
+    cleanNodeModules: z.boolean().optional(),
 
     startFrom: z.string().optional(),
+    stopAt: z.string().optional(),
     script: z.string().optional(),
     cmd: z.string().optional(),
     publish: z.boolean().optional(),
@@ -60,6 +63,8 @@ export const InputSchema = z.object({
     directory: z.string().optional(), // Add directory option at top level (for audio commands)
     directories: z.array(z.string()).optional(), // Add directories option at top level (for tree commands)
     keepTemp: z.boolean().optional(), // Keep temporary recording files
+    noMilestones: z.boolean().optional(), // Disable GitHub milestone integration
+    subcommand: z.string().optional(), // Subcommand for versions command
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -108,7 +113,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'release' options
-    if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined) {
+    if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined) {
         transformedCliArgs.release = {};
         if (finalCliArgs.from !== undefined) transformedCliArgs.release.from = finalCliArgs.from;
         if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
@@ -116,20 +121,23 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.interactive !== undefined) transformedCliArgs.release.interactive = finalCliArgs.interactive;
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.release.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.maxDiffBytes !== undefined) transformedCliArgs.release.maxDiffBytes = finalCliArgs.maxDiffBytes;
+        if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.release.noMilestones = finalCliArgs.noMilestones;
     }
 
     // Nested mappings for 'publish' options (only when it's actually a publish command or has publish-specific options)
-    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.interactive !== undefined))) {
+    if (finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.noMilestones !== undefined || (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.interactive !== undefined))) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
         if (finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
         if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.publish.targetVersion = finalCliArgs.targetVersion;
         if (finalCliArgs.interactive !== undefined) transformedCliArgs.publish.interactive = finalCliArgs.interactive;
         if (finalCliArgs.syncTarget !== undefined) transformedCliArgs.publish.syncTarget = finalCliArgs.syncTarget;
+        if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.publish.noMilestones = finalCliArgs.noMilestones;
     }
 
-    // Nested mappings for 'link' and 'unlink' options (both use the same configuration)
-    if (finalCliArgs.scopeRoots !== undefined) {
+    // Nested mappings for 'link' and 'unlink' options
+    const linkPackageArgument = (finalCliArgs as any).packageArgument;
+    if (finalCliArgs.scopeRoots !== undefined || (commandName === 'link' && linkPackageArgument !== undefined)) {
         transformedCliArgs.link = {};
         if (finalCliArgs.scopeRoots !== undefined) {
             try {
@@ -138,6 +146,28 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             } catch (error) {
                 throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
             }
+        }
+        if (commandName === 'link' && linkPackageArgument !== undefined) {
+            transformedCliArgs.link.packageArgument = linkPackageArgument;
+        }
+    }
+
+    // Nested mappings for 'unlink' options
+    const unlinkPackageArgument = (finalCliArgs as any).packageArgument;
+
+    if (commandName === 'unlink' && (finalCliArgs.scopeRoots !== undefined || unlinkPackageArgument !== undefined || finalCliArgs.workspaceFile !== undefined || finalCliArgs.cleanNodeModules !== undefined)) {
+        transformedCliArgs.unlink = {};
+        if (finalCliArgs.scopeRoots !== undefined) {
+            try {
+                transformedCliArgs.unlink.scopeRoots = safeJsonParse(finalCliArgs.scopeRoots, 'scopeRoots CLI argument');
+            } catch (error) {
+                throw new Error(`Invalid JSON for scope-roots: ${finalCliArgs.scopeRoots}`);
+            }
+        }
+        if (finalCliArgs.workspaceFile !== undefined) transformedCliArgs.unlink.workspaceFile = finalCliArgs.workspaceFile;
+        if (finalCliArgs.cleanNodeModules !== undefined) transformedCliArgs.unlink.cleanNodeModules = finalCliArgs.cleanNodeModules;
+        if (unlinkPackageArgument !== undefined) {
+            transformedCliArgs.unlink.packageArgument = unlinkPackageArgument;
         }
     }
 
@@ -201,17 +231,35 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     if (commandName === 'tree') {
         const treeExcludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.excludedPaths;
         const builtInCommand = (finalCliArgs as any).builtInCommand;
-        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || treeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.parallel !== undefined || builtInCommand !== undefined || finalCliArgs.continue !== undefined) {
+        const packageArgument = (finalCliArgs as any).packageArgument;
+        if (finalCliArgs.directory !== undefined || finalCliArgs.directories !== undefined || treeExcludedPatterns !== undefined || finalCliArgs.startFrom !== undefined || finalCliArgs.stopAt !== undefined || finalCliArgs.cmd !== undefined || finalCliArgs.parallel !== undefined || builtInCommand !== undefined || finalCliArgs.continue !== undefined || packageArgument !== undefined || finalCliArgs.cleanNodeModules !== undefined) {
             transformedCliArgs.tree = {};
             if (finalCliArgs.directories !== undefined) transformedCliArgs.tree.directories = finalCliArgs.directories;
             else if (finalCliArgs.directory !== undefined) transformedCliArgs.tree.directories = [finalCliArgs.directory];
             if (treeExcludedPatterns !== undefined) transformedCliArgs.tree.excludedPatterns = treeExcludedPatterns;
             if (finalCliArgs.startFrom !== undefined) transformedCliArgs.tree.startFrom = finalCliArgs.startFrom;
+            if (finalCliArgs.stopAt !== undefined) transformedCliArgs.tree.stopAt = finalCliArgs.stopAt;
             if (finalCliArgs.cmd !== undefined) transformedCliArgs.tree.cmd = finalCliArgs.cmd;
             if (finalCliArgs.parallel !== undefined) transformedCliArgs.tree.parallel = finalCliArgs.parallel;
             if (builtInCommand !== undefined) transformedCliArgs.tree.builtInCommand = builtInCommand;
             if (finalCliArgs.continue !== undefined) transformedCliArgs.tree.continue = finalCliArgs.continue;
+            if (packageArgument !== undefined) transformedCliArgs.tree.packageArgument = packageArgument;
+            if (finalCliArgs.cleanNodeModules !== undefined) transformedCliArgs.tree.cleanNodeModules = finalCliArgs.cleanNodeModules;
         }
+    }
+
+    // Nested mappings for 'development' options
+    if (commandName === 'development' && (finalCliArgs.targetVersion !== undefined || finalCliArgs.noMilestones !== undefined)) {
+        transformedCliArgs.development = {};
+        if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.development.targetVersion = finalCliArgs.targetVersion;
+        if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.development.noMilestones = finalCliArgs.noMilestones;
+    }
+
+    // Nested mappings for 'versions' options
+    if (commandName === 'versions' && (finalCliArgs.subcommand !== undefined || finalCliArgs.directories !== undefined)) {
+        transformedCliArgs.versions = {};
+        if (finalCliArgs.subcommand !== undefined) transformedCliArgs.versions.subcommand = finalCliArgs.subcommand;
+        if (finalCliArgs.directories !== undefined) transformedCliArgs.versions.directories = finalCliArgs.directories;
     }
 
     // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
@@ -488,6 +536,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--context <context>', 'context for the commit message')
         .option('--interactive', 'Present release notes for interactive review and editing')
         .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
+        .option('--no-milestones', 'disable GitHub milestone integration')
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
@@ -499,19 +548,22 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .option('--sync-target', 'attempt to automatically sync target branch with remote before publishing')
+        .option('--no-milestones', 'disable GitHub milestone integration')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
     const treeCommand = program
-        .command('tree [command]')
+        .command('tree [command] [packageArgument]')
         .option('--directory <directory>', 'target directory containing multiple packages (defaults to current directory)')
         .option('--directories [directories...]', 'target directories containing multiple packages (defaults to current directory)')
         .option('--start-from <startFrom>', 'resume execution from this package directory name (useful for restarting failed builds)')
+        .option('--stop-at <stopAt>', 'stop execution at this package directory name (the specified package will not be executed)')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .option('--continue', 'continue from previous tree publish execution')
-        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink');
+        .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
+        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches');
     addSharedOptions(treeCommand);
 
     const linkCommand = program
@@ -523,6 +575,7 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
     const unlinkCommand = program
         .command('unlink')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
+        .option('--clean-node-modules', 'remove node_modules and package-lock.json, then reinstall dependencies')
         .description('Restore original dependencies and rebuild node_modules');
     addSharedOptions(unlinkCommand);
 
@@ -637,6 +690,19 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .description('Remove the output directory and all generated files');
     addSharedOptions(cleanCommand);
 
+    const developmentCommand = program
+        .command('development')
+        .option('--target-version <targetVersion>', 'target version bump type (patch, minor, major) or explicit version (e.g., "2.1.0")', 'patch')
+        .option('--no-milestones', 'disable GitHub milestone integration')
+        .description('Switch to working branch and set up development version');
+    addSharedOptions(developmentCommand);
+
+    const versionsCommand = program
+        .command('versions <subcommand>')
+        .option('--directories [directories...]', 'directories to scan for packages (defaults to current directory)')
+        .description('Update dependency versions across packages. Subcommands: minor');
+    addSharedOptions(versionsCommand);
+
     const selectAudioCommand = program
         .command('select-audio')
         .description('Interactively select and save audio device for recording');
@@ -678,16 +744,31 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             commandOptions = publishCommand.opts<Partial<Input>>();
         } else if (commandName === 'tree' && treeCommand.opts) {
             commandOptions = treeCommand.opts<Partial<Input>>();
-            // Handle positional argument for built-in command
+            // Handle positional arguments for built-in command and package argument
             const args = treeCommand.args;
             if (args && args.length > 0 && args[0]) {
                 // Store the built-in command for later processing
                 (commandOptions as any).builtInCommand = args[0];
+
+                // For link/unlink commands, store additional arguments as package arguments
+                if ((args[0] === 'link' || args[0] === 'unlink') && args.length > 1 && args[1]) {
+                    (commandOptions as any).packageArgument = args[1];
+                }
             }
         } else if (commandName === 'link' && linkCommand.opts) {
             commandOptions = linkCommand.opts<Partial<Input>>();
+            // Handle positional argument for package specification
+            const args = linkCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                (commandOptions as any).packageArgument = args[0];
+            }
         } else if (commandName === 'unlink' && unlinkCommand.opts) {
             commandOptions = unlinkCommand.opts<Partial<Input>>();
+            // Handle positional argument for package specification
+            const args = unlinkCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                (commandOptions as any).packageArgument = args[0];
+            }
         } else if (commandName === 'audio-review' && audioReviewCommand.opts) {
             commandOptions = audioReviewCommand.opts<Partial<Input>>();
         } else if (commandName === 'review' && reviewCommand.opts) {
@@ -705,6 +786,15 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             }
         } else if (commandName === 'clean' && cleanCommand.opts) {
             commandOptions = cleanCommand.opts<Partial<Input>>();
+        } else if (commandName === 'development' && developmentCommand.opts) {
+            commandOptions = developmentCommand.opts<Partial<Input>>();
+        } else if (commandName === 'versions' && versionsCommand.opts) {
+            commandOptions = versionsCommand.opts<Partial<Input>>();
+            // Handle positional argument for subcommand
+            const args = versionsCommand.args;
+            if (args && args.length > 0 && args[0]) {
+                commandOptions.subcommand = args[0];
+            }
         } else if (commandName === 'select-audio' && selectAudioCommand.opts) {
             commandOptions = selectAudioCommand.opts<Partial<Input>>();
         }
@@ -763,31 +853,43 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         },
         audioCommit: {
             ...KODRDRIV_DEFAULTS.audioCommit,
-            ...options.audioCommit,
+            ...Object.fromEntries(Object.entries(options.audioCommit || {}).filter(([_, v]) => v !== undefined)),
         },
         release: {
             ...KODRDRIV_DEFAULTS.release,
-            ...options.release,
+            ...Object.fromEntries(Object.entries(options.release || {}).filter(([_, v]) => v !== undefined)),
         },
         audioReview: {
             ...KODRDRIV_DEFAULTS.audioReview,
-            ...options.audioReview,
+            ...Object.fromEntries(Object.entries(options.audioReview || {}).filter(([_, v]) => v !== undefined)),
         },
         review: {
             ...KODRDRIV_DEFAULTS.review,
-            ...options.review,
+            ...Object.fromEntries(Object.entries(options.review || {}).filter(([_, v]) => v !== undefined)),
         },
         publish: {
             ...KODRDRIV_DEFAULTS.publish,
-            ...options.publish,
+            ...Object.fromEntries(Object.entries(options.publish || {}).filter(([_, v]) => v !== undefined)),
         },
         link: {
             ...KODRDRIV_DEFAULTS.link,
-            ...options.link,
+            ...Object.fromEntries(Object.entries(options.link || {}).filter(([_, v]) => v !== undefined)),
+        },
+        unlink: {
+            ...KODRDRIV_DEFAULTS.unlink,
+            ...Object.fromEntries(Object.entries(options.unlink || {}).filter(([_, v]) => v !== undefined)),
         },
         tree: {
             ...KODRDRIV_DEFAULTS.tree,
-            ...options.tree,
+            ...Object.fromEntries(Object.entries(options.tree || {}).filter(([_, v]) => v !== undefined)),
+        },
+        development: {
+            ...KODRDRIV_DEFAULTS.development,
+            ...Object.fromEntries(Object.entries(options.development || {}).filter(([_, v]) => v !== undefined)),
+        },
+        versions: {
+            ...KODRDRIV_DEFAULTS.versions,
+            ...Object.fromEntries(Object.entries(options.versions || {}).filter(([_, v]) => v !== undefined)),
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
     };

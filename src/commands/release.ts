@@ -14,6 +14,7 @@ import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
 import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
+import * as GitHub from '../util/github';
 import {
     getUserChoice,
     editContentInEditor,
@@ -214,10 +215,76 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
     };
+    // Helper function to determine versions for milestone lookup
+    const determineVersionsForMilestones = async (): Promise<string[]> => {
+        const versions: string[] = [];
+
+        // Get current package.json version to determine likely release version
+        try {
+            const storage = createStorage({ log: () => {} });
+            const packageJsonContents = await storage.readFile('package.json', 'utf-8');
+            const packageJson = JSON.parse(packageJsonContents);
+            const currentVersion = packageJson.version;
+
+            if (currentVersion) {
+                // If it's a dev version (e.g., "0.1.1-dev.0"), extract base version
+                if (currentVersion.includes('-dev.')) {
+                    const baseVersion = currentVersion.split('-')[0];
+                    versions.push(baseVersion);
+                    logger.debug(`Detected dev version ${currentVersion}, will check milestone for ${baseVersion}`);
+                } else {
+                    // Use current version as-is
+                    versions.push(currentVersion);
+                    logger.debug(`Using current version ${currentVersion} for milestone lookup`);
+                }
+            }
+        } catch (error: any) {
+            logger.debug(`Failed to read package.json version: ${error.message}`);
+        }
+
+        // Handle edge case: if publish targetVersion is different from current version
+        if (runConfig.publish?.targetVersion &&
+            runConfig.publish.targetVersion !== 'patch' &&
+            runConfig.publish.targetVersion !== 'minor' &&
+            runConfig.publish.targetVersion !== 'major') {
+
+            const targetVersion = runConfig.publish.targetVersion;
+            if (!versions.includes(targetVersion)) {
+                versions.push(targetVersion);
+                logger.debug(`Added target version ${targetVersion} for milestone lookup`);
+            }
+        }
+
+        return versions;
+    };
+
+    // Get milestone issues if enabled
+    let milestoneIssuesContent = '';
+    const milestonesEnabled = !runConfig.release?.noMilestones;
+
+    if (milestonesEnabled) {
+        logger.info('🔍 Checking for milestone issues to include in release notes...');
+        const versions = await determineVersionsForMilestones();
+
+        if (versions.length > 0) {
+            milestoneIssuesContent = await GitHub.getMilestoneIssuesForRelease(versions, 50000);
+            if (milestoneIssuesContent) {
+                logger.info('📋 Incorporated milestone issues into release notes context');
+            } else {
+                logger.debug('No milestone issues found to incorporate');
+            }
+        } else {
+            logger.debug('No versions determined for milestone lookup');
+        }
+    } else {
+        logger.debug('Milestone integration disabled via --no-milestones');
+    }
+
     const promptContent = {
         logContent,
         diffContent,
         releaseFocus: runConfig.release?.focus,
+        milestoneIssues: milestoneIssuesContent,
     };
     const promptContext = {
         context: runConfig.release?.context,
@@ -256,6 +323,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
             logContent: originalLogContent,
             diffContent: reducedDiffContent,
             releaseFocus: runConfig.release?.focus,
+            milestoneIssues: milestoneIssuesContent,
         };
         const reducedPromptContext = {
             context: runConfig.release?.context,

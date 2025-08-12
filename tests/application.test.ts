@@ -65,6 +65,14 @@ vi.mock('../src/commands/tree', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../src/commands/development', () => ({
+    execute: vi.fn()
+}));
+
+vi.mock('../src/commands/versions', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../src/constants', () => ({
     COMMAND_AUDIO_COMMIT: 'audio-commit',
     COMMAND_AUDIO_REVIEW: 'audio-review',
@@ -81,6 +89,8 @@ vi.mock('../src/constants', () => ({
     COMMAND_SELECT_AUDIO: 'select-audio',
     COMMAND_TREE: 'tree',
     COMMAND_UNLINK: 'unlink',
+    COMMAND_DEVELOPMENT: 'development',
+    COMMAND_VERSIONS: 'versions',
     DEFAULT_CONFIG_DIR: '.kodrdriv',
     VERSION: '0.0.52-test'
 }));
@@ -136,6 +146,7 @@ describe('Application module', () => {
             Review: await import('../src/commands/review'),
             SelectAudio: await import('../src/commands/select-audio'),
             Tree: await import('../src/commands/tree'),
+            Development: await import('../src/commands/development'),
         };
         Application = await import('../src/application');
 
@@ -492,6 +503,22 @@ describe('Application module', () => {
             expect(console.log).toHaveBeenCalledWith('\n\nTree completed successfully\n\n');
         });
 
+        it('should execute development command', async () => {
+            process.argv = ['node', 'main.js', 'development'];
+            Commands.Development.execute.mockResolvedValue('Development completed successfully');
+
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'development' }
+            ]);
+
+            await Application.runApplication();
+
+            expect(Commands.Development.execute).toHaveBeenCalled();
+            expect(console.log).toHaveBeenCalledWith('\n\nDevelopment completed successfully\n\n');
+        });
+
         it('should handle tree command with built-in commit command', async () => {
             process.argv = ['node', 'main.js', 'tree', 'commit'];
             Commands.Tree.execute.mockResolvedValue('Tree commit completed successfully');
@@ -673,6 +700,38 @@ describe('Application module', () => {
 
             // Debug should be called last, taking precedence
             expect(Logging.setLogLevel).toHaveBeenCalledWith('debug');
+        });
+
+        it('should print debug command and version info when debug flag is enabled', async () => {
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: true },
+                {},
+                { commandName: 'commit' }
+            ]);
+
+            await Application.runApplication();
+
+            // Check that debug info is printed
+            expect(mockLogger.info).toHaveBeenCalledWith('=== KODRDRIV DEBUG INFO ===');
+            expect(mockLogger.info).toHaveBeenCalledWith('Command: %s', 'commit');
+            expect(mockLogger.info).toHaveBeenCalledWith('Version: %s', '0.0.52-test');
+            expect(mockLogger.info).toHaveBeenCalledWith('===========================');
+        });
+
+        it('should not print debug command and version info when debug flag is disabled', async () => {
+            Arguments.configure.mockResolvedValue([
+                { verbose: false, debug: false },
+                {},
+                { commandName: 'commit' }
+            ]);
+
+            await Application.runApplication();
+
+            // Check that debug info is NOT printed
+            expect(mockLogger.info).not.toHaveBeenCalledWith('=== KODRDRIV DEBUG INFO ===');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('Command: %s', 'commit');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('Version: %s', '0.0.52-test');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('===========================');
         });
 
         it('should display version information', async () => {

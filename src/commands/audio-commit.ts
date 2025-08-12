@@ -8,6 +8,7 @@ import { Config } from '../types';
 import { getTimestampedAudioFilename } from '../util/general';
 import { transcribeAudio } from '../util/openai';
 import { execute as executeCommit } from './commit';
+import { createAudioRecordingCountdown } from '../util/countdown';
 
 const executeInternal = async (runConfig: Config): Promise<string> => {
     const isDryRun = runConfig.dryRun || false;
@@ -37,13 +38,34 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
             logger.info('Press ENTER to stop recording or C to cancel');
         }
 
-        // Use processAudio with proper configuration
-        const audioResult = await processAudio({
-            file: runConfig.audioCommit?.file,
-            maxRecordingTime: runConfig.audioCommit?.maxRecordingTime,
-            outputDirectory: runConfig.outputDirectory || 'output',
-            debug: runConfig.debug
-        });
+        // Start countdown timer if recording (not processing a file) and maxRecordingTime is set
+        const maxRecordingTime = runConfig.audioCommit?.maxRecordingTime;
+        const isRecording = !runConfig.audioCommit?.file;
+        let countdownTimer: ReturnType<typeof createAudioRecordingCountdown> | null = null;
+
+        if (isRecording && maxRecordingTime && maxRecordingTime > 0) {
+            countdownTimer = createAudioRecordingCountdown(maxRecordingTime);
+            // Start countdown timer in parallel with recording
+            countdownTimer.start().catch(() => {
+                // Timer completed naturally, no action needed
+            });
+        }
+
+        let audioResult: any;
+        try {
+            // Use processAudio with proper configuration
+            audioResult = await processAudio({
+                file: runConfig.audioCommit?.file,
+                maxRecordingTime: runConfig.audioCommit?.maxRecordingTime,
+                outputDirectory: runConfig.outputDirectory || 'output',
+                debug: runConfig.debug
+            });
+        } finally {
+            // Stop countdown timer if it was running
+            if (countdownTimer) {
+                countdownTimer.stop();
+            }
+        }
 
         // Check if recording was cancelled
         if (audioResult.cancelled) {

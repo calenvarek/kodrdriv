@@ -927,3 +927,542 @@ const isTriggeredByRelease = (workflowContent: string, workflowName: string): bo
         return false;
     }
 };
+
+// Milestone Management Functions
+
+export const findMilestoneByTitle = async (title: string): Promise<any | null> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Searching for milestone: ${title}`);
+
+        const response = await octokit.issues.listMilestones({
+            owner,
+            repo,
+            state: 'all',
+            per_page: 100,
+        });
+
+        const milestone = response.data.find(m => m.title === title);
+
+        if (milestone) {
+            logger.debug(`Found milestone: ${milestone.title} (${milestone.state})`);
+        } else {
+            logger.debug(`Milestone not found: ${title}`);
+        }
+
+        return milestone || null;
+    } catch (error: any) {
+        logger.error(`Failed to search for milestone ${title}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const createMilestone = async (title: string, description?: string): Promise<any> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.info(`Creating milestone: ${title}`);
+
+        const response = await octokit.issues.createMilestone({
+            owner,
+            repo,
+            title,
+            description,
+        });
+
+        logger.info(`✅ Milestone created: ${title} (#${response.data.number})`);
+        return response.data;
+    } catch (error: any) {
+        logger.error(`Failed to create milestone ${title}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const closeMilestone = async (milestoneNumber: number): Promise<void> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.info(`Closing milestone #${milestoneNumber}...`);
+
+        await octokit.issues.updateMilestone({
+            owner,
+            repo,
+            milestone_number: milestoneNumber,
+            state: 'closed',
+        });
+
+        logger.info(`✅ Milestone #${milestoneNumber} closed`);
+    } catch (error: any) {
+        logger.error(`Failed to close milestone #${milestoneNumber}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const getOpenIssuesForMilestone = async (milestoneNumber: number): Promise<any[]> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Getting open issues for milestone #${milestoneNumber}`);
+
+        const response = await octokit.issues.listForRepo({
+            owner,
+            repo,
+            state: 'open',
+            milestone: milestoneNumber.toString(),
+            per_page: 100,
+        });
+
+        const issues = response.data.filter(issue => !issue.pull_request); // Filter out PRs
+
+        logger.debug(`Found ${issues.length} open issues for milestone #${milestoneNumber}`);
+        return issues;
+    } catch (error: any) {
+        logger.error(`Failed to get issues for milestone #${milestoneNumber}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const moveIssueToMilestone = async (issueNumber: number, milestoneNumber: number): Promise<void> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Moving issue #${issueNumber} to milestone #${milestoneNumber}`);
+
+        await octokit.issues.update({
+            owner,
+            repo,
+            issue_number: issueNumber,
+            milestone: milestoneNumber,
+        });
+
+        logger.debug(`✅ Issue #${issueNumber} moved to milestone #${milestoneNumber}`);
+    } catch (error: any) {
+        logger.error(`Failed to move issue #${issueNumber} to milestone #${milestoneNumber}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const moveOpenIssuesToNewMilestone = async (fromMilestoneNumber: number, toMilestoneNumber: number): Promise<number> => {
+    const logger = getLogger();
+
+    try {
+        const openIssues = await getOpenIssuesForMilestone(fromMilestoneNumber);
+
+        if (openIssues.length === 0) {
+            logger.debug(`No open issues to move from milestone #${fromMilestoneNumber}`);
+            return 0;
+        }
+
+        logger.info(`Moving ${openIssues.length} open issues from milestone #${fromMilestoneNumber} to #${toMilestoneNumber}`);
+
+        for (const issue of openIssues) {
+            await moveIssueToMilestone(issue.number, toMilestoneNumber);
+        }
+
+        logger.info(`✅ Moved ${openIssues.length} issues to new milestone`);
+        return openIssues.length;
+    } catch (error: any) {
+        logger.error(`Failed to move issues between milestones: ${error.message}`);
+        throw error;
+    }
+};
+
+export const ensureMilestoneForVersion = async (version: string, fromVersion?: string): Promise<void> => {
+    const logger = getLogger();
+
+    try {
+        const milestoneTitle = `release/${version}`;
+        logger.debug(`Ensuring milestone exists: ${milestoneTitle}`);
+
+        // Check if milestone already exists
+        let milestone = await findMilestoneByTitle(milestoneTitle);
+
+        if (milestone) {
+            logger.info(`✅ Milestone already exists: ${milestoneTitle}`);
+            return;
+        }
+
+        // Create new milestone
+        milestone = await createMilestone(milestoneTitle, `Release ${version}`);
+
+        // If we have a previous version, move open issues from its milestone
+        if (fromVersion) {
+            const previousMilestoneTitle = `release/${fromVersion}`;
+            const previousMilestone = await findMilestoneByTitle(previousMilestoneTitle);
+
+            if (previousMilestone && previousMilestone.state === 'closed') {
+                const movedCount = await moveOpenIssuesToNewMilestone(previousMilestone.number, milestone.number);
+                if (movedCount > 0) {
+                    logger.info(`📋 Moved ${movedCount} open issues from ${previousMilestoneTitle} to ${milestoneTitle}`);
+                }
+            }
+        }
+    } catch (error: any) {
+        // Don't fail the whole operation if milestone management fails
+        logger.warn(`⚠️ Milestone management failed (continuing): ${error.message}`);
+    }
+};
+
+export const closeMilestoneForVersion = async (version: string): Promise<void> => {
+    const logger = getLogger();
+
+    try {
+        const milestoneTitle = `release/${version}`;
+        logger.debug(`Closing milestone: ${milestoneTitle}`);
+
+        const milestone = await findMilestoneByTitle(milestoneTitle);
+
+        if (!milestone) {
+            logger.debug(`Milestone not found: ${milestoneTitle}`);
+            return;
+        }
+
+        if (milestone.state === 'closed') {
+            logger.debug(`Milestone already closed: ${milestoneTitle}`);
+            return;
+        }
+
+        await closeMilestone(milestone.number);
+        logger.info(`🏁 Closed milestone: ${milestoneTitle}`);
+    } catch (error: any) {
+        // Don't fail the whole operation if milestone management fails
+        logger.warn(`⚠️ Failed to close milestone (continuing): ${error.message}`);
+    }
+};
+
+export const getClosedIssuesForMilestone = async (milestoneNumber: number, limit: number = 50): Promise<any[]> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Getting closed issues for milestone #${milestoneNumber}`);
+
+        const response = await octokit.issues.listForRepo({
+            owner,
+            repo,
+            state: 'closed',
+            milestone: milestoneNumber.toString(),
+            per_page: Math.min(limit, 100),
+            sort: 'updated',
+            direction: 'desc',
+        });
+
+        // Filter out PRs and only include issues closed as completed
+        const issues = response.data.filter(issue =>
+            !issue.pull_request &&
+            issue.state_reason === 'completed'
+        );
+
+        logger.debug(`Found ${issues.length} closed issues for milestone #${milestoneNumber}`);
+        return issues;
+    } catch (error: any) {
+        logger.error(`Failed to get closed issues for milestone #${milestoneNumber}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const getIssueDetails = async (issueNumber: number, maxTokens: number = 20000): Promise<any> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Getting details for issue #${issueNumber}`);
+
+        // Get the issue
+        const issueResponse = await octokit.issues.get({
+            owner,
+            repo,
+            issue_number: issueNumber,
+        });
+
+        const issue = issueResponse.data;
+        const content = {
+            title: issue.title,
+            body: issue.body || '',
+            comments: [] as any[],
+            totalTokens: 0
+        };
+
+        // Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+        const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
+        let currentTokens = estimateTokens(content.title + content.body);
+        content.totalTokens = currentTokens;
+
+        // If we're already at or near the limit with just title and body, return now
+        if (currentTokens >= maxTokens * 0.9) {
+            logger.debug(`Issue #${issueNumber} title/body already uses ${currentTokens} tokens, skipping comments`);
+            return content;
+        }
+
+        // Get comments
+        try {
+            const commentsResponse = await octokit.issues.listComments({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+            });
+
+            for (const comment of commentsResponse.data) {
+                const commentTokens = estimateTokens(comment.body || '');
+
+                if (currentTokens + commentTokens > maxTokens) {
+                    logger.debug(`Stopping at comment to stay under ${maxTokens} token limit for issue #${issueNumber}`);
+                    break;
+                }
+
+                content.comments.push({
+                    author: comment.user?.login,
+                    body: comment.body,
+                    created_at: comment.created_at,
+                });
+
+                currentTokens += commentTokens;
+            }
+        } catch (error: any) {
+            logger.debug(`Failed to get comments for issue #${issueNumber}: ${error.message}`);
+        }
+
+        content.totalTokens = currentTokens;
+        logger.debug(`Issue #${issueNumber} details: ${currentTokens} tokens`);
+
+        return content;
+    } catch (error: any) {
+        logger.error(`Failed to get details for issue #${issueNumber}: ${error.message}`);
+        throw error;
+    }
+};
+
+export const getMilestoneIssuesForRelease = async (versions: string[], maxTotalTokens: number = 50000): Promise<string> => {
+    const logger = getLogger();
+
+    try {
+        const allIssues: any[] = [];
+        const processedVersions: string[] = [];
+
+        for (const version of versions) {
+            const milestoneTitle = `release/${version}`;
+            logger.debug(`Looking for milestone: ${milestoneTitle}`);
+
+            const milestone = await findMilestoneByTitle(milestoneTitle);
+
+            if (!milestone) {
+                logger.debug(`Milestone not found: ${milestoneTitle}`);
+                continue;
+            }
+
+            const issues = await getClosedIssuesForMilestone(milestone.number);
+            if (issues.length > 0) {
+                allIssues.push(...issues.map(issue => ({ ...issue, version })));
+                processedVersions.push(version);
+                logger.info(`📋 Found ${issues.length} closed issues in milestone ${milestoneTitle}`);
+            }
+        }
+
+        if (allIssues.length === 0) {
+            logger.debug('No closed issues found in any milestones');
+            return '';
+        }
+
+        // Sort issues by updated date (most recent first)
+        allIssues.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+        logger.info(`📋 Processing ${allIssues.length} issues for release notes (max ${maxTotalTokens} tokens)`);
+
+        let releaseNotesContent = '';
+        let totalTokens = 0;
+        const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
+        // Add header
+        const header = `## Issues Resolved\n\nThe following issues were resolved in this release:\n\n`;
+        releaseNotesContent += header;
+        totalTokens += estimateTokens(header);
+
+        for (const issue of allIssues) {
+            // Get detailed issue content with individual token limit
+            const issueDetails = await getIssueDetails(issue.number, 20000);
+
+            // Create issue section
+            let issueSection = `### #${issue.number}: ${issueDetails.title}\n\n`;
+
+            if (issueDetails.body) {
+                issueSection += `**Description:**\n${issueDetails.body}\n\n`;
+            }
+
+            if (issueDetails.comments.length > 0) {
+                issueSection += `**Key Discussion Points:**\n`;
+                for (const comment of issueDetails.comments) {
+                    issueSection += `- **${comment.author}**: ${comment.body}\n`;
+                }
+                issueSection += '\n';
+            }
+
+            // Add labels if present
+            if (issue.labels && issue.labels.length > 0) {
+                const labelNames = issue.labels.map((label: any) =>
+                    typeof label === 'string' ? label : label.name
+                ).join(', ');
+                issueSection += `**Labels:** ${labelNames}\n\n`;
+            }
+
+            issueSection += '---\n\n';
+
+            const sectionTokens = estimateTokens(issueSection);
+
+            // Check if adding this issue would exceed the total limit
+            if (totalTokens + sectionTokens > maxTotalTokens) {
+                logger.info(`Stopping at issue #${issue.number} to stay under ${maxTotalTokens} token limit`);
+                break;
+            }
+
+            releaseNotesContent += issueSection;
+            totalTokens += sectionTokens;
+
+            logger.debug(`Added issue #${issue.number} (${sectionTokens} tokens, total: ${totalTokens})`);
+        }
+
+        logger.info(`📋 Generated release notes from milestone issues (${totalTokens} tokens)`);
+        return releaseNotesContent;
+
+    } catch (error: any) {
+        // Don't fail the whole operation if milestone content fails
+        logger.warn(`⚠️ Failed to get milestone issues for release notes (continuing): ${error.message}`);
+        return '';
+    }
+};
+
+/**
+ * Get recently closed GitHub issues for commit message context.
+ * Prioritizes issues from milestones that match the current version.
+ */
+export const getRecentClosedIssuesForCommit = async (currentVersion?: string, limit: number = 10): Promise<string> => {
+    const octokit = getOctokit();
+    const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Fetching up to ${limit} recently closed GitHub issues for commit context...`);
+
+        // Get recently closed issues
+        const response = await octokit.issues.listForRepo({
+            owner,
+            repo,
+            state: 'closed',
+            per_page: Math.min(limit, 100), // GitHub API limit
+            sort: 'updated',
+            direction: 'desc',
+        });
+
+        const issues = response.data.filter(issue =>
+            !issue.pull_request && // Filter out PRs
+            issue.state_reason === 'completed' // Only issues closed as completed
+        );
+
+        if (issues.length === 0) {
+            logger.debug('No recently closed issues found');
+            return '';
+        }
+
+        // Determine relevant milestone if we have a current version
+        let relevantMilestone: any = null;
+        if (currentVersion) {
+            // Extract base version for milestone matching (e.g., "0.1.1" from "0.1.1-dev.0")
+            const baseVersion = currentVersion.includes('-dev.')
+                ? currentVersion.split('-')[0]
+                : currentVersion;
+
+            const milestoneTitle = `release/${baseVersion}`;
+            relevantMilestone = await findMilestoneByTitle(milestoneTitle);
+
+            if (relevantMilestone) {
+                logger.debug(`Found relevant milestone: ${milestoneTitle}`);
+            } else {
+                logger.debug(`No milestone found for version: ${baseVersion}`);
+            }
+        }
+
+        // Categorize issues by relevance
+        const milestoneIssues: any[] = [];
+        const otherIssues: any[] = [];
+
+        for (const issue of issues.slice(0, limit)) {
+            if (relevantMilestone && issue.milestone?.number === relevantMilestone.number) {
+                milestoneIssues.push(issue);
+            } else {
+                otherIssues.push(issue);
+            }
+        }
+
+        // Build the content, prioritizing milestone issues
+        const issueStrings: string[] = [];
+
+        // Add milestone issues first (these are most relevant)
+        if (milestoneIssues.length > 0) {
+            issueStrings.push(`## Recent Issues from Current Milestone (${relevantMilestone.title}):`);
+            milestoneIssues.forEach(issue => {
+                const labels = issue.labels.map((label: any) =>
+                    typeof label === 'string' ? label : label.name
+                ).join(', ');
+
+                issueStrings.push([
+                    `Issue #${issue.number}: ${issue.title}`,
+                    `Labels: ${labels || 'none'}`,
+                    `Closed: ${issue.closed_at}`,
+                    `Body: ${issue.body?.substring(0, 300) || 'No description'}${issue.body && issue.body.length > 300 ? '...' : ''}`,
+                    '---'
+                ].join('\n'));
+            });
+        }
+
+        // Add other recent issues if we have space
+        const remainingLimit = limit - milestoneIssues.length;
+        if (otherIssues.length > 0 && remainingLimit > 0) {
+            if (milestoneIssues.length > 0) {
+                issueStrings.push('\n## Other Recent Closed Issues:');
+            }
+
+            otherIssues.slice(0, remainingLimit).forEach(issue => {
+                const labels = issue.labels.map((label: any) =>
+                    typeof label === 'string' ? label : label.name
+                ).join(', ');
+
+                const milestoneInfo = issue.milestone
+                    ? `Milestone: ${issue.milestone.title}`
+                    : 'Milestone: none';
+
+                issueStrings.push([
+                    `Issue #${issue.number}: ${issue.title}`,
+                    `Labels: ${labels || 'none'}`,
+                    milestoneInfo,
+                    `Closed: ${issue.closed_at}`,
+                    `Body: ${issue.body?.substring(0, 300) || 'No description'}${issue.body && issue.body.length > 300 ? '...' : ''}`,
+                    '---'
+                ].join('\n'));
+            });
+        }
+
+        const totalRelevantIssues = milestoneIssues.length;
+        const totalOtherIssues = Math.min(otherIssues.length, remainingLimit);
+
+        logger.debug(`Fetched ${totalRelevantIssues + totalOtherIssues} closed issues (${totalRelevantIssues} from relevant milestone, ${totalOtherIssues} others)`);
+
+        return issueStrings.join('\n\n');
+    } catch (error: any) {
+        logger.warn('Failed to fetch recent closed GitHub issues: %s', error.message);
+        return '';
+    }
+};

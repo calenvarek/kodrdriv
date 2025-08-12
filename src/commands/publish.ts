@@ -546,6 +546,12 @@ export const execute = async (runConfig: Config): Promise<void> => {
     logger.info('Creating GitHub release...');
     if (isDryRun) {
         logger.info('Would read package.json version and create GitHub release with retry logic');
+        const milestonesEnabled = !runConfig.publish?.noMilestones;
+        if (milestonesEnabled) {
+            logger.info('Would close milestone for released version');
+        } else {
+            logger.info('Would skip milestone closure (--no-milestones)');
+        }
     } else {
         const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
         const releaseNotesPath = getOutputPath(outputDirectory, 'RELEASE_NOTES.md');
@@ -560,6 +566,17 @@ export const execute = async (runConfig: Config): Promise<void> => {
             try {
                 await GitHub.createRelease(tagName, releaseTitle, releaseNotesContent);
                 logger.info(`GitHub release created successfully for tag: ${tagName}`);
+
+                // Close milestone for this version if enabled
+                const milestonesEnabled = !runConfig.publish?.noMilestones;
+                if (milestonesEnabled) {
+                    logger.info('🏁 Closing milestone for released version...');
+                    const version = tagName.replace(/^v/, ''); // Remove 'v' prefix if present
+                    await GitHub.closeMilestoneForVersion(version);
+                } else {
+                    logger.debug('Milestone integration disabled via --no-milestones');
+                }
+
                 break; // Success - exit retry loop
             } catch (error: any) {
                 // Check if this is a tag-not-found error that we can retry

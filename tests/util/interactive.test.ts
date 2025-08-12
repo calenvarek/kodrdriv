@@ -145,6 +145,149 @@ describe('Interactive Utility Module', () => {
             expect(mockLogger.error).toHaveBeenCalledWith('   • Use --sendit flag');
             expect(mockLogger.error).toHaveBeenCalledWith('   • Use --dry-run');
         });
+
+        it('should ignore invalid key presses and wait for valid input', async () => {
+            // Arrange
+            const prompt = 'What would you like to do?';
+            const choices = [
+                { key: 'a', label: 'Action A' },
+                { key: 'b', label: 'Action B' }
+            ];
+
+            let dataCallback: any;
+            const mockStdin = {
+                isTTY: true,
+                ref: vi.fn(),
+                setRawMode: vi.fn(),
+                resume: vi.fn(),
+                pause: vi.fn(),
+                unref: vi.fn(),
+                on: vi.fn((event, callback) => {
+                    if (event === 'data') {
+                        dataCallback = callback;
+                    }
+                })
+            };
+
+            Object.defineProperty(process, 'stdin', {
+                value: mockStdin,
+                writable: true,
+                configurable: true
+            });
+
+            // Act
+            const resultPromise = interactive.getUserChoice(prompt, choices);
+
+            // Simulate invalid key presses first, then valid one
+            dataCallback(Buffer.from('x')); // Invalid
+            dataCallback(Buffer.from('z')); // Invalid
+            dataCallback(Buffer.from('a')); // Valid
+
+            const result = await resultPromise;
+
+            // Assert
+            expect(result).toBe('a');
+        });
+
+        it('should handle uppercase keys correctly', async () => {
+            // Arrange
+            const prompt = 'What would you like to do?';
+            const choices = [{ key: 'a', label: 'Action A' }];
+
+            let dataCallback: any;
+            const mockStdin = {
+                isTTY: true,
+                ref: vi.fn(),
+                setRawMode: vi.fn(),
+                resume: vi.fn(),
+                pause: vi.fn(),
+                unref: vi.fn(),
+                on: vi.fn((event, callback) => {
+                    if (event === 'data') {
+                        dataCallback = callback;
+                    }
+                })
+            };
+
+            Object.defineProperty(process, 'stdin', {
+                value: mockStdin,
+                writable: true,
+                configurable: true
+            });
+
+            // Act
+            const resultPromise = interactive.getUserChoice(prompt, choices);
+            dataCallback(Buffer.from('A')); // Uppercase should work
+
+            const result = await resultPromise;
+
+            // Assert
+            expect(result).toBe('a');
+        });
+
+        it('should handle stdin ref/unref methods being undefined', async () => {
+            // Arrange
+            const prompt = 'What would you like to do?';
+            const choices = [{ key: 'a', label: 'Action A' }];
+
+            const mockStdin = {
+                isTTY: true,
+                // ref and unref are undefined (some environments don't have them)
+                setRawMode: vi.fn(),
+                resume: vi.fn(),
+                pause: vi.fn(),
+                on: vi.fn((event, callback) => {
+                    if (event === 'data') {
+                        process.nextTick(() => callback(Buffer.from('a')));
+                    }
+                })
+            };
+
+            Object.defineProperty(process, 'stdin', {
+                value: mockStdin,
+                writable: true,
+                configurable: true
+            });
+
+            // Act & Assert - should not throw
+            const result = await interactive.getUserChoice(prompt, choices);
+            expect(result).toBe('a');
+        });
+
+        it('should clean up stdin properly after selection', async () => {
+            // Arrange
+            const prompt = 'What would you like to do?';
+            const choices = [{ key: 'a', label: 'Action A' }];
+
+            const mockStdin = {
+                isTTY: true,
+                ref: vi.fn(),
+                setRawMode: vi.fn(),
+                resume: vi.fn(),
+                pause: vi.fn(),
+                unref: vi.fn(),
+                on: vi.fn((event, callback) => {
+                    if (event === 'data') {
+                        process.nextTick(() => callback(Buffer.from('a')));
+                    }
+                })
+            };
+
+            Object.defineProperty(process, 'stdin', {
+                value: mockStdin,
+                writable: true,
+                configurable: true
+            });
+
+            // Act
+            await interactive.getUserChoice(prompt, choices);
+
+            // Assert
+            expect(mockStdin.setRawMode).toHaveBeenCalledWith(false);
+            expect(mockStdin.pause).toHaveBeenCalled();
+            expect(mockStdin.unref).toHaveBeenCalled();
+            expect(mockLogger.info).toHaveBeenCalledWith('Selected: Action A\n');
+        });
     });
 
     describe('createSecureTempFile', () => {
@@ -349,6 +492,238 @@ describe('Interactive Utility Module', () => {
 
             // Assert
             expect(result.content).toBe('Actual content\nMore content');
+        });
+
+        it('should use VISUAL environment variable when set', async () => {
+            // Arrange
+            const originalVisual = process.env.VISUAL;
+            process.env.VISUAL = 'emacs';
+
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue('content');
+
+            try {
+                // Act
+                await interactive.editContentInEditor('test');
+
+                // Assert
+                expect(mockSpawnSync).toHaveBeenCalledWith(
+                    'emacs',
+                    [mockTmpPath],
+                    { stdio: 'inherit' }
+                );
+            } finally {
+                // Cleanup
+                process.env.VISUAL = originalVisual;
+            }
+        });
+
+        it('should prioritize EDITOR over VISUAL when both are set', async () => {
+            // Arrange
+            const originalEditor = process.env.EDITOR;
+            const originalVisual = process.env.VISUAL;
+            process.env.EDITOR = 'vim';
+            process.env.VISUAL = 'emacs';
+
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue('content');
+
+            try {
+                // Act
+                await interactive.editContentInEditor('test');
+
+                // Assert
+                expect(mockSpawnSync).toHaveBeenCalledWith(
+                    'vim',
+                    [mockTmpPath],
+                    { stdio: 'inherit' }
+                );
+            } finally {
+                // Cleanup
+                process.env.EDITOR = originalEditor;
+                process.env.VISUAL = originalVisual;
+            }
+        });
+
+        it('should fall back to vi when no editor is set', async () => {
+            // Arrange
+            const originalEditor = process.env.EDITOR;
+            const originalVisual = process.env.VISUAL;
+            delete process.env.EDITOR;
+            delete process.env.VISUAL;
+
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue('content');
+
+            try {
+                // Act
+                await interactive.editContentInEditor('test');
+
+                // Assert
+                expect(mockSpawnSync).toHaveBeenCalledWith(
+                    'vi',
+                    [mockTmpPath],
+                    { stdio: 'inherit' }
+                );
+            } finally {
+                // Cleanup
+                process.env.EDITOR = originalEditor;
+                process.env.VISUAL = originalVisual;
+            }
+        });
+
+        it('should include template lines in written file', async () => {
+            // Arrange
+            const content = 'Original content';
+            const templateLines = ['# Template line 1', '# Template line 2'];
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue(content);
+
+            // Act
+            await interactive.editContentInEditor(content, templateLines);
+
+            // Assert
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
+                mockTmpPath,
+                '# Template line 1\n# Template line 2\n\nOriginal content\n',
+                'utf8'
+            );
+        });
+
+        it('should not add separator when no template lines provided', async () => {
+            // Arrange
+            const content = 'Original content';
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue(content);
+
+            // Act
+            await interactive.editContentInEditor(content);
+
+            // Assert
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
+                mockTmpPath,
+                'Original content\n',
+                'utf8'
+            );
+        });
+
+        it('should properly detect when content was edited', async () => {
+            // Arrange
+            const originalContent = 'Original content';
+            const editedContent = 'Edited content';
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue(editedContent);
+
+            // Act
+            const result = await interactive.editContentInEditor(originalContent);
+
+            // Assert
+            expect(result.wasEdited).toBe(true);
+            expect(result.content).toBe(editedContent);
+        });
+
+        it('should detect when content was not edited', async () => {
+            // Arrange
+            const originalContent = 'Original content';
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue(originalContent);
+
+            // Act
+            const result = await interactive.editContentInEditor(originalContent);
+
+            // Assert
+            expect(result.wasEdited).toBe(false);
+            expect(result.content).toBe(originalContent);
+        });
+
+        it('should cleanup temp file even when editor fails', async () => {
+            // Arrange
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({
+                error: new Error('Editor failed')
+            });
+
+            // Act & Assert
+            await expect(
+                interactive.editContentInEditor('test')
+            ).rejects.toThrow('Failed to launch editor');
+
+            // Verify cleanup was called
+            expect(mockFs.unlink).toHaveBeenCalledWith(mockTmpPath);
+        });
+
+        it('should filter out multiple types of comment lines', async () => {
+            // Arrange
+            const mockTmpPath = '/tmp/test.txt';
+            const mockFd = { close: vi.fn() };
+            const fileContentWithComments = [
+                '# Comment with space',
+                '#Comment without space',
+                '   # Indented comment',
+                'Real content line 1',
+                '  # Another indented comment',
+                'Real content line 2',
+                '#Final comment'
+            ].join('\n');
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue(fileContentWithComments);
+
+            // Act
+            const result = await interactive.editContentInEditor('test');
+
+            // Assert
+            expect(result.content).toBe('Real content line 1\nReal content line 2');
         });
     });
 
@@ -573,6 +948,128 @@ describe('Interactive Utility Module', () => {
 
             await expect(inputPromise).rejects.toThrow('Input error');
         });
+
+        it('should display custom non-TTY error suggestions for text input', async () => {
+            // Arrange
+            Object.defineProperty(process.stdin, 'isTTY', {
+                writable: true,
+                value: false
+            });
+
+            const prompt = 'Enter your feedback:';
+            const options = {
+                nonTtyErrorSuggestions: ['Use --feedback-file option', 'Use --no-interactive']
+            };
+
+            // Act & Assert
+            await expect(interactive.getUserTextInput(prompt, options)).rejects.toThrow('Interactive text input requires a terminal');
+            expect(mockLogger.error).toHaveBeenCalledWith('   • Use --feedback-file option');
+            expect(mockLogger.error).toHaveBeenCalledWith('   • Use --no-interactive');
+        });
+
+        it('should handle partial input followed by newline', async () => {
+            // Arrange
+            const prompt = 'Enter your feedback:';
+            const userInput = 'This is test feedback';
+            let dataHandler: any;
+
+            (process.stdin.on as any).mockImplementation((event: string, handler: any) => {
+                if (event === 'data') {
+                    dataHandler = handler;
+                }
+            });
+
+            // Act
+            const inputPromise = interactive.getUserTextInput(prompt);
+
+            // Simulate partial input
+            dataHandler('This is ');
+            dataHandler('test ');
+            dataHandler(`feedback\n`);
+
+            const result = await inputPromise;
+
+            // Assert
+            expect(result).toBe(userInput);
+        });
+
+        it('should handle whitespace-only input as empty', async () => {
+            // Arrange
+            const prompt = 'Enter your feedback:';
+            let dataHandler: any;
+
+            (process.stdin.on as any).mockImplementation((event: string, handler: any) => {
+                if (event === 'data') {
+                    dataHandler = handler;
+                }
+            });
+
+            // Act & Assert
+            const inputPromise = interactive.getUserTextInput(prompt);
+
+            // Simulate whitespace-only input
+            dataHandler('   \t  \n');
+
+            await expect(inputPromise).rejects.toThrow('Empty input received');
+            expect(mockLogger.warn).toHaveBeenCalledWith('Empty input received. Please provide feedback text.');
+        });
+
+        it('should properly cleanup stdin listeners', async () => {
+            // Arrange
+            const prompt = 'Enter your feedback:';
+            const userInput = 'Test feedback';
+            let dataHandler: any;
+
+            (process.stdin.on as any).mockImplementation((event: string, handler: any) => {
+                if (event === 'data') {
+                    dataHandler = handler;
+                }
+            });
+
+            // Act
+            const inputPromise = interactive.getUserTextInput(prompt);
+            dataHandler(`${userInput}\n`);
+            await inputPromise;
+
+            // Assert
+            expect(process.stdin.pause).toHaveBeenCalled();
+            expect(process.stdin.removeListener).toHaveBeenCalledWith('data', expect.any(Function));
+            expect(process.stdin.removeListener).toHaveBeenCalledWith('error', expect.any(Function));
+            expect(process.stdin.unref).toHaveBeenCalled();
+        });
+
+        it('should handle stdin ref/unref methods being undefined in getUserTextInput', async () => {
+            // Arrange
+            const prompt = 'Enter your feedback:';
+            const userInput = 'Test feedback';
+            let dataHandler: any;
+
+            // Mock stdin without ref/unref methods
+            const originalRef = process.stdin.ref;
+            const originalUnref = process.stdin.unref;
+            delete (process.stdin as any).ref;
+            delete (process.stdin as any).unref;
+
+            (process.stdin.on as any).mockImplementation((event: string, handler: any) => {
+                if (event === 'data') {
+                    dataHandler = handler;
+                }
+            });
+
+            try {
+                // Act
+                const inputPromise = interactive.getUserTextInput(prompt);
+                dataHandler(`${userInput}\n`);
+                const result = await inputPromise;
+
+                // Assert - should not throw and should work correctly
+                expect(result).toBe(userInput);
+            } finally {
+                // Restore original methods
+                if (originalRef) process.stdin.ref = originalRef;
+                if (originalUnref) process.stdin.unref = originalUnref;
+            }
+        });
     });
 
     describe('STANDARD_CHOICES', () => {
@@ -603,7 +1100,131 @@ describe('Interactive Utility Module', () => {
             expect(typeof interactive.getLLMFeedbackInEditor).toBe('function');
         });
 
-        // Note: Full integration tests for this function are complex due to editor interaction
-        // Manual testing should be performed to ensure proper functionality
+        it('should call editContentInEditor with correct parameters', async () => {
+            // Arrange
+            const contentType = 'commit message';
+            const currentContent = 'fix: update dependencies';
+            const mockTmpPath = '/tmp/test.md';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+
+            // Mock successful feedback extraction
+            mockFs.readFile.mockResolvedValue('Please make the commit message more descriptive');
+
+            // Act
+            await interactive.getLLMFeedbackInEditor(contentType, currentContent);
+
+            // Assert - Verify the template was written correctly
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
+                mockTmpPath,
+                expect.stringContaining('# Provide Your Instructions and Guidance for a Revision Here'),
+                'utf8'
+            );
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
+                mockTmpPath,
+                expect.stringContaining('### YOUR FEEDBACK AND GUIDANCE:'),
+                'utf8'
+            );
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
+                mockTmpPath,
+                expect.stringContaining('### ORIGINAL COMMIT MESSAGE:'),
+                'utf8'
+            );
+            expect(mockFs.writeFile).toHaveBeenCalledWith(
+                mockTmpPath,
+                expect.stringContaining(currentContent),
+                'utf8'
+            );
+
+            // Verify editor was called
+            expect(mockSpawnSync).toHaveBeenCalledWith(
+                expect.any(String),
+                [mockTmpPath],
+                { stdio: 'inherit' }
+            );
+
+            // Verify .md extension was used
+            expect(mockPath.join).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.stringMatching(/\.md$/)
+            );
+        });
+
+        it('should handle case when no original section marker is found', async () => {
+            // Arrange
+            const contentType = 'commit message';
+            const currentContent = 'fix: bug';
+            const mockTmpPath = '/tmp/test.md';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+
+            // User removed the original section marker entirely
+            const editedContent = 'Just provide more context and explain the fix better';
+            mockFs.readFile.mockResolvedValue(editedContent);
+
+            // Act
+            const result = await interactive.getLLMFeedbackInEditor(contentType, currentContent);
+
+            // Assert
+            expect(result).toBe('Just provide more context and explain the fix better');
+        });
+
+        it('should handle editor returning empty content', async () => {
+            // Arrange
+            const contentType = 'commit message';
+            const currentContent = 'fix: bug';
+            const mockTmpPath = '/tmp/test.md';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+
+            // Content with only whitespace and empty lines gets trimmed to empty
+            mockFs.readFile.mockResolvedValue('   \n  \n  ');
+
+            // Act & Assert
+            // editContentInEditor throws "Content is empty after editing" before
+            // getLLMFeedbackInEditor can process the content
+            await expect(
+                interactive.getLLMFeedbackInEditor(contentType, currentContent)
+            ).rejects.toThrow('Content is empty after editing');
+        });
+
+        it('should use markdown file extension for syntax highlighting', async () => {
+            // Arrange
+            const contentType = 'commit message';
+            const currentContent = 'fix: bug';
+            const mockTmpPath = '/tmp/test.md';
+            const mockFd = { close: vi.fn() };
+
+            mockOs.tmpdir.mockReturnValue('/tmp');
+            mockPath.join.mockReturnValue(mockTmpPath);
+            mockFs.open.mockResolvedValue(mockFd);
+            mockSpawnSync.mockReturnValue({ error: null });
+            mockFs.readFile.mockResolvedValue('Some feedback');
+
+            // Act
+            await interactive.getLLMFeedbackInEditor(contentType, currentContent);
+
+            // Assert - Verify it was called with .md extension
+            expect(mockPath.join).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.stringMatching(/\.md$/)
+            );
+        });
+
+        // Note: More complex integration tests for this function require careful
+        // mocking of the editor interaction flow and are better suited for
+        // integration testing rather than unit testing.
     });
 });

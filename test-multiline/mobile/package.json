@@ -1,0 +1,8 @@
+{
+  "name": "mobile-app",
+  "version": "1.0.0",
+  "description": "Mobile application",
+  "dependencies": {
+    "core-library": "^1.0.0"
+  }
+}

@@ -9,7 +9,7 @@
  * Built-in commands shell out to separate kodrdriv processes to preserve
  * individual project configurations while leveraging centralized dependency analysis.
  *
- * Supported built-in commands: commit, publish, link, unlink
+ * Supported built-in commands: commit, publish, link, unlink, development, branches
  *
  * Enhanced logging based on debug/verbose flags:
  *
@@ -41,6 +41,7 @@ import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { getOutputPath } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Commit from './commit';
+import { getGitStatusSummary, getGloballyLinkedPackages, getLinkedDependencies, getLinkCompatibilityProblems } from '../util/git';
 
 // Track published versions during tree publish
 interface PublishedVersion {
@@ -690,19 +691,16 @@ const executePackage = async (
     try {
         if (isDryRun) {
             // Handle inter-project dependency updates for publish commands in dry run mode
-            await globalStateMutex.lock();
-            try {
-                if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
+            if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
+                await globalStateMutex.lock();
+                let versionSnapshot: PublishedVersion[];
+                try {
                     packageLogger.info('Would check for inter-project dependency updates before publish...');
-                    const versionSnapshot = [...publishedVersions]; // Create safe copy
-                    globalStateMutex.unlock();
-                    await updateInterProjectDependencies(packageDir, versionSnapshot, allPackageNames, packageLogger, isDryRun);
-                } else {
+                    versionSnapshot = [...publishedVersions]; // Create safe copy
+                } finally {
                     globalStateMutex.unlock();
                 }
-            } catch (error) {
-                globalStateMutex.unlock();
-                throw error;
+                await updateInterProjectDependencies(packageDir, versionSnapshot, allPackageNames, packageLogger, isDryRun);
             }
 
             // Use main logger for the specific message tests expect
@@ -714,6 +712,17 @@ const executePackage = async (
             // Change to the package directory and run the command
             const originalCwd = process.cwd();
             try {
+                // Validate package directory exists before changing to it
+                try {
+                    await fs.access(packageDir);
+                    const stat = await fs.stat(packageDir);
+                    if (!stat.isDirectory()) {
+                        throw new Error(`Path is not a directory: ${packageDir}`);
+                    }
+                } catch (accessError: any) {
+                    throw new Error(`Cannot access package directory: ${packageDir} - ${accessError.message}`);
+                }
+
                 process.chdir(packageDir);
                 if (runConfig.debug) {
                     packageLogger.debug(`Changed to directory: ${packageDir}`);
@@ -781,9 +790,20 @@ const executePackage = async (
                     logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
                 }
             } finally {
-                process.chdir(originalCwd);
-                if (runConfig.debug) {
-                    packageLogger.debug(`Restored working directory to: ${originalCwd}`);
+                // Safely restore working directory
+                try {
+                    // Validate original directory still exists before changing back
+                    const fs = await import('fs/promises');
+                    await fs.access(originalCwd);
+                    process.chdir(originalCwd);
+                    if (runConfig.debug) {
+                        packageLogger.debug(`Restored working directory to: ${originalCwd}`);
+                    }
+                } catch (restoreError: any) {
+                    // If we can't restore to original directory, at least log the issue
+                    packageLogger.error(`Failed to restore working directory to ${originalCwd}: ${restoreError.message}`);
+                    packageLogger.error(`Current working directory is now: ${process.cwd()}`);
+                    // Don't throw here to avoid masking the original error
                 }
             }
         }
@@ -838,7 +858,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Check if we're in built-in command mode (tree command with second argument)
     const builtInCommand = runConfig.tree?.builtInCommand;
-    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink'];
+    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches'];
 
     if (builtInCommand && !supportedBuiltInCommands.includes(builtInCommand)) {
         throw new Error(`Unsupported built-in command: ${builtInCommand}. Supported commands: ${supportedBuiltInCommands.join(', ')}`);
@@ -950,6 +970,362 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
         }
 
+        // Handle stop-at functionality if specified
+        const stopAt = runConfig.tree?.stopAt;
+        if (stopAt) {
+            logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Looking for stop package: ${stopAt}`);
+
+            // Find the package that matches the stopAt directory name
+            const stopIndex = buildOrder.findIndex(packageName => {
+                const packageInfo = dependencyGraph.packages.get(packageName)!;
+                const dirName = path.basename(packageInfo.path);
+                return dirName === stopAt || packageName === stopAt;
+            });
+
+            if (stopIndex === -1) {
+                // Check if the package exists but was excluded across all directories
+                let allPackageJsonPathsForCheck: string[] = [];
+                for (const targetDirectory of targetDirectories) {
+                    const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, []); // No exclusions
+                    allPackageJsonPathsForCheck = allPackageJsonPathsForCheck.concat(packageJsonPaths);
+                }
+                let wasExcluded = false;
+
+                for (const packageJsonPath of allPackageJsonPathsForCheck) {
+                    try {
+                        const packageInfo = await parsePackageJson(packageJsonPath);
+                        const dirName = path.basename(packageInfo.path);
+
+                        if (dirName === stopAt || packageInfo.name === stopAt) {
+                            // Check if this package was excluded
+                            if (shouldExclude(packageJsonPath, excludedPatterns)) {
+                                wasExcluded = true;
+                                break;
+                            }
+                        }
+                    } catch {
+                        // Skip invalid package.json files
+                        continue;
+                    }
+                }
+
+                if (wasExcluded) {
+                    const excludedPatternsStr = excludedPatterns.join(', ');
+                    throw new Error(`Package directory '${stopAt}' was excluded by exclusion patterns: ${excludedPatternsStr}. Remove the exclusion pattern or choose a different stop package.`);
+                } else {
+                    const availablePackages = buildOrder.map(name => {
+                        const packageInfo = dependencyGraph.packages.get(name)!;
+                        return `${path.basename(packageInfo.path)} (${name})`;
+                    }).join(', ');
+
+                    throw new Error(`Package directory '${stopAt}' not found. Available packages: ${availablePackages}`);
+                }
+            }
+
+            // Truncate the build order before the stop package (the stop package is not executed)
+            const originalLength = buildOrder.length;
+            buildOrder = buildOrder.slice(0, stopIndex);
+
+            const stoppedCount = originalLength - stopIndex;
+            if (stoppedCount > 0) {
+                logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Stopping before '${stopAt}' - excluding ${stoppedCount} package${stoppedCount === 1 ? '' : 's'}`);
+            }
+        }
+
+        // Helper function to find packages that consume a given package
+        const findConsumingPackagesForBranches = async (
+            targetPackageName: string,
+            allPackages: Map<string, PackageInfo>,
+            storage: any
+        ): Promise<string[]> => {
+            const consumers: string[] = [];
+
+            // Extract scope from target package name (e.g., "@fjell/eslint-config" -> "@fjell/")
+            const targetScope = targetPackageName.includes('/') ? targetPackageName.split('/')[0] + '/' : null;
+
+            for (const [packageName, packageInfo] of allPackages) {
+                if (packageName === targetPackageName) continue;
+
+                try {
+                    const packageJsonPath = path.join(packageInfo.path, 'package.json');
+                    const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+                    const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+                    const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+                    // Check if this package depends on the target package
+                    const dependencyTypes = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+                    const hasDependency = dependencyTypes.some(depType =>
+                        packageJson[depType] && packageJson[depType][targetPackageName]
+                    );
+
+                    if (hasDependency) {
+                        // Apply scope substitution for consumers in the same scope
+                        let consumerDisplayName = packageName;
+                        if (targetScope && packageName.startsWith(targetScope)) {
+                            // Replace scope with "./" (e.g., "@fjell/core" -> "./core")
+                            consumerDisplayName = './' + packageName.substring(targetScope.length);
+                        }
+                        consumers.push(consumerDisplayName);
+                    }
+                } catch {
+                    // Skip packages we can't parse
+                    continue;
+                }
+            }
+
+            return consumers.sort();
+        };
+
+        // Handle special "branches" command that displays table
+        if (builtInCommand === 'branches') {
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Branch Status Summary:`);
+            logger.info('');
+
+            // Calculate column widths for nice formatting
+            let maxNameLength = 'Package'.length;
+            let maxBranchLength = 'Branch'.length;
+            let maxVersionLength = 'Version'.length;
+            let maxStatusLength = 'Status'.length;
+            let maxLinkLength = 'Linked'.length;
+            let maxConsumersLength = 'Consumers'.length;
+
+            const branchInfos: Array<{
+                name: string;
+                branch: string;
+                version: string;
+                status: string;
+                linked: string;
+                consumers: string[];
+            }> = [];
+
+            // Create storage instance for consumer lookup
+            const storage = createStorage({ log: () => {} });
+
+            // Get globally linked packages once at the beginning
+            const globallyLinkedPackages = await getGloballyLinkedPackages();
+
+            // ANSI escape codes for progress display
+            const ANSI = {
+                CURSOR_UP: '\x1b[1A',
+                CURSOR_TO_START: '\x1b[0G',
+                CLEAR_LINE: '\x1b[2K',
+                GREEN: '\x1b[32m',
+                BLUE: '\x1b[34m',
+                YELLOW: '\x1b[33m',
+                RESET: '\x1b[0m',
+                BOLD: '\x1b[1m'
+            };
+
+            // Check if terminal supports ANSI
+            const supportsAnsi = process.stdout.isTTY &&
+                                  process.env.TERM !== 'dumb' &&
+                                  !process.env.NO_COLOR;
+
+            const totalPackages = buildOrder.length;
+            const concurrency = 5; // Process up to 5 packages at a time
+            let completedCount = 0;
+            let isFirstProgress = true;
+
+            // Function to update progress display
+            const updateProgress = (currentPackage: string, completed: number, total: number) => {
+                if (!supportsAnsi) return;
+
+                if (!isFirstProgress) {
+                    // Move cursor up and clear the line
+                    process.stdout.write(ANSI.CURSOR_UP + ANSI.CURSOR_TO_START + ANSI.CLEAR_LINE);
+                }
+
+                const percentage = Math.round((completed / total) * 100);
+                const progressBar = '█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5));
+                const progress = `${ANSI.BLUE}${ANSI.BOLD}Analyzing packages... ${ANSI.GREEN}[${progressBar}] ${percentage}%${ANSI.RESET} ${ANSI.YELLOW}(${completed}/${total})${ANSI.RESET}`;
+                const current = currentPackage ? ` - Currently: ${currentPackage}` : '';
+
+                process.stdout.write(progress + current + '\n');
+                isFirstProgress = false;
+            };
+
+            // Function to process a single package
+            const processPackage = async (packageName: string): Promise<{
+                name: string;
+                branch: string;
+                version: string;
+                status: string;
+                linked: string;
+                consumers: string[];
+            }> => {
+                const packageInfo = dependencyGraph.packages.get(packageName)!;
+
+                try {
+                    // Process git status and consumers in parallel
+                    const [gitStatus, consumers] = await Promise.all([
+                        getGitStatusSummary(packageInfo.path),
+                        findConsumingPackagesForBranches(packageName, dependencyGraph.packages, storage)
+                    ]);
+
+                    // Check if this package is globally linked (available to be linked to)
+                    const isGloballyLinked = globallyLinkedPackages.has(packageName);
+                    const linkedText = isGloballyLinked ? '✓' : '';
+
+                    // Add asterisk to consumers that are actively linking to globally linked packages
+                    // and check for link problems to highlight in red
+                    const consumersWithLinkStatus = await Promise.all(consumers.map(async (consumer) => {
+                        // Get the original package name from display name (remove scope substitution)
+                        const originalConsumerName = consumer.startsWith('./')
+                            ? consumer.replace('./', packageName.split('/')[0] + '/')
+                            : consumer;
+
+                        // Find the consumer package info to get its path
+                        const consumerPackageInfo = Array.from(dependencyGraph.packages.values())
+                            .find(pkg => pkg.name === originalConsumerName);
+
+                        if (consumerPackageInfo) {
+                            const [consumerLinkedDeps, linkProblems] = await Promise.all([
+                                getLinkedDependencies(consumerPackageInfo.path),
+                                getLinkCompatibilityProblems(consumerPackageInfo.path, dependencyGraph.packages)
+                            ]);
+
+                            let consumerDisplay = consumer;
+
+                            // Add asterisk if this consumer is actively linking to this package
+                            if (consumerLinkedDeps.has(packageName)) {
+                                consumerDisplay += '*';
+                            }
+
+                            // Check if this consumer has link problems with the current package
+                            if (linkProblems.has(packageName)) {
+                                // Highlight in red using ANSI escape codes (only if terminal supports it)
+                                if (supportsAnsi) {
+                                    consumerDisplay = `\x1b[31m${consumerDisplay}\x1b[0m`;
+                                } else {
+                                    // Fallback for terminals that don't support ANSI colors
+                                    consumerDisplay += ' [LINK PROBLEM]';
+                                }
+                            }
+
+                            return consumerDisplay;
+                        }
+
+                        return consumer;
+                    }));
+
+                    return {
+                        name: packageName,
+                        branch: gitStatus.branch,
+                        version: packageInfo.version,
+                        status: gitStatus.status,
+                        linked: linkedText,
+                        consumers: consumersWithLinkStatus
+                    };
+                } catch (error: any) {
+                    logger.warn(`Failed to get git status for ${packageName}: ${error.message}`);
+                    return {
+                        name: packageName,
+                        branch: 'error',
+                        version: packageInfo.version,
+                        status: 'error',
+                        linked: '✗',
+                        consumers: ['error']
+                    };
+                }
+            };
+
+            // Process packages in batches with progress updates
+            updateProgress('Starting...', 0, totalPackages);
+
+            for (let i = 0; i < buildOrder.length; i += concurrency) {
+                const batch = buildOrder.slice(i, i + concurrency);
+
+                // Update progress to show current batch
+                const currentBatchStr = batch.length === 1 ? batch[0] : `${batch[0]} + ${batch.length - 1} others`;
+                updateProgress(currentBatchStr, completedCount, totalPackages);
+
+                // Process batch in parallel
+                const batchResults = await Promise.all(
+                    batch.map(packageName => processPackage(packageName))
+                );
+
+                // Add results and update column widths
+                for (const result of batchResults) {
+                    branchInfos.push(result);
+                    maxNameLength = Math.max(maxNameLength, result.name.length);
+                    maxBranchLength = Math.max(maxBranchLength, result.branch.length);
+                    maxVersionLength = Math.max(maxVersionLength, result.version.length);
+                    maxStatusLength = Math.max(maxStatusLength, result.status.length);
+                    maxLinkLength = Math.max(maxLinkLength, result.linked.length);
+
+                    // For consumers, calculate the width based on the longest consumer name
+                    const maxConsumerLength = result.consumers.length > 0
+                        ? Math.max(...result.consumers.map(c => c.length))
+                        : 0;
+                    maxConsumersLength = Math.max(maxConsumersLength, maxConsumerLength);
+                }
+
+                completedCount += batch.length;
+                updateProgress('', completedCount, totalPackages);
+            }
+
+            // Clear progress line and add spacing
+            if (supportsAnsi && !isFirstProgress) {
+                process.stdout.write(ANSI.CURSOR_UP + ANSI.CURSOR_TO_START + ANSI.CLEAR_LINE);
+            }
+            logger.info(`${ANSI.GREEN}✅ Analysis complete!${ANSI.RESET} Processed ${totalPackages} packages in batches of ${concurrency}.`);
+            logger.info('');
+
+            // Print header (new order: Package | Branch | Version | Status | Linked | Consumers)
+            const nameHeader = 'Package'.padEnd(maxNameLength);
+            const branchHeader = 'Branch'.padEnd(maxBranchLength);
+            const versionHeader = 'Version'.padEnd(maxVersionLength);
+            const statusHeader = 'Status'.padEnd(maxStatusLength);
+            const linkHeader = 'Linked'.padEnd(maxLinkLength);
+            const consumersHeader = 'Consumers';
+
+            logger.info(`${nameHeader} | ${branchHeader} | ${versionHeader} | ${statusHeader} | ${linkHeader} | ${consumersHeader}`);
+            logger.info(`${'-'.repeat(maxNameLength)} | ${'-'.repeat(maxBranchLength)} | ${'-'.repeat(maxVersionLength)} | ${'-'.repeat(maxStatusLength)} | ${'-'.repeat(maxLinkLength)} | ${'-'.repeat(9)}`);
+
+            // Print data rows with multi-line consumers
+            for (const info of branchInfos) {
+                const nameCol = info.name.padEnd(maxNameLength);
+                const branchCol = info.branch.padEnd(maxBranchLength);
+                const versionCol = info.version.padEnd(maxVersionLength);
+                const statusCol = info.status.padEnd(maxStatusLength);
+                const linkCol = info.linked.padEnd(maxLinkLength);
+
+                if (info.consumers.length === 0) {
+                    // No consumers - single line
+                    logger.info(`${nameCol} | ${branchCol} | ${versionCol} | ${statusCol} | ${linkCol} | `);
+                } else if (info.consumers.length === 1) {
+                    // Single consumer - single line
+                    logger.info(`${nameCol} | ${branchCol} | ${versionCol} | ${statusCol} | ${linkCol} | ${info.consumers[0]}`);
+                } else {
+                    // Multiple consumers - first consumer on same line, rest on new lines with continuous column separators
+                    logger.info(`${nameCol} | ${branchCol} | ${versionCol} | ${statusCol} | ${linkCol} | ${info.consumers[0]}`);
+
+                    // Additional consumers on separate lines with proper column separators
+                    const emptyNameCol = ' '.repeat(maxNameLength);
+                    const emptyBranchCol = ' '.repeat(maxBranchLength);
+                    const emptyVersionCol = ' '.repeat(maxVersionLength);
+                    const emptyStatusCol = ' '.repeat(maxStatusLength);
+                    const emptyLinkCol = ' '.repeat(maxLinkLength);
+
+                    for (let i = 1; i < info.consumers.length; i++) {
+                        logger.info(`${emptyNameCol} | ${emptyBranchCol} | ${emptyVersionCol} | ${emptyStatusCol} | ${emptyLinkCol} | ${info.consumers[i]}`);
+                    }
+                }
+            }
+
+            logger.info('');
+            // Add legend explaining the symbols and colors
+            logger.info('Legend:');
+            logger.info('  * = Consumer is actively linking to this package');
+            if (supportsAnsi) {
+                logger.info('  \x1b[31mRed text\x1b[0m = Consumer has link problems (version mismatches) with this package');
+            } else {
+                logger.info('  [LINK PROBLEM] = Consumer has link problems (version mismatches) with this package');
+            }
+            logger.info('');
+            return `Branch status summary for ${branchInfos.length} packages completed.`;
+        }
+
         // Display results
         logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Build order determined:`);
 
@@ -958,7 +1334,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
         if (runConfig.verbose || runConfig.debug) {
             // Verbose mode: Skip simple format, show detailed format before command execution
             logger.info(''); // Add spacing
-            logger.info(`Detailed Build Order for ${buildOrder.length} packages${startFrom ? ` (starting from ${startFrom})` : ''}:`);
+            const rangeInfo = [];
+            if (startFrom) rangeInfo.push(`starting from ${startFrom}`);
+            if (stopAt) rangeInfo.push(`stopping before ${stopAt}`);
+            const rangeStr = rangeInfo.length > 0 ? ` (${rangeInfo.join(', ')})` : '';
+            logger.info(`Detailed Build Order for ${buildOrder.length} packages${rangeStr}:`);
             logger.info('==========================================');
 
             buildOrder.forEach((packageName, index) => {
@@ -1006,7 +1386,37 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         if (builtInCommand) {
             // Built-in command mode: shell out to kodrdriv subprocess
-            commandToRun = `kodrdriv ${builtInCommand}`;
+            // Build command with propagated global options
+            const globalOptions: string[] = [];
+
+            // Propagate global flags that should be inherited by subprocesses
+            if (runConfig.debug) globalOptions.push('--debug');
+            if (runConfig.verbose) globalOptions.push('--verbose');
+            if (runConfig.dryRun) globalOptions.push('--dry-run');
+            if (runConfig.overrides) globalOptions.push('--overrides');
+
+            // Propagate global options with values
+            if (runConfig.model) globalOptions.push(`--model "${runConfig.model}"`);
+            if (runConfig.configDirectory) globalOptions.push(`--config-dir "${runConfig.configDirectory}"`);
+            if (runConfig.outputDirectory) globalOptions.push(`--output-dir "${runConfig.outputDirectory}"`);
+            if (runConfig.preferencesDirectory) globalOptions.push(`--preferences-dir "${runConfig.preferencesDirectory}"`);
+
+            // Build the command with global options
+            const optionsString = globalOptions.length > 0 ? ` ${globalOptions.join(' ')}` : '';
+
+            // Add package argument for link/unlink commands
+            const packageArg = runConfig.tree?.packageArgument;
+            const packageArgString = (packageArg && (builtInCommand === 'link' || builtInCommand === 'unlink'))
+                ? ` "${packageArg}"`
+                : '';
+
+            // Add command-specific options
+            let commandSpecificOptions = '';
+            if (builtInCommand === 'unlink' && runConfig.tree?.cleanNodeModules) {
+                commandSpecificOptions += ' --clean-node-modules';
+            }
+
+            commandToRun = `kodrdriv ${builtInCommand}${optionsString}${packageArgString}${commandSpecificOptions}`;
             isBuiltInCommand = true;
         } else if (cmd) {
             // Custom command mode

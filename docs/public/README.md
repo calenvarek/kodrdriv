@@ -72,6 +72,9 @@ kodrdriv link --scope-roots '{"@company": "../"}'
 ### AI-Powered Analysis
 Uses OpenAI models to understand your code changes and generate contextual commit messages and release notes.
 
+### GitHub Issues Integration
+Automatically fetches and analyzes recently closed GitHub issues to provide context for commit messages, especially for large commits addressing multiple features or bugs. Prioritizes issues from current release milestones.
+
 ### Comprehensive Release Automation
 The `publish` command handles dependency updates, version bumping, PR creation, status checks, merging, and GitHub releases.
 

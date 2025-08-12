@@ -44,6 +44,24 @@ vi.mock('../../src/util/openai', () => ({
     getModelForCommand: vi.fn()
 }));
 
+vi.mock('../../src/util/github', () => ({
+    // @ts-ignore
+    getRecentClosedIssuesForCommit: vi.fn()
+}));
+
+vi.mock('../../src/util/validation', () => ({
+    // @ts-ignore
+    validateString: vi.fn((val) => val),
+    safeJsonParse: vi.fn((val) => {
+        try {
+            return JSON.parse(val);
+        } catch {
+            throw new Error('JSON parse failed');
+        }
+    }),
+    validatePackageJson: vi.fn((val) => val)
+}));
+
 vi.mock('@riotprompt/riotprompt', () => {
     // Local builder instance to avoid TDZ issues
     const localBuilder: any = {
@@ -3231,6 +3249,148 @@ describe('commit', () => {
                     expect.objectContaining({
                         diffContent: 'diff --git a/file.ts\n+added line',
                         isFileContent: false // Should be false when using diff
+                    }),
+                    expect.any(Object)
+                );
+            });
+        });
+
+        describe('GitHub issues integration', () => {
+            it('should include GitHub issues context when version is available', async () => {
+                // Arrange
+                const mockConfig = {
+                    commit: {
+                        cached: true,
+                        skipFileCheck: true
+                    },
+                    outputDirectory: 'test-output'
+                };
+
+                const mockDiffContent = 'diff --git a/auth.ts\n+fixed timeout issue';
+                const mockPrompt = 'mock prompt';
+                const mockGitHubIssues = `
+## Recent Issues from Current Milestone (release/0.1.1):
+
+Issue #123: Fix authentication timeout
+Labels: bug, high-priority
+Closed: 2024-01-01T10:00:00Z
+Body: Users experiencing timeout after 30 minutes...
+---
+`;
+                const mockPackageJson = { version: '0.1.1-dev.0' };
+
+                // Mock the diff
+                // @ts-ignore
+                Diff.create.mockReturnValue({
+                    get: vi.fn().mockResolvedValue(mockDiffContent)
+                });
+
+                // Mock hasStagedChanges to return true
+                // @ts-ignore
+                Diff.hasStagedChanges.mockResolvedValue(true);
+
+                // Mock storage to return valid package.json
+                const mockStorage = {
+                    ensureDirectory: vi.fn(),
+                    writeFile: vi.fn(),
+                    readFile: vi.fn().mockResolvedValue(JSON.stringify(mockPackageJson))
+                };
+                Storage.create.mockReturnValue(mockStorage);
+
+                // Reset the validation mocks to work for this test
+                const Validation = await import('../../src/util/validation');
+                // @ts-ignore - The mocks exist but TypeScript can't see them
+                Validation.safeJsonParse = vi.fn().mockReturnValue(mockPackageJson);
+                // @ts-ignore
+                Validation.validatePackageJson = vi.fn().mockReturnValue(mockPackageJson);
+
+                // Mock GitHub issues
+                const GitHub = await import('../../src/util/github');
+                // @ts-ignore
+                GitHub.getRecentClosedIssuesForCommit.mockResolvedValue(mockGitHubIssues);
+
+                // Mock the prompt creation
+                const CommitPromptModule = await import('../../src/prompt/commit');
+                const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
+
+                OpenAI.createCompletionWithRetry.mockResolvedValue('Fix authentication timeout (addresses #123)');
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(result).toBe('Fix authentication timeout (addresses #123)');
+
+                // Verify GitHub issues were fetched with the correct version
+                expect(GitHub.getRecentClosedIssuesForCommit).toHaveBeenCalledWith('0.1.1-dev.0', 10);
+
+                // Verify the prompt was created with GitHub issues context
+                expect(promptSpy).toHaveBeenCalledWith(
+                    expect.any(Object),
+                    expect.objectContaining({
+                        diffContent: mockDiffContent,
+                        githubIssuesContext: mockGitHubIssues
+                    }),
+                    expect.any(Object)
+                );
+            });
+
+            it('should handle GitHub issues fetch failure gracefully', async () => {
+                // Arrange
+                const mockConfig = {
+                    commit: {
+                        cached: true,
+                        skipFileCheck: true
+                    },
+                    outputDirectory: 'test-output'
+                };
+
+                const mockDiffContent = 'diff --git a/file.ts\n+added something';
+                const mockPrompt = 'mock prompt';
+
+                // Mock the diff
+                // @ts-ignore
+                Diff.create.mockReturnValue({
+                    get: vi.fn().mockResolvedValue(mockDiffContent)
+                });
+
+                // Mock hasStagedChanges to return true
+                // @ts-ignore
+                Diff.hasStagedChanges.mockResolvedValue(true);
+
+                // Mock storage - version reading fails
+                const mockStorage = {
+                    ensureDirectory: vi.fn(),
+                    writeFile: vi.fn(),
+                    readFile: vi.fn().mockRejectedValue(new Error('No package.json'))
+                };
+                Storage.create.mockReturnValue(mockStorage);
+
+                // Don't need to mock validation functions specifically since storage.readFile fails
+
+                // Mock GitHub issues to throw error
+                const GitHub = await import('../../src/util/github');
+                // @ts-ignore
+                GitHub.getRecentClosedIssuesForCommit.mockRejectedValue(new Error('GitHub API error'));
+
+                // Mock the prompt creation
+                const CommitPromptModule = await import('../../src/prompt/commit');
+                const promptSpy = vi.spyOn(CommitPromptModule, 'createPrompt').mockResolvedValue(mockPrompt as any);
+
+                OpenAI.createCompletionWithRetry.mockResolvedValue('Simple commit message');
+
+                // Act
+                const result = await Commit.execute(mockConfig);
+
+                // Assert
+                expect(result).toBe('Simple commit message');
+
+                // Verify the prompt was created without GitHub issues context
+                expect(promptSpy).toHaveBeenCalledWith(
+                    expect.any(Object),
+                    expect.objectContaining({
+                        diffContent: mockDiffContent,
+                        githubIssuesContext: '' // Should be empty when fetch fails
                     }),
                     expect.any(Object)
                 );

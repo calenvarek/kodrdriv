@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { deepMerge, stringifyJSON, incrementPatchVersion, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio } from '../../src/util/general';
+import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio } from '../../src/util/general';
 import { beforeEach, afterEach, vi } from 'vitest';
 import * as Storage from '../../src/util/storage';
 import * as fs from 'fs';
@@ -341,6 +341,253 @@ describe('incrementPatchVersion', () => {
     });
 });
 
+describe('incrementMinorVersion', () => {
+    test('should increment minor version correctly', () => {
+        expect(incrementMinorVersion('1.2.3')).toBe('1.3.0');
+        expect(incrementMinorVersion('0.0.1')).toBe('0.1.0');
+        expect(incrementMinorVersion('10.5.99')).toBe('10.6.0');
+    });
+
+    test('should increment from zero', () => {
+        expect(incrementMinorVersion('1.0.0')).toBe('1.1.0');
+        expect(incrementMinorVersion('0.0.0')).toBe('0.1.0');
+    });
+
+    test('should handle large minor numbers', () => {
+        expect(incrementMinorVersion('1.999.0')).toBe('1.1000.0');
+        expect(incrementMinorVersion('2.9999.1')).toBe('2.10000.0');
+    });
+
+    test('should handle versions with v prefix', () => {
+        expect(incrementMinorVersion('v1.2.3')).toBe('1.3.0');
+        expect(incrementMinorVersion('v0.0.1')).toBe('0.1.0');
+        expect(incrementMinorVersion('v10.5.99')).toBe('10.6.0');
+    });
+
+    test('should handle pre-release versions', () => {
+        expect(incrementMinorVersion('4.6.24-dev.0')).toBe('4.7.0');
+        expect(incrementMinorVersion('v4.6.24-dev.0')).toBe('4.7.0');
+        expect(incrementMinorVersion('1.2.3-alpha.1')).toBe('1.3.0');
+        expect(incrementMinorVersion('1.2.3-beta')).toBe('1.3.0');
+        expect(incrementMinorVersion('1.2.3-rc.1')).toBe('1.3.0');
+        expect(incrementMinorVersion('1.2.3-snapshot')).toBe('1.3.0');
+    });
+
+    test('should handle pre-release versions on minor component', () => {
+        expect(incrementMinorVersion('1.23-dev.0.3')).toBe('1.24.0');
+        expect(incrementMinorVersion('v1.23-alpha.1.5')).toBe('1.24.0');
+        expect(incrementMinorVersion('2.0-rc.2.10')).toBe('2.1.0');
+    });
+
+    test('should throw error for invalid version string format', () => {
+        expect(() => incrementMinorVersion('1.2')).toThrow('Invalid version string: 1.2');
+        expect(() => incrementMinorVersion('1')).toThrow('Invalid version string: 1');
+        expect(() => incrementMinorVersion('')).toThrow('Invalid version string: ');
+    });
+
+    test('should throw error for non-numeric version components', () => {
+        expect(() => incrementMinorVersion('abc.2.3')).toThrow('Invalid version numbers in: abc.2.3');
+        expect(() => incrementMinorVersion('1.abc.3')).toThrow('Invalid version numbers in: 1.abc.3');
+        expect(() => incrementMinorVersion('v1.abc-dev.0.3')).toThrow('Invalid version numbers in: v1.abc-dev.0.3');
+    });
+
+    test('should handle version strings with leading zeros', () => {
+        expect(incrementMinorVersion('1.02.3')).toBe('1.3.0');
+        expect(incrementMinorVersion('01.02.00')).toBe('1.3.0'); // Leading zeros are not preserved in major
+        expect(incrementMinorVersion('v1.02.3-dev.0')).toBe('1.3.0');
+    });
+
+    test('should reset patch to 0', () => {
+        expect(incrementMinorVersion('1.2.99')).toBe('1.3.0');
+        expect(incrementMinorVersion('1.2.1234')).toBe('1.3.0');
+        expect(incrementMinorVersion('v1.2.99-beta')).toBe('1.3.0');
+    });
+});
+
+describe('incrementMajorVersion', () => {
+    test('should increment major version correctly', () => {
+        expect(incrementMajorVersion('1.2.3')).toBe('2.0.0');
+        expect(incrementMajorVersion('0.0.1')).toBe('1.0.0');
+        expect(incrementMajorVersion('10.5.99')).toBe('11.0.0');
+    });
+
+    test('should increment from zero', () => {
+        expect(incrementMajorVersion('0.2.3')).toBe('1.0.0');
+        expect(incrementMajorVersion('0.0.0')).toBe('1.0.0');
+    });
+
+    test('should handle large major numbers', () => {
+        expect(incrementMajorVersion('999.5.0')).toBe('1000.0.0');
+        expect(incrementMajorVersion('9999.1.1')).toBe('10000.0.0');
+    });
+
+    test('should handle versions with v prefix', () => {
+        expect(incrementMajorVersion('v1.2.3')).toBe('2.0.0');
+        expect(incrementMajorVersion('v0.0.1')).toBe('1.0.0');
+        expect(incrementMajorVersion('v10.5.99')).toBe('11.0.0');
+    });
+
+    test('should handle pre-release versions', () => {
+        expect(incrementMajorVersion('4.6.24-dev.0')).toBe('5.0.0');
+        expect(incrementMajorVersion('v4.6.24-dev.0')).toBe('5.0.0');
+        expect(incrementMajorVersion('1.2.3-alpha.1')).toBe('2.0.0');
+        expect(incrementMajorVersion('1.2.3-beta')).toBe('2.0.0');
+        expect(incrementMajorVersion('1.2.3-rc.1')).toBe('2.0.0');
+        expect(incrementMajorVersion('1.2.3-snapshot')).toBe('2.0.0');
+    });
+
+    test('should handle pre-release versions on major component', () => {
+        expect(incrementMajorVersion('4-dev.0.6.24')).toBe('5.0.0');
+        expect(incrementMajorVersion('v4-alpha.1.6.24')).toBe('5.0.0');
+        expect(incrementMajorVersion('10-rc.2.5.99')).toBe('11.0.0');
+    });
+
+    test('should throw error for invalid version string format', () => {
+        expect(() => incrementMajorVersion('1.2')).toThrow('Invalid version string: 1.2');
+        expect(() => incrementMajorVersion('1')).toThrow('Invalid version string: 1');
+        expect(() => incrementMajorVersion('')).toThrow('Invalid version string: ');
+    });
+
+    test('should throw error for non-numeric major version', () => {
+        expect(() => incrementMajorVersion('abc.2.3')).toThrow('Invalid major version number in: abc.2.3');
+        expect(() => incrementMajorVersion('v.2.3')).toThrow('Invalid major version number in: v.2.3');
+        expect(() => incrementMajorVersion('vv1.2.3')).toThrow('Invalid major version number in: vv1.2.3');
+    });
+
+    test('should handle version strings with leading zeros', () => {
+        expect(incrementMajorVersion('01.2.3')).toBe('2.0.0');
+        expect(incrementMajorVersion('001.02.00')).toBe('2.0.0');
+        expect(incrementMajorVersion('v01.2.3-dev.0')).toBe('2.0.0');
+    });
+
+    test('should reset minor and patch to 0', () => {
+        expect(incrementMajorVersion('1.99.99')).toBe('2.0.0');
+        expect(incrementMajorVersion('1.1234.5678')).toBe('2.0.0');
+        expect(incrementMajorVersion('v1.99.99-beta')).toBe('2.0.0');
+    });
+});
+
+describe('validateVersionString', () => {
+    test('should validate correct semver strings', () => {
+        expect(validateVersionString('1.2.3')).toBe(true);
+        expect(validateVersionString('0.0.0')).toBe(true);
+        expect(validateVersionString('10.5.99')).toBe(true);
+        expect(validateVersionString('999.999.999')).toBe(true);
+    });
+
+    test('should validate versions with v prefix', () => {
+        expect(validateVersionString('v1.2.3')).toBe(true);
+        expect(validateVersionString('v0.0.0')).toBe(true);
+        expect(validateVersionString('v10.5.99')).toBe(true);
+    });
+
+    test('should reject invalid version formats', () => {
+        expect(validateVersionString('1.2')).toBe(false);
+        expect(validateVersionString('1')).toBe(false);
+        expect(validateVersionString('')).toBe(false);
+        expect(validateVersionString('1.2.3.4')).toBe(false);
+        expect(validateVersionString('1.2.3-alpha')).toBe(false);
+        expect(validateVersionString('1.2.3-dev.0')).toBe(false);
+        expect(validateVersionString('1.2.3+build')).toBe(false);
+    });
+
+    test('should reject non-numeric components', () => {
+        expect(validateVersionString('a.b.c')).toBe(false);
+        expect(validateVersionString('1.b.c')).toBe(false);
+        expect(validateVersionString('1.2.c')).toBe(false);
+        expect(validateVersionString('va.2.3')).toBe(false);
+    });
+
+    test('should reject negative numbers', () => {
+        expect(validateVersionString('-1.2.3')).toBe(false);
+        expect(validateVersionString('1.-2.3')).toBe(false);
+        expect(validateVersionString('1.2.-3')).toBe(false);
+        expect(validateVersionString('v-1.2.3')).toBe(false);
+    });
+
+    test('should accept leading zeros', () => {
+        expect(validateVersionString('01.02.03')).toBe(true);
+        expect(validateVersionString('001.002.003')).toBe(true);
+        expect(validateVersionString('v01.02.03')).toBe(true);
+    });
+
+    test('should reject special characters', () => {
+        expect(validateVersionString('1.2.3!')).toBe(false);
+        expect(validateVersionString('1.2.3@')).toBe(false);
+        expect(validateVersionString('1.2.3#')).toBe(false);
+        expect(validateVersionString('1.2.3$')).toBe(false);
+        expect(validateVersionString('1.2.3%')).toBe(false);
+        expect(validateVersionString('1.2.3^')).toBe(false);
+        expect(validateVersionString('1.2.3&')).toBe(false);
+        expect(validateVersionString('1.2.3*')).toBe(false);
+        expect(validateVersionString('1.2.3()')).toBe(false);
+    });
+});
+
+describe('calculateTargetVersion', () => {
+    test('should calculate patch version increment', () => {
+        expect(calculateTargetVersion('1.2.3', 'patch')).toBe('1.2.4');
+        expect(calculateTargetVersion('v1.2.3', 'patch')).toBe('1.2.4');
+        expect(calculateTargetVersion('0.0.1', 'patch')).toBe('0.0.2');
+    });
+
+    test('should calculate minor version increment', () => {
+        expect(calculateTargetVersion('1.2.3', 'minor')).toBe('1.3.0');
+        expect(calculateTargetVersion('v1.2.3', 'minor')).toBe('1.3.0');
+        expect(calculateTargetVersion('0.0.1', 'minor')).toBe('0.1.0');
+    });
+
+    test('should calculate major version increment', () => {
+        expect(calculateTargetVersion('1.2.3', 'major')).toBe('2.0.0');
+        expect(calculateTargetVersion('v1.2.3', 'major')).toBe('2.0.0');
+        expect(calculateTargetVersion('0.0.1', 'major')).toBe('1.0.0');
+    });
+
+    test('should handle case-insensitive increment types', () => {
+        expect(calculateTargetVersion('1.2.3', 'PATCH')).toBe('1.2.4');
+        expect(calculateTargetVersion('1.2.3', 'MINOR')).toBe('1.3.0');
+        expect(calculateTargetVersion('1.2.3', 'MAJOR')).toBe('2.0.0');
+        expect(calculateTargetVersion('1.2.3', 'Patch')).toBe('1.2.4');
+        expect(calculateTargetVersion('1.2.3', 'Minor')).toBe('1.3.0');
+        expect(calculateTargetVersion('1.2.3', 'Major')).toBe('2.0.0');
+    });
+
+    test('should accept explicit version numbers', () => {
+        expect(calculateTargetVersion('1.2.3', '2.0.0')).toBe('2.0.0');
+        expect(calculateTargetVersion('1.2.3', '1.3.5')).toBe('1.3.5');
+        expect(calculateTargetVersion('1.2.3', '10.20.30')).toBe('10.20.30');
+    });
+
+    test('should handle explicit version numbers with v prefix', () => {
+        expect(calculateTargetVersion('1.2.3', 'v2.0.0')).toBe('2.0.0');
+        expect(calculateTargetVersion('1.2.3', 'v1.3.5')).toBe('1.3.5');
+        expect(calculateTargetVersion('v1.2.3', 'v10.20.30')).toBe('10.20.30');
+    });
+
+    test('should throw error for invalid explicit version format', () => {
+        expect(() => calculateTargetVersion('1.2.3', '1.2')).toThrow('Invalid version format: 1.2. Expected format: "x.y.z" or one of: "patch", "minor", "major"');
+        expect(() => calculateTargetVersion('1.2.3', '1')).toThrow('Invalid version format: 1. Expected format: "x.y.z" or one of: "patch", "minor", "major"');
+        expect(() => calculateTargetVersion('1.2.3', 'invalid')).toThrow('Invalid version format: invalid. Expected format: "x.y.z" or one of: "patch", "minor", "major"');
+        expect(() => calculateTargetVersion('1.2.3', '1.2.3-alpha')).toThrow('Invalid version format: 1.2.3-alpha. Expected format: "x.y.z" or one of: "patch", "minor", "major"');
+    });
+
+    test('should handle pre-release versions in current version', () => {
+        expect(calculateTargetVersion('1.2.3-alpha.1', 'patch')).toBe('1.2.4');
+        expect(calculateTargetVersion('1.2.3-dev.0', 'minor')).toBe('1.3.0');
+        expect(calculateTargetVersion('1.2.3-rc.1', 'major')).toBe('2.0.0');
+    });
+
+    test('should accept empty string target version', () => {
+        expect(() => calculateTargetVersion('1.2.3', '')).toThrow('Invalid version format: . Expected format: "x.y.z" or one of: "patch", "minor", "major"');
+    });
+
+    test('should handle edge cases', () => {
+        expect(calculateTargetVersion('999.999.999', 'patch')).toBe('999.999.1000');
+        expect(calculateTargetVersion('999.999.999', 'minor')).toBe('999.1000.0');
+        expect(calculateTargetVersion('999.999.999', 'major')).toBe('1000.0.0');
+    });
+});
+
 describe('getOutputPath', () => {
     test('should join output directory and filename correctly', () => {
         expect(getOutputPath('output', 'test.json')).toBe('output/test.json');
@@ -477,6 +724,276 @@ describe('specific timestamped filename functions', () => {
     test('getTimestampedArchivedTranscriptFilename should generate archived transcript filename', () => {
         const result = getTimestampedArchivedTranscriptFilename();
         expect(result).toBe('250107-0530-review-transcript.md');
+    });
+});
+
+describe('checkIfTagExists', () => {
+    let mockRun: any;
+
+    beforeEach(async () => {
+        // Mock the dynamic import of child module
+        mockRun = vi.fn();
+        vi.doMock('../../src/util/child', () => ({
+            run: mockRun
+        }));
+    });
+
+    afterEach(() => {
+        vi.clearAllMocks();
+        vi.doUnmock('../../src/util/child');
+    });
+
+    test('should return true when tag exists', async () => {
+        mockRun.mockResolvedValue({ stdout: 'v1.2.3' });
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(true);
+    });
+
+    test('should return false when tag does not exist', async () => {
+        mockRun.mockResolvedValue({ stdout: '' });
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(false);
+    });
+
+    test('should return false when tag has different case', async () => {
+        mockRun.mockResolvedValue({ stdout: 'V1.2.3' });
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(false);
+    });
+
+    test('should return false when stdout contains partial match', async () => {
+        mockRun.mockResolvedValue({ stdout: 'v1.2.3-alpha' });
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(false);
+    });
+
+    test('should handle tags without v prefix', async () => {
+        mockRun.mockResolvedValue({ stdout: '1.2.3' });
+
+        const result = await checkIfTagExists('1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l 1.2.3');
+        expect(result).toBe(true);
+    });
+
+    test('should trim whitespace from stdout', async () => {
+        mockRun.mockResolvedValue({ stdout: '  v1.2.3  \n' });
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(true);
+    });
+
+    test('should return false when git command fails', async () => {
+        mockRun.mockRejectedValue(new Error('Git command failed'));
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(false);
+    });
+
+    test('should handle special characters in tag names', async () => {
+        mockRun.mockResolvedValue({ stdout: 'release/1.2.3' });
+
+        const result = await checkIfTagExists('release/1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l release/1.2.3');
+        expect(result).toBe(true);
+    });
+
+    test('should handle empty tag name', async () => {
+        mockRun.mockResolvedValue({ stdout: '' });
+
+        const result = await checkIfTagExists('');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l ');
+        expect(result).toBe(true); // Empty stdout matches empty tagName after trim
+    });
+
+    test('should handle multiple lines in stdout (should only match exact)', async () => {
+        mockRun.mockResolvedValue({ stdout: 'v1.2.2\nv1.2.3\nv1.2.4' });
+
+        const result = await checkIfTagExists('v1.2.3');
+
+        expect(mockRun).toHaveBeenCalledWith('git tag -l v1.2.3');
+        expect(result).toBe(false); // Because stdout.trim() !== tagName
+    });
+});
+
+describe('confirmVersionInteractively', () => {
+    let mockGetUserChoice: any;
+    let mockGetUserTextInput: any;
+    let mockRequireTTY: any;
+    let mockGetLogger: any;
+    let mockLogger: any;
+
+    beforeEach(async () => {
+        // Mock interactive module
+        mockGetUserChoice = vi.fn();
+        mockGetUserTextInput = vi.fn();
+        mockRequireTTY = vi.fn();
+        vi.doMock('../../src/util/interactive', () => ({
+            getUserChoice: mockGetUserChoice,
+            getUserTextInput: mockGetUserTextInput,
+            requireTTY: mockRequireTTY
+        }));
+
+        // Mock logger
+        mockLogger = {
+            info: vi.fn(),
+            debug: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn()
+        };
+        mockGetLogger = vi.fn().mockReturnValue(mockLogger);
+        vi.doMock('../../src/logging', () => ({
+            getLogger: mockGetLogger
+        }));
+    });
+
+    afterEach(() => {
+        vi.clearAllMocks();
+        vi.doUnmock('../../src/util/interactive');
+        vi.doUnmock('../../src/logging');
+    });
+
+    test('should confirm proposed version when user chooses confirm', async () => {
+        mockGetUserChoice.mockResolvedValue('c');
+
+        const result = await confirmVersionInteractively('1.2.3', '1.2.4');
+
+        expect(mockRequireTTY).toHaveBeenCalledWith('Interactive version confirmation requires a terminal.');
+        expect(mockLogger.info).toHaveBeenCalledWith('\n📦 Version Confirmation:');
+        expect(mockLogger.info).toHaveBeenCalledWith('   Current version: 1.2.3');
+        expect(mockLogger.info).toHaveBeenCalledWith('   Proposed version: 1.2.4');
+        expect(mockGetUserChoice).toHaveBeenCalledWith(
+            '\n🤔 Confirm the version for this release:',
+            [
+                { key: 'c', label: 'Confirm 1.2.4' },
+                { key: 'e', label: 'Enter custom version' },
+                { key: 'a', label: 'Abort publish' }
+            ]
+        );
+        expect(result).toBe('1.2.4');
+    });
+
+    test('should display target input when provided', async () => {
+        mockGetUserChoice.mockResolvedValue('c');
+
+        const result = await confirmVersionInteractively('1.2.3', '1.2.4', 'patch');
+
+        expect(mockLogger.info).toHaveBeenCalledWith('   Target input: patch');
+        expect(result).toBe('1.2.4');
+    });
+
+    test('should handle custom version input', async () => {
+        mockGetUserChoice.mockResolvedValue('e');
+        mockGetUserTextInput.mockResolvedValue('2.0.0');
+
+        const result = await confirmVersionInteractively('1.2.3', '1.2.4');
+
+        expect(mockGetUserTextInput).toHaveBeenCalledWith('\n📝 Enter the version number (e.g., "4.30.0"):');
+        expect(mockLogger.info).toHaveBeenCalledWith('✅ Using custom version: 2.0.0');
+        expect(result).toBe('2.0.0');
+    });
+
+    test('should handle custom version with v prefix', async () => {
+        mockGetUserChoice.mockResolvedValue('e');
+        mockGetUserTextInput.mockResolvedValue('v2.0.0');
+
+        const result = await confirmVersionInteractively('1.2.3', '1.2.4');
+
+        expect(mockLogger.info).toHaveBeenCalledWith('✅ Using custom version: 2.0.0');
+        expect(result).toBe('2.0.0');
+    });
+
+    test('should throw error for invalid custom version format', async () => {
+        mockGetUserChoice.mockResolvedValue('e');
+        mockGetUserTextInput.mockResolvedValue('invalid-version');
+
+        await expect(confirmVersionInteractively('1.2.3', '1.2.4')).rejects.toThrow(
+            'Invalid version format: invalid-version. Expected format: "x.y.z"'
+        );
+    });
+
+    test('should throw error when user aborts', async () => {
+        mockGetUserChoice.mockResolvedValue('a');
+
+        await expect(confirmVersionInteractively('1.2.3', '1.2.4')).rejects.toThrow(
+            'Release aborted by user'
+        );
+    });
+
+    test('should throw error for unexpected choice', async () => {
+        mockGetUserChoice.mockResolvedValue('x');
+
+        await expect(confirmVersionInteractively('1.2.3', '1.2.4')).rejects.toThrow(
+            'Unexpected choice: x'
+        );
+    });
+
+    test('should validate various custom version formats', async () => {
+        // Test valid formats
+        const validVersions = ['0.0.1', '1.0.0', '10.20.30', '999.999.999'];
+
+        for (const version of validVersions) {
+            mockGetUserChoice.mockResolvedValue('e');
+            mockGetUserTextInput.mockResolvedValue(version);
+
+            const result = await confirmVersionInteractively('1.2.3', '1.2.4');
+            expect(result).toBe(version);
+        }
+    });
+
+    test('should reject invalid custom version formats', async () => {
+        const invalidVersions = ['1.2', '1', 'abc', '1.2.3.4', '1.2.3-alpha'];
+
+        for (const version of invalidVersions) {
+            mockGetUserChoice.mockResolvedValue('e');
+            mockGetUserTextInput.mockResolvedValue(version);
+
+            await expect(confirmVersionInteractively('1.2.3', '1.2.4')).rejects.toThrow(
+                `Invalid version format: ${version}. Expected format: "x.y.z"`
+            );
+        }
+    });
+
+    test('should handle edge cases with version display', async () => {
+        mockGetUserChoice.mockResolvedValue('c');
+
+        // Test with versions that have leading zeros, etc.
+        const result = await confirmVersionInteractively('v01.02.03', '01.02.04', 'PATCH');
+
+        expect(mockLogger.info).toHaveBeenCalledWith('   Current version: v01.02.03');
+        expect(mockLogger.info).toHaveBeenCalledWith('   Proposed version: 01.02.04');
+        expect(mockLogger.info).toHaveBeenCalledWith('   Target input: PATCH');
+        expect(result).toBe('01.02.04');
+    });
+
+    test('should not display target input when not provided', async () => {
+        mockGetUserChoice.mockResolvedValue('c');
+
+        await confirmVersionInteractively('1.2.3', '1.2.4');
+
+        // Verify target input line was not called
+        const targetInputCalls = mockLogger.info.mock.calls.filter(
+            (call: any[]) => call[0].includes('Target input')
+        );
+        expect(targetInputCalls).toHaveLength(0);
     });
 });
 
