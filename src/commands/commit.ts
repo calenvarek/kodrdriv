@@ -12,9 +12,9 @@ import { getDryRunLogger } from '../logging';
 import * as CommitPrompt from '../prompt/commit';
 import { Config } from '../types';
 import { run } from '../util/child';
-import { validateString } from '../util/validation';
+import { validateString, sanitizeDirection } from '../util/validation';
 import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
-import { createCompletionWithRetry, getModelForCommand } from '../util/openai';
+import { createCompletionWithRetry, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
@@ -84,10 +84,14 @@ Please revise the commit message according to the user's feedback while maintain
         },
         callLLM: async (request, runConfig, outputDirectory) => {
             const modelToUse = getModelForCommand(runConfig, 'commit');
+            const openaiReasoning = getOpenAIReasoningForCommand(runConfig, 'commit');
+            const openaiMaxOutputTokens = getOpenAIMaxOutputTokensForCommand(runConfig, 'commit');
             return await createCompletionWithRetry(
                 request.messages as ChatCompletionMessageParam[],
                 {
                     model: modelToUse,
+                    openaiReasoning,
+                    openaiMaxOutputTokens,
                     debug: runConfig.debug,
                     debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('commit-improve')),
                     debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('commit-improve')),
@@ -438,9 +442,14 @@ const executeInternal = async (runConfig: Config) => {
         overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
     };
+    const userDirection = sanitizeDirection(runConfig.commit?.direction);
+    if (userDirection) {
+        logger.debug('Using user direction: %s', userDirection);
+    }
+
     const promptContent = {
         diffContent,
-        userDirection: runConfig.commit?.direction,
+        userDirection,
         isFileContent: isUsingFileContent,
         githubIssuesContext,
     };
@@ -480,7 +489,7 @@ const executeInternal = async (runConfig: Config) => {
         // Rebuild the prompt with the reduced diff
         const reducedPromptContent = {
             diffContent: reducedDiffContent,
-            userDirection: runConfig.commit?.direction,
+            userDirection,
         };
         const reducedPromptContext = {
             logContext,
@@ -498,6 +507,8 @@ const executeInternal = async (runConfig: Config) => {
         request.messages as ChatCompletionMessageParam[],
         {
             model: modelToUse,
+            openaiReasoning: getOpenAIReasoningForCommand(runConfig, 'commit'),
+            openaiMaxOutputTokens: getOpenAIMaxOutputTokensForCommand(runConfig, 'commit'),
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
             debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),

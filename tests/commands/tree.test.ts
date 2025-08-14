@@ -1024,14 +1024,14 @@ describe('tree', () => {
         it('should handle dry run for inter-project dependency updates', async () => {
             setupBasicFilesystemMocks([
                 {
-                    name: '@wagnerski/core',
+                    name: '@omnicore/core',
                     version: '1.0.0',
                     dependencies: {}
                 },
                 {
-                    name: '@wagnerski/plugin',
+                    name: '@omnicore/plugin',
                     version: '1.0.0',
-                    dependencies: { '@wagnerski/core': '^0.9.0' }
+                    dependencies: { '@omnicore/core': '^0.9.0' }
                 }
             ]);
 

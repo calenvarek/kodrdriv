@@ -8,7 +8,7 @@ import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as ReleasePrompt from '../prompt/release';
 import { Config } from '../types';
-import { createCompletionWithRetry, getModelForCommand } from '../util/openai';
+import { createCompletionWithRetry, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
@@ -78,10 +78,14 @@ Please revise the release notes according to the user's feedback while maintaini
         },
         callLLM: async (request, runConfig, outputDirectory) => {
             const modelToUse = getModelForCommand(runConfig, 'release');
+            const openaiReasoning = getOpenAIReasoningForCommand(runConfig, 'release');
+            const openaiMaxOutputTokens = getOpenAIMaxOutputTokensForCommand(runConfig, 'release');
             return await createCompletionWithRetry(
                 request.messages as ChatCompletionMessageParam[],
                 {
                     model: modelToUse,
+                    openaiReasoning,
+                    openaiMaxOutputTokens,
                     responseFormat: { type: 'json_object' },
                     debug: runConfig.debug,
                     debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release-improve')),
@@ -340,11 +344,13 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         request.messages as ChatCompletionMessageParam[],
         {
             model: modelToUse,
+            openaiReasoning: getOpenAIReasoningForCommand(runConfig, 'release'),
+            openaiMaxOutputTokens: getOpenAIMaxOutputTokensForCommand(runConfig, 'release'),
+            maxTokens: promptResult.maxTokens, // Use calculated maxTokens for large release detection
             responseFormat: { type: 'json_object' },
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release')),
             debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
-            maxTokens: promptResult.maxTokens,
         },
         createRetryCallback(diffContent, logContent)
     );

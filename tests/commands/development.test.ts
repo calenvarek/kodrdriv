@@ -109,6 +109,20 @@ describe('development command', () => {
 
         // Configure runSecure mock to return expected structure for git commands
         (runSecure as any).mockResolvedValue({ stdout: '{"version": "1.0.0"}', stderr: '' });
+
+        // Reset run mock to default behavior
+        mockRun.mockImplementation((command: string) => {
+            if (command.includes('git branch --show-current')) {
+                return Promise.resolve({ stdout: 'main' });
+            }
+            if (command.includes('git show main:package.json')) {
+                return Promise.resolve({ stdout: '{"version": "1.0.0"}' });
+            }
+            if (command.includes('git show working:package.json')) {
+                return Promise.resolve({ stdout: '{"version": "1.0.0"}' });
+            }
+            return Promise.resolve({ stdout: '' });
+        });
     });
 
     describe('execute', () => {
@@ -520,5 +534,238 @@ describe('development command', () => {
             expect(result).toBe('Created working branch with development version');
             expect(GitHubModule.ensureMilestoneForVersion).toHaveBeenCalledWith('1.0.1', '1.0.0');
         });
+
+        it('should handle sync warning when remote sync fails but no conflict resolution needed', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock current working directory package.json
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+
+            // Mock current branch as main
+            mockRun.mockResolvedValueOnce({ stdout: 'main' });
+            // Mock main package.json version
+            mockRun.mockResolvedValueOnce({ stdout: '{"version": "1.0.0"}' });
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock working branch doesn't exist
+            mockLocalBranchExists.mockResolvedValueOnce(false);
+            // Mock sync with remote failure but no conflict resolution needed
+            mockSafeSyncBranchWithRemote.mockResolvedValueOnce({
+                success: false,
+                conflictResolutionRequired: false,
+                error: 'Network timeout'
+            });
+            // Mock successful package.json update
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock commit execution
+            mockCommitExecute.mockResolvedValueOnce('Committed development version');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBe('Created working branch with development version');
+            expect(mockSafeSyncBranchWithRemote).toHaveBeenCalledWith('main');
+        });
+
+
+
+
+
+
+
+        it('should handle invalid branch name in getVersionFromBranch', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock current working directory package.json
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+
+            // Mock current branch as main
+            mockRun.mockResolvedValueOnce({ stdout: 'main' });
+            // Mock validateGitRef to return false for invalid branch name
+            const { validateGitRef } = await import('../../src/util/child');
+            (validateGitRef as any).mockReturnValueOnce(false);
+
+            await expect(Development.execute(runConfig)).rejects.toThrow(
+                'Failed to get version from branch main: Error: Invalid branch name: main'
+            );
+        });
+
+        it('should handle storage read error', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock storage read failure
+            mockStorage.readFile.mockRejectedValueOnce(new Error('File not found'));
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('File not found');
+        });
+
+        it('should handle invalid package.json in current directory', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock current working directory package.json read success but invalid JSON
+            mockStorage.readFile.mockResolvedValueOnce('invalid json');
+            mockSafeJsonParse.mockImplementationOnce(() => {
+                throw new Error('Invalid JSON');
+            });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('Invalid JSON');
+        });
+
+        it('should handle npm install failure', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock current working directory package.json
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+
+            // Mock current branch as main
+            mockRun.mockResolvedValueOnce({ stdout: 'main' });
+            // Mock main package.json version
+            mockRun.mockResolvedValueOnce({ stdout: '{"version": "1.0.0"}' });
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock working branch doesn't exist
+            mockLocalBranchExists.mockResolvedValueOnce(false);
+            // Mock sync with remote success
+            mockSafeSyncBranchWithRemote.mockResolvedValueOnce({ success: true });
+            // Mock successful package.json update
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock npm install failure
+            mockRun.mockImplementation((command: string) => {
+                if (command === 'npm install') {
+                    throw new Error('npm install failed');
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('npm install failed');
+        });
+
+        it('should handle working branch with version bump needed (unusual state)', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock current working directory package.json with lower version
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "0.9.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '0.9.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '0.9.0' });
+
+            // Mock current branch as working
+            mockRun.mockResolvedValueOnce({ stdout: 'working' });
+            // Mock main package.json version
+            mockRun.mockResolvedValueOnce({ stdout: '{"version": "1.0.0"}' });
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock working branch exists
+            mockLocalBranchExists.mockResolvedValueOnce(true);
+            // Mock working branch version (lower than main, needs bump)
+            mockRun.mockResolvedValueOnce({ stdout: '{"version": "0.9.0"}' });
+            mockSafeJsonParse.mockReturnValueOnce({ version: '0.9.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '0.9.0' });
+            // Mock sync with remote success
+            mockSafeSyncBranchWithRemote.mockResolvedValueOnce({ success: true });
+            // Mock successful package.json update
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "0.9.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '0.9.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '0.9.0' });
+            // Mock commit execution
+            mockCommitExecute.mockResolvedValueOnce('Committed development version');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBe('Updated working branch with development version');
+            expect(mockStorage.writeFile).toHaveBeenCalledWith('package.json', expect.stringContaining('"version": "1.0.1-dev.0"'), 'utf-8');
+        });
+
+        it('should handle explicit version with v prefix', async () => {
+            const runConfig = {
+                dryRun: false,
+                development: { targetVersion: 'v3.5.0' }
+            };
+
+            // Mock current working directory package.json
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+
+            // Mock current branch as main
+            mockRun.mockResolvedValueOnce({ stdout: 'main' });
+            // Mock main package.json version
+            mockRun.mockResolvedValueOnce({ stdout: '{"version": "1.0.0"}' });
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock working branch doesn't exist
+            mockLocalBranchExists.mockResolvedValueOnce(false);
+            // Mock sync with remote success
+            mockSafeSyncBranchWithRemote.mockResolvedValueOnce({ success: true });
+            // Mock successful package.json update
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock commit execution
+            mockCommitExecute.mockResolvedValueOnce('Committed development version');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBe('Created working branch with development version');
+            // Should create 3.5.0-dev.0 (explicit version with v prefix removed)
+            expect(mockStorage.writeFile).toHaveBeenCalledWith('package.json', expect.stringContaining('"version": "3.5.0-dev.0"'), 'utf-8');
+        });
+
+
+    });
+
+    describe('utility functions', () => {
+        it('should parse version strings correctly', async () => {
+            const runConfig = {
+                dryRun: true,
+                development: { targetVersion: 'patch' }
+            };
+
+            // Mock current working directory package.json
+            mockStorage.readFile.mockResolvedValueOnce('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+
+            // Mock current branch as main
+            mockRun.mockResolvedValueOnce({ stdout: 'main' });
+            // Mock main package.json version
+            mockRun.mockResolvedValueOnce({ stdout: '{"version": "1.0.0"}' });
+            mockSafeJsonParse.mockReturnValueOnce({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValueOnce({ version: '1.0.0' });
+            // Mock working branch doesn't exist
+            mockLocalBranchExists.mockResolvedValueOnce(false);
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBe('Created working branch with development version');
+        });
+
+
     });
 });
