@@ -10,7 +10,7 @@ The review command takes text input (note) and analyzes it for potential issues,
 
 ## Providing Review Notes
 
-You can provide review notes in three ways:
+You can provide review notes in several ways:
 
 **Positional argument:**
 ```bash
@@ -22,6 +22,33 @@ kodrdriv review "The authentication flow is confusing and needs better error mes
 echo "Need to improve performance in data processing" | kodrdriv review --sendit
 cat my_review_notes.txt | kodrdriv review --sendit
 ```
+
+**From a file:**
+```bash
+kodrdriv review --file review_notes.md
+kodrdriv review --file /path/to/review.txt
+```
+
+**From a directory (processes multiple files):**
+```bash
+kodrdriv review --directory ./reviews/
+kodrdriv review --directory /path/to/review-files --sendit
+```
+
+> [!NOTE]
+> ### Directory Processing
+>
+> When using `--directory`, files are processed in alphabetical order. The command will prompt for confirmation before processing each file unless `--sendit` is specified.
+>
+> **Example directory structure:**
+> ```
+> reviews/
+> ├── 01-auth-review.md
+> ├── 02-performance.txt
+> └── 03-ui-feedback.md
+> ```
+>
+> Files will be processed in this order: `01-auth-review.md`, `02-performance.txt`, `03-ui-feedback.md`
 
 > [!IMPORTANT]
 > ### Piped Input Requires --sendit Flag
@@ -137,6 +164,8 @@ Simply type your review notes below the template comments. Lines starting with `
 
 **Other Options:**
 - `--context <context>`: Additional context for the review
+- `--file <file>`: Read review note from a file
+- `--directory <directory>`: Process all review files in a directory
 - `--sendit`: Create GitHub issues automatically without confirmation
 - `--editor-timeout <timeout>`: Timeout for editor in milliseconds (default: no timeout)
 
@@ -171,6 +200,12 @@ kodrdriv review --commit-history-limit 5 --diff-history-limit 2 "Performance iss
 # Auto-create issues without confirmation
 kodrdriv review --sendit "Critical security vulnerabilities found"
 
+# Review from a file
+kodrdriv review --file review_notes.md
+
+# Process multiple review files in a directory
+kodrdriv review --directory ./reviews/ --sendit
+
 # Review with minimal context
 kodrdriv review --no-include-commit-history --no-include-recent-diffs "UI feedback"
 
@@ -179,4 +214,7 @@ cat code_review.md | kodrdriv review --context "Sprint 2 review" --sendit
 
 # Review with only specific context types
 kodrdriv review --no-include-recent-diffs --no-include-release-notes "Authentication flow review"
+
+# Review from file with custom context
+kodrdriv review --file sprint_review.md --context "Sprint 3 retrospective"
 ```

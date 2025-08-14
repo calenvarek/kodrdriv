@@ -27,7 +27,9 @@ vi.mock('../../src/util/openai', () => ({
         title: 'mock title',
         body: 'mock body'
     }),
-    getModelForCommand: vi.fn().mockReturnValue('gpt-4o-mini')
+    getModelForCommand: vi.fn().mockReturnValue('gpt-4o-mini'),
+    getOpenAIReasoningForCommand: vi.fn().mockReturnValue('low'),
+    getOpenAIMaxOutputTokensForCommand: vi.fn().mockReturnValue(10000)
 }));
 
 vi.mock('../../src/logging', () => ({

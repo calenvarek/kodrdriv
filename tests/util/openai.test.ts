@@ -16,6 +16,17 @@ vi.mock('../../src/util/general', () => ({
     archiveAudio: vi.fn().mockResolvedValue(undefined)
 }));
 
+// Mock the safeJsonParse function
+vi.mock('../../src/util/validation', () => ({
+    safeJsonParse: vi.fn().mockImplementation((json, context) => {
+        try {
+            return JSON.parse(json);
+        } catch {
+            throw new Error(`Invalid JSON in ${context}`);
+        }
+    })
+}));
+
 // Define mock functions with any type to avoid TS errors
 const mockChatCreate = vi.fn<any>();
 const mockTranscriptionsCreate = vi.fn<any>();
@@ -127,6 +138,154 @@ describe('openai', () => {
         });
     });
 
+    describe('getOpenAIReasoningForCommand', () => {
+        it('should return command-specific reasoning when available', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                openaiReasoning: 'low' as const,
+                commit: { openaiReasoning: 'high' as const },
+                release: { openaiReasoning: 'medium' as const },
+                review: { openaiReasoning: 'high' as const },
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'commit')).toBe('high');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'audio-commit')).toBe('high');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'release')).toBe('medium');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'review')).toBe('high');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'audio-review')).toBe('high');
+        });
+
+        it('should fallback to global reasoning when command-specific reasoning not available', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                openaiReasoning: 'medium' as const,
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'commit')).toBe('medium');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'release')).toBe('medium');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'review')).toBe('medium');
+        });
+
+        it('should fallback to default reasoning when no reasoning specified', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'commit')).toBe('low');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'release')).toBe('low');
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'review')).toBe('low');
+        });
+
+        it('should use global reasoning for unknown commands', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                openaiReasoning: 'high' as const,
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIReasoningForCommand(config, 'unknown-command')).toBe('high');
+        });
+    });
+
+    describe('getOpenAIMaxOutputTokensForCommand', () => {
+        it('should return command-specific max output tokens when available', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                openaiMaxOutputTokens: 5000,
+                commit: { openaiMaxOutputTokens: 15000 },
+                release: { openaiMaxOutputTokens: 20000 },
+                review: { openaiMaxOutputTokens: 8000 },
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'commit')).toBe(15000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'audio-commit')).toBe(15000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'release')).toBe(20000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'review')).toBe(8000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'audio-review')).toBe(8000);
+        });
+
+        it('should fallback to global max output tokens when command-specific not available', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                openaiMaxOutputTokens: 12000,
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'commit')).toBe(12000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'release')).toBe(12000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'review')).toBe(12000);
+        });
+
+        it('should fallback to default max output tokens when none specified', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'commit')).toBe(10000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'release')).toBe(10000);
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'review')).toBe(10000);
+        });
+
+        it('should use global max output tokens for unknown commands', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            const config = {
+                openaiMaxOutputTokens: 25000,
+                configDirectory: '/test/config',
+                discoveredConfigDirs: [],
+                resolvedConfigDirs: []
+            };
+
+            expect(openaiModule.getOpenAIMaxOutputTokensForCommand(config, 'unknown-command')).toBe(25000);
+        });
+    });
+
+    describe('OpenAIError', () => {
+        it('should create OpenAIError with default isTokenLimitError', async () => {
+            const openaiModule = await import('../../src/util/openai');
+            const error = new openaiModule.OpenAIError('Test error');
+
+            expect(error.message).toBe('Test error');
+            expect(error.name).toBe('OpenAIError');
+            expect(error.isTokenLimitError).toBe(false);
+        });
+
+        it('should create OpenAIError with custom isTokenLimitError', async () => {
+            const openaiModule = await import('../../src/util/openai');
+            const error = new openaiModule.OpenAIError('Token limit error', true);
+
+            expect(error.message).toBe('Token limit error');
+            expect(error.name).toBe('OpenAIError');
+            expect(error.isTokenLimitError).toBe(true);
+        });
+    });
+
     describe('isTokenLimitError', () => {
         it('should detect token limit errors', async () => {
             const openaiModule = await import('../../src/util/openai');
@@ -139,6 +298,40 @@ describe('openai', () => {
             expect(openaiModule.isTokenLimitError({ message: 'some other error' })).toBe(false);
             expect(openaiModule.isTokenLimitError({})).toBe(false);
             expect(openaiModule.isTokenLimitError(null)).toBe(false);
+        });
+    });
+
+    describe('isRateLimitError', () => {
+        it('should detect rate limit errors by status code', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            expect(openaiModule.isRateLimitError({ status: 429 })).toBe(true);
+            expect(openaiModule.isRateLimitError({ status: 200 })).toBe(false);
+        });
+
+        it('should detect rate limit errors by code', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            expect(openaiModule.isRateLimitError({ code: 'rate_limit_exceeded' })).toBe(true);
+            expect(openaiModule.isRateLimitError({ code: 'other_error' })).toBe(false);
+        });
+
+        it('should detect rate limit errors by message', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            expect(openaiModule.isRateLimitError({ message: 'rate limit exceeded' })).toBe(true);
+            expect(openaiModule.isRateLimitError({ message: 'too many requests' })).toBe(true);
+            expect(openaiModule.isRateLimitError({ message: 'quota exceeded' })).toBe(true);
+            expect(openaiModule.isRateLimitError({ message: 'rate limit' })).toBe(true);
+            expect(openaiModule.isRateLimitError({ message: 'some other error' })).toBe(false);
+        });
+
+        it('should return false for errors without message, code, or status', async () => {
+            const openaiModule = await import('../../src/util/openai');
+
+            expect(openaiModule.isRateLimitError({})).toBe(false);
+            expect(openaiModule.isRateLimitError(null)).toBe(false);
+            expect(openaiModule.isRateLimitError(undefined)).toBe(false);
         });
     });
 
@@ -180,6 +373,26 @@ describe('openai', () => {
             expect(mockChatCreate).toHaveBeenCalledTimes(2);
         });
 
+        it('should retry on rate limit error', async () => {
+            const mockResponse = 'test response';
+            const rateLimitError = { status: 429, message: 'rate limit exceeded' };
+
+            mockChatCreate
+                .mockRejectedValueOnce(rateLimitError)
+                .mockResolvedValue({
+                    choices: [{ message: { content: mockResponse } }]
+                });
+
+            const openaiModule = await import('../../src/util/openai');
+
+            const result = await openaiModule.createCompletionWithRetry(
+                [{ role: 'user', content: 'test' }]
+            );
+
+            expect(result).toBe(mockResponse);
+            expect(mockChatCreate).toHaveBeenCalledTimes(2);
+        });
+
         it('should fail after max retries', async () => {
             const tokenLimitError = new Error('maximum context length is 4097 tokens');
 
@@ -213,6 +426,19 @@ describe('openai', () => {
             )).rejects.toThrow('Failed to create completion');
 
             expect(retryCallback).not.toHaveBeenCalled();
+            expect(mockChatCreate).toHaveBeenCalledTimes(1);
+        });
+
+        it('should not retry token limit errors without callback', async () => {
+            const tokenLimitError = new Error('maximum context length is 4097 tokens');
+            mockChatCreate.mockRejectedValue(tokenLimitError);
+
+            const openaiModule = await import('../../src/util/openai');
+
+            await expect(openaiModule.createCompletionWithRetry(
+                [{ role: 'user', content: 'test' }]
+            )).rejects.toThrow('Failed to create completion');
+
             expect(mockChatCreate).toHaveBeenCalledTimes(1);
         });
     });
@@ -263,6 +489,147 @@ describe('openai', () => {
             expect(Storage.create().writeFile).toHaveBeenCalledWith('debug.json', expect.any(String), 'utf8');
         });
 
+        it('should write separate debug files when specified', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: 'test response'
+                    }
+                }]
+            };
+
+            mockChatCreate.mockResolvedValue(mockResponse);
+
+            await createCompletion([{ role: 'user', content: 'test' }], {
+                debug: true,
+                debugRequestFile: 'request.json',
+                debugResponseFile: 'response.json'
+            });
+
+            expect(Storage.create().writeFile).toHaveBeenCalledWith('request.json', expect.any(String), 'utf8');
+            expect(Storage.create().writeFile).toHaveBeenCalledWith('response.json', expect.any(String), 'utf8');
+        });
+
+        it('should add reasoning parameter for supported models', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: 'test response'
+                    }
+                }]
+            };
+
+            mockChatCreate.mockResolvedValue(mockResponse);
+
+            await createCompletion([{ role: 'user', content: 'test' }], {
+                model: 'gpt-5-turbo',
+                openaiReasoning: 'high'
+            });
+
+            expect(mockChatCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    reasoning_effort: 'high'
+                })
+            );
+        });
+
+        it('should not add reasoning parameter for unsupported models', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: 'test response'
+                    }
+                }]
+            };
+
+            mockChatCreate.mockResolvedValue(mockResponse);
+
+            await createCompletion([{ role: 'user', content: 'test' }], {
+                model: 'gpt-4o-mini',
+                openaiReasoning: 'high'
+            });
+
+            expect(mockChatCreate).toHaveBeenCalledWith(
+                expect.not.objectContaining({
+                    reasoning_effort: 'high'
+                })
+            );
+        });
+
+        it('should use openaiMaxOutputTokens when specified', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: 'test response'
+                    }
+                }]
+            };
+
+            mockChatCreate.mockResolvedValue(mockResponse);
+
+            await createCompletion([{ role: 'user', content: 'test' }], {
+                openaiMaxOutputTokens: 15000
+            });
+
+            expect(mockChatCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    max_completion_tokens: 15000
+                })
+            );
+        });
+
+        it('should fallback to maxTokens when openaiMaxOutputTokens not specified', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: 'test response'
+                    }
+                }]
+            };
+
+            mockChatCreate.mockResolvedValue(mockResponse);
+
+            await createCompletion([{ role: 'user', content: 'test' }], {
+                maxTokens: 8000
+            });
+
+            expect(mockChatCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    max_completion_tokens: 8000
+                })
+            );
+        });
+
+        it('should use default max tokens when neither specified', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {
+                        content: 'test response'
+                    }
+                }]
+            };
+
+            mockChatCreate.mockResolvedValue(mockResponse);
+
+            await createCompletion([{ role: 'user', content: 'test' }]);
+
+            expect(mockChatCreate).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    max_completion_tokens: 10000
+                })
+            );
+        });
+
+        it('should handle timeout correctly', async () => {
+            // Mock a slow response that will timeout
+            mockChatCreate.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 1000)));
+
+            // Set a very short timeout for testing
+            process.env.OPENAI_TIMEOUT_MS = '100';
+
+            await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('OpenAI API call timed out');
+        });
+
         it('should throw error if OPENAI_API_KEY is not set', async () => {
             // Temporarily remove the API key for this test
             delete process.env.OPENAI_API_KEY;
@@ -287,6 +654,24 @@ describe('openai', () => {
             mockChatCreate.mockResolvedValue(mockResponse);
             await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('No response received from OpenAI');
         });
+
+        it('should throw error on response without content', async () => {
+            const mockResponse = {
+                choices: [{
+                    message: {}
+                }]
+            };
+            mockChatCreate.mockResolvedValue(mockResponse);
+            await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('No response received from OpenAI');
+        });
+
+        it('should throw error on response without choices', async () => {
+            const mockResponse = {
+                choices: []
+            };
+            mockChatCreate.mockResolvedValue(mockResponse);
+            await expect(createCompletion([{ role: 'user', content: 'test' }])).rejects.toThrow('No response received from OpenAI');
+        });
     });
 
     describe('transcribeAudio', () => {
@@ -304,6 +689,43 @@ describe('openai', () => {
 
             await transcribeAudio('test.mp3', { debug: true, debugFile: 'debug.json' });
             expect(Storage.create().writeFile).toHaveBeenCalledWith('debug.json', expect.any(String), 'utf8');
+        });
+
+        it('should write separate debug files when specified', async () => {
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            await transcribeAudio('test.mp3', {
+                debug: true,
+                debugRequestFile: 'request.json',
+                debugResponseFile: 'response.json'
+            });
+
+            expect(Storage.create().writeFile).toHaveBeenCalledWith('request.json', expect.any(String), 'utf8');
+            expect(Storage.create().writeFile).toHaveBeenCalledWith('response.json', expect.any(String), 'utf8');
+        });
+
+        it('should use custom output directory for archiving', async () => {
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            const { archiveAudio } = await import('../../src/util/general');
+
+            await transcribeAudio('test.mp3', { outputDirectory: 'custom-output' });
+
+            expect(archiveAudio).toHaveBeenCalledWith('test.mp3', 'test transcription', 'custom-output');
+        });
+
+        it('should handle archive error gracefully', async () => {
+            const mockResponse = { text: 'test transcription' };
+            mockTranscriptionsCreate.mockResolvedValue(mockResponse);
+
+            const { archiveAudio } = await import('../../src/util/general');
+            vi.mocked(archiveAudio).mockRejectedValue(new Error('Archive failed'));
+
+            // Should not throw error, just log warning
+            const result = await transcribeAudio('test.mp3');
+            expect(result).toEqual(mockResponse);
         });
 
         it('should throw error if OPENAI_API_KEY is not set', async () => {

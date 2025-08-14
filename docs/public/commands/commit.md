@@ -133,6 +133,106 @@ STDIN input is particularly useful for:
 - Voice-driven workflows (when combined with speech-to-text)
 - Complex directions that might contain special characters
 
+## Direction Flag (--direction)
+
+The `--direction` flag provides the highest-priority guidance for commit message generation. It allows you to specify the focus, tone, or specific aspects you want emphasized in the generated commit message.
+
+### Purpose and Usage
+
+The `--direction` flag is designed to give you precise control over commit message generation by providing explicit guidance to the AI about what to emphasize or focus on in the commit message.
+
+```bash
+# Focus on stability and reliability
+kodrdriv commit --direction "This commit focuses on caching stability; emphasise stability in message"
+
+# Emphasize performance improvements
+kodrdriv commit --direction "Highlight performance gains and optimization benefits"
+
+# Specify a particular theme or context
+kodrdriv commit --direction "Frame this as part of the security hardening initiative"
+```
+
+### Precedence and Processing
+
+**Highest Priority Input**: The `--direction` flag is treated as the highest-priority prompt input, processed before other context sources like GitHub issues or commit history.
+
+**Security and Sanitization**: Direction content is automatically sanitized to prevent template breakage:
+- Newlines are converted to spaces
+- Excessive whitespace is normalized
+- Content is trimmed of leading/trailing whitespace
+- Maximum length is enforced (default: 2,000 characters)
+
+**Content Filtering**: While direction provides high-priority guidance, it may be modified or blocked by:
+- Security filters that detect potentially harmful content
+- Stop-word rules that prevent certain sensitive terms
+- Length limits that truncate overly long directions
+
+### Size Limits and Recommendations
+
+**Maximum Length**: 2,000 characters (configurable)
+**Recommended Length**: 1,000 characters or less for optimal results
+**Truncation**: Longer directions are automatically truncated with "..." suffix
+
+```bash
+# Good: Concise and focused
+kodrdriv commit --direction "Focus on the authentication bug fix and user impact"
+
+# Good: Specific technical details
+kodrdriv commit --direction "Emphasize the caching layer improvements and performance gains of 40% reduction in response time"
+
+# Avoid: Overly verbose (will be truncated)
+kodrdriv commit --direction "This is a very long direction that goes into excessive detail about every aspect of the changes and what should be emphasized in the commit message..."
+```
+
+### Examples
+
+```bash
+# Focus on user-facing improvements
+kodrdriv commit --direction "Emphasize user experience improvements and interface enhancements"
+
+# Highlight technical debt reduction
+kodrdriv commit --direction "Frame as technical debt cleanup and code quality improvement"
+
+# Specify conventional commit type
+kodrdriv commit --direction "Use 'feat:' prefix and focus on the new feature capabilities"
+
+# Combine with other flags
+kodrdriv commit --direction "Focus on security improvements" --interactive
+kodrdriv commit --direction "Emphasize performance gains" --sendit
+```
+
+### Troubleshooting
+
+**Debug Direction Processing**: Enable debug logging to inspect how direction is processed:
+
+```bash
+# Set debug environment variable
+export KODRDRIV_DEBUG=true
+
+# Run commit with direction
+kodrdriv commit --direction "test direction"
+
+# Check logs for direction processing
+# Look for: "Using user direction: [your direction]"
+```
+
+**Direction Not Applied**: If your direction doesn't seem to be reflected in the commit message:
+1. Check debug logs to confirm direction was processed
+2. Verify direction length is under 2,000 characters
+3. Ensure direction doesn't contain blocked content
+4. Consider using `--interactive` mode to review and refine the message
+
+**Content Truncation**: If you see "..." in your direction, it was truncated due to length limits. Consider making your direction more concise.
+
+> [!TIP]
+> ### Direction vs Context
+>
+> While both `--direction` and `--context` provide guidance, they serve different purposes:
+> - **Direction**: High-priority, focused guidance for message generation
+> - **Context**: Additional background information and project context
+>
+> Use direction for specific commit message guidance, and context for broader project context.
+
 > [!TIP]
 > ### Working with Staged Changes
 >
@@ -155,6 +255,7 @@ STDIN input is particularly useful for:
 - `--sendit`: Commit with the generated message without review (default: false)
 - `--interactive`: Present the generated commit message for interactive review and editing
 - `--amend`: Amend the last commit with the generated message instead of creating a new commit
+- `--direction <direction>`: Provide high-priority guidance for commit message generation. This direction is treated as the highest-priority prompt input and can specify focus, tone, or specific aspects to emphasize. Maximum length: 2,000 characters (recommended: 1,000 or less).
 - `--context <context>`: Provide additional context (as a string or file path) to guide the commit message generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the commit.
 - `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the prompt for context (default: 50)
 - `--skip-file-check`: Skip check for file: dependencies before committing (useful in CI/CD environments where local file dependencies are expected)
@@ -197,8 +298,14 @@ kodrdriv commit
 # Generate commit with direction
 kodrdriv commit "refactor user authentication system"
 
+# Use --direction flag for precise guidance
+kodrdriv commit --direction "Focus on the authentication bug fix and user impact"
+
 # Interactive mode for refined commit messages
 kodrdriv commit --interactive "implement user authentication"
+
+# Interactive mode with direction guidance
+kodrdriv commit --interactive --direction "Emphasize performance improvements and optimization gains"
 
 # Pipe complex direction from file
 cat requirements.txt | kodrdriv commit
@@ -206,12 +313,22 @@ cat requirements.txt | kodrdriv commit
 # Add all changes and commit automatically
 kodrdriv commit --add --sendit "initial implementation"
 
+# Add changes with direction guidance
+kodrdriv commit --add --sendit --direction "Frame as security hardening and vulnerability fixes"
+
 # Interactive mode with staged changes and context
 git add src/auth.ts
 kodrdriv commit --cached --interactive --context "Part of security improvements"
 
+# Interactive mode with both direction and context
+git add src/auth.ts
+kodrdriv commit --cached --interactive --direction "Focus on authentication improvements" --context "Part of security improvements"
+
 # Limit commit history context
 kodrdriv commit --message-limit 5 "quick fix"
+
+# Amend last commit with new direction
+kodrdriv commit --amend --direction "Fix the commit message to be more descriptive and follow conventional commits"
 ```
 
 ### GitHub Issues Integration Examples

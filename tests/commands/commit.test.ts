@@ -47,7 +47,9 @@ vi.mock('../../src/util/openai', () => ({
     // @ts-ignore
     createCompletion: vi.fn(),
     createCompletionWithRetry: vi.fn(),
-    getModelForCommand: vi.fn()
+    getModelForCommand: vi.fn(),
+    getOpenAIReasoningForCommand: vi.fn(),
+    getOpenAIMaxOutputTokensForCommand: vi.fn()
 }));
 
 vi.mock('../../src/util/github', () => ({
@@ -55,18 +57,7 @@ vi.mock('../../src/util/github', () => ({
     getRecentClosedIssuesForCommit: vi.fn()
 }));
 
-vi.mock('../../src/util/validation', () => ({
-    // @ts-ignore
-    validateString: vi.fn((val) => val),
-    safeJsonParse: vi.fn((val) => {
-        try {
-            return JSON.parse(val);
-        } catch {
-            throw new Error('JSON parse failed');
-        }
-    }),
-    validatePackageJson: vi.fn((val) => val)
-}));
+// Remove the validation mock to use the real sanitizeDirection function
 
 vi.mock('@riotprompt/riotprompt', () => {
     // Local builder instance to avoid TDZ issues
@@ -140,7 +131,8 @@ vi.mock('../../src/util/safety', () => ({
 }));
 
 vi.mock('../../src/util/validation', () => ({
-    validateString: vi.fn((str) => str)
+    validateString: vi.fn((str) => str),
+    sanitizeDirection: vi.fn((val) => val)
 }));
 
 // Mock ValidationError for proper error handling tests
