@@ -40,6 +40,62 @@ export function getModelForCommand(config: Config, commandName: string): string 
     return commandModel || config.model || 'gpt-4o-mini';
 }
 
+/**
+ * Get the appropriate OpenAI reasoning level based on command-specific configuration
+ * Command-specific reasoning overrides the global reasoning setting
+ */
+export function getOpenAIReasoningForCommand(config: Config, commandName: string): 'low' | 'medium' | 'high' {
+    let commandReasoning: 'low' | 'medium' | 'high' | undefined;
+
+    switch (commandName) {
+        case 'commit':
+        case 'audio-commit':
+            commandReasoning = config.commit?.openaiReasoning;
+            break;
+        case 'release':
+            commandReasoning = config.release?.openaiReasoning;
+            break;
+        case 'review':
+        case 'audio-review':
+            commandReasoning = config.review?.openaiReasoning;
+            break;
+        default:
+            // For other commands, just use global reasoning
+            break;
+    }
+
+    // Return command-specific reasoning if available, otherwise global reasoning
+    return commandReasoning || config.openaiReasoning || 'low';
+}
+
+/**
+ * Get the appropriate OpenAI max output tokens based on command-specific configuration
+ * Command-specific max output tokens overrides the global setting
+ */
+export function getOpenAIMaxOutputTokensForCommand(config: Config, commandName: string): number {
+    let commandMaxOutputTokens: number | undefined;
+
+    switch (commandName) {
+        case 'commit':
+        case 'audio-commit':
+            commandMaxOutputTokens = config.commit?.openaiMaxOutputTokens;
+            break;
+        case 'release':
+            commandMaxOutputTokens = config.release?.openaiMaxOutputTokens;
+            break;
+        case 'review':
+        case 'audio-review':
+            commandMaxOutputTokens = config.review?.openaiMaxOutputTokens;
+            break;
+        default:
+            // For other commands, just use global max output tokens
+            break;
+    }
+
+    // Return command-specific max output tokens if available, otherwise global setting
+    return commandMaxOutputTokens || config.openaiMaxOutputTokens || 10000;
+}
+
 export class OpenAIError extends Error {
     constructor(message: string, public readonly isTokenLimitError: boolean = false) {
         super(message);
@@ -68,14 +124,19 @@ export function isRateLimitError(error: any): boolean {
         return true;
     }
 
-    const message = error.message.toLowerCase();
-    return message.includes('rate limit exceeded') ||
-           message.includes('too many requests') ||
-           message.includes('quota exceeded') ||
-           (message.includes('rate') && message.includes('limit'));
+    // Only check message if it exists
+    if (error.message) {
+        const message = error.message.toLowerCase();
+        return message.includes('rate limit exceeded') ||
+               message.includes('too many requests') ||
+               message.includes('quota exceeded') ||
+               (message.includes('rate') && message.includes('limit'));
+    }
+
+    return false;
 }
 
-export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, maxTokens?: number } = { model: "gpt-4o-mini" }): Promise<string | any> {
+export async function createCompletion(messages: ChatCompletionMessageParam[], options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, maxTokens?: number, openaiReasoning?: 'low' | 'medium' | 'high', openaiMaxOutputTokens?: number } = { model: "gpt-4o-mini" }): Promise<string | any> {
     const logger = getLogger();
     const storage = Storage.create({ log: logger.debug });
     let openai: OpenAI | null = null;
@@ -96,8 +157,8 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         logger.info('🤖 Making request to OpenAI using model: %s', modelToUse);
         logger.debug('Sending prompt to OpenAI: %j', messages);
 
-        // Use provided maxTokens or default to 10000
-        const maxCompletionTokens = options.maxTokens || 10000;
+        // Use openaiMaxOutputTokens if specified (highest priority), otherwise fall back to maxTokens, or default to 10000
+        const maxCompletionTokens = options.openaiMaxOutputTokens ?? options.maxTokens ?? 10000;
 
         // Save request debug file if enabled
         if (options.debug && (options.debugRequestFile || options.debugFile)) {
@@ -106,19 +167,29 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
                 messages,
                 max_completion_tokens: maxCompletionTokens,
                 response_format: options.responseFormat,
+                reasoning_effort: options.openaiReasoning,
             };
             const debugFile = options.debugRequestFile || options.debugFile;
             await storage.writeFile(debugFile!, JSON.stringify(requestData, null, 2), 'utf8');
             logger.debug('Wrote request debug file to %s', debugFile);
         }
 
-        // Add timeout wrapper to the OpenAI API call
-        const completionPromise = openai.chat.completions.create({
+        // Prepare the API call options
+        const apiOptions: any = {
             model: modelToUse,
             messages,
             max_completion_tokens: maxCompletionTokens,
             response_format: options.responseFormat,
-        });
+        };
+
+        // Add reasoning parameter if specified and model supports it
+        if (options.openaiReasoning && (modelToUse.includes('gpt-5') || modelToUse.includes('o3'))) {
+            apiOptions.reasoning_effort = options.openaiReasoning;
+            logger.debug('Using OpenAI reasoning level: %s', options.openaiReasoning);
+        }
+
+        // Add timeout wrapper to the OpenAI API call
+        const completionPromise = openai.chat.completions.create(apiOptions);
 
         // Create timeout promise with proper cleanup to prevent memory leaks
         let timeoutId: NodeJS.Timeout | null = null;
@@ -169,7 +240,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
 // Create completion with automatic retry on token limit errors
 export async function createCompletionWithRetry(
     messages: ChatCompletionMessageParam[],
-    options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, maxTokens?: number } = { model: "gpt-4o-mini" },
+    options: { responseFormat?: any, model?: string, debug?: boolean, debugFile?: string, debugRequestFile?: string, debugResponseFile?: string, maxTokens?: number, openaiReasoning?: 'low' | 'medium' | 'high', openaiMaxOutputTokens?: number } = { model: "gpt-4o-mini" },
     retryCallback?: (attempt: number) => Promise<ChatCompletionMessageParam[]>
 ): Promise<string | any> {
     const logger = getLogger();

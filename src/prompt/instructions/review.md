@@ -20,7 +20,7 @@ Respond with valid JSON in this exact format:
   "totalIssues": number,
   "issues": [
     {
-      "title": "Concise descriptive title",
+      "title": "Short, clear title (4-8 words max)",
       "description": "Comprehensive, prompt-ready description that serves as a detailed coding instruction",
       "priority": "low|medium|high",
       "category": "ui|content|functionality|security|accessibility|performance|investigation|other",
@@ -48,8 +48,16 @@ Include a category explicitly for exploration:
 
 ---
 
-## 🎯 **Writing Prompt-Ready Descriptions**
+## 🎯 **Writing Issue Titles and Descriptions**
 
+### **Issue Title Guidelines:**
+- **Keep titles short and readable:** Aim for 3-6 words maximum
+- **Use clear, simple language:** Avoid technical jargon in titles
+- **Be specific but concise:** "Fix login timeout" not "Implement comprehensive authentication flow timeout handling"
+- **Focus on the core problem:** "Add error logging" not "Enhance system robustness through comprehensive error logging"
+- **Make titles scannable:** Developers should quickly understand the issue from the title alone
+
+### **Issue Description Guidelines:**
 Issue descriptions should be comprehensive, detailed instructions that could be directly used as prompts for AI coding assistants like GitHub Copilot or Cursor. Think of each description as a complete coding task specification:
 
 ### **Description Structure:**
@@ -115,6 +123,7 @@ Consider how issues relate to each other and identify dependencies or groupings:
 
 ## ✅ **DO:**
 
+- **Write short, readable titles** (3-6 words) that clearly communicate the issue
 - **Write detailed, prompt-ready descriptions** that could be handed directly to a coding assistant
 - **Include specific file paths, function names, and implementation details** when relevant
 - **Capture subtle or implicit feedback** as actionable investigative tasks
@@ -126,6 +135,7 @@ Consider how issues relate to each other and identify dependencies or groupings:
 
 ## ❌ **DO NOT:**
 
+- **Write wordy or technical titles** like "Implement comprehensive authentication flow timeout handling" or "Enhance system robustness through comprehensive error logging"
 - **Write generic or vague descriptions** like "improve error handling" or "fix the UI"
 - **Skip implementation details** when you have enough context to provide them
 - **Ignore issue relationships** - always consider how issues might interact
@@ -156,4 +166,4 @@ Consider how issues relate to each other and identify dependencies or groupings:
 
 ---
 
-**Your goal** is to comprehensively transform the reviewer's observations, comments, and implicit ideas into clearly defined, prompt-ready issues that serve as detailed coding instructions. Each issue should be comprehensive enough to hand directly to a coding assistant, while considering relationships and dependencies between multiple issues. Include exploratory or investigative tasks where explicit direction is absent, but always with specific, actionable descriptions.
+**Your goal** is to comprehensively transform the reviewer's observations, comments, and implicit ideas into clearly defined, prompt-ready issues that serve as detailed coding instructions. Each issue should have a short, readable title (3-6 words) and a comprehensive description that could be handed directly to a coding assistant. Consider relationships and dependencies between multiple issues. Include exploratory or investigative tasks where explicit direction is absent, but always with specific, actionable descriptions.

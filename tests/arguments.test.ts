@@ -30,43 +30,53 @@ vi.mock('path', () => ({
 
 // Mock process.env
 const originalEnv = process.env;
-// Define mock logger structure (can be reused)
-const mockLogger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    verbose: vi.fn(),
-    silly: vi.fn()
-};
-
-// Define mockStorage structure at the top level
-const mockStorage = {
-    exists: vi.fn(),
-    isDirectory: vi.fn(),
-    isDirectoryWritable: vi.fn(),
-    isDirectoryReadable: vi.fn(),
-    isFileReadable: vi.fn(),
-    readFile: vi.fn(),
-    writeFile: vi.fn(),
-    createDirectory: vi.fn(),
-    listFiles: vi.fn(),
-};
 
 // Mock the logging module here, using a factory for getLogger's return value
 vi.mock('../src/logging', () => {
-    // This factory function is called when ../src/logging is imported
+    // Create mock logger inside the factory
+    const mockLogger = {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        verbose: vi.fn(),
+        silly: vi.fn()
+    };
+
     return {
-        getLogger: vi.fn(() => mockLogger), // Ensures mockLogger is accessed when getLogger is called
+        getLogger: vi.fn(() => mockLogger),
         __esModule: true,
     };
 });
 
 // Mock the storage module here, using a factory for create's return value
-vi.mock('../src/util/storage', () => ({
-    create: vi.fn(() => mockStorage), // Ensures mockStorage is accessed when create is called
-    __esModule: true,
-}));
+vi.mock('../src/util/storage', () => {
+    // Create mock storage inside the factory
+    const mockStorage = {
+        exists: vi.fn(),
+        isDirectory: vi.fn(),
+        isDirectoryWritable: vi.fn(),
+        isDirectoryReadable: vi.fn(),
+        isFileReadable: vi.fn(),
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        createDirectory: vi.fn(),
+        listFiles: vi.fn(),
+    };
+
+    return {
+        create: vi.fn(() => mockStorage),
+        __esModule: true,
+    };
+});
+
+// Import the mocked modules to access their mocks
+import * as loggingModule from '../src/logging';
+import * as storageModule from '../src/util/storage';
+
+// Get references to the mocked objects
+const mockLogger = (loggingModule.getLogger as any)();
+const mockStorage = (storageModule.create as any)();
 
 // Mock js-yaml module for YAML parsing
 vi.mock('js-yaml', () => ({
@@ -1511,6 +1521,7 @@ describe('Argument Parsing and Configuration', () => {
             // Reset all storage mocks
             Object.values(mockStorage).forEach(mock => {
                 if (typeof mock === 'function') {
+                    // @ts-ignore
                     mock.mockReset();
                 }
             });
@@ -1706,6 +1717,7 @@ describe('Argument Parsing and Configuration', () => {
         beforeEach(() => {
             Object.values(mockStorage).forEach(mock => {
                 if (typeof mock === 'function') {
+                    // @ts-ignore
                     mock.mockReset();
                 }
             });
@@ -2233,6 +2245,7 @@ describe('Argument Parsing and Configuration', () => {
         beforeEach(() => {
             Object.values(mockStorage).forEach(mock => {
                 if (typeof mock === 'function') {
+                    // @ts-ignore
                     mock.mockReset();
                 }
             });
@@ -2354,6 +2367,7 @@ describe('Argument Parsing and Configuration', () => {
         beforeEach(() => {
             Object.values(mockStorage).forEach(mock => {
                 if (typeof mock === 'function') {
+                    // @ts-ignore
                     mock.mockReset();
                 }
             });
@@ -2449,6 +2463,7 @@ describe('Argument Parsing and Configuration', () => {
         beforeEach(() => {
             Object.values(mockStorage).forEach(mock => {
                 if (typeof mock === 'function') {
+                    // @ts-ignore
                     mock.mockReset();
                 }
             });
@@ -2895,6 +2910,7 @@ describe('Argument Parsing and Configuration', () => {
         beforeEach(() => {
             Object.values(mockStorage).forEach(mock => {
                 if (typeof mock === 'function') {
+                    // @ts-ignore
                     mock.mockReset();
                 }
             });

@@ -7,7 +7,8 @@ import {
     validateHasProperty,
     validatePackageJson,
     ReleaseSummary,
-    TranscriptionResult
+    TranscriptionResult,
+    sanitizeDirection
 } from '../../src/util/validation';
 
 describe('Validation utilities', () => {
@@ -250,5 +251,44 @@ describe('Validation utilities', () => {
             const result = validatePackageJson(packageWithDeps, '/path/to/package.json');
             expect(result).toEqual(packageWithDeps);
         });
+    });
+});
+
+describe('sanitizeDirection', () => {
+    it('should return undefined for empty input', () => {
+        expect(sanitizeDirection(undefined)).toBeUndefined();
+        expect(sanitizeDirection('')).toBeUndefined();
+        expect(sanitizeDirection('   ')).toBe(''); // Empty string after trimming
+    });
+
+    it('should sanitize newlines and excessive whitespace', () => {
+        const input = 'This is a\ntest direction\nwith multiple\nlines';
+        const expected = 'This is a test direction with multiple lines';
+        expect(sanitizeDirection(input)).toBe(expected);
+    });
+
+    it('should handle multiple whitespace characters', () => {
+        const input = 'This   has   multiple   spaces';
+        const expected = 'This has multiple spaces';
+        expect(sanitizeDirection(input)).toBe(expected);
+    });
+
+    it('should truncate long directions', () => {
+        const longDirection = 'A'.repeat(2001); // 2001 characters
+        const result = sanitizeDirection(longDirection, 2000);
+        expect(result).toHaveLength(2000);
+        expect(result?.endsWith('...')).toBe(true);
+    });
+
+    it('should not truncate directions within limit', () => {
+        const shortDirection = 'Short direction';
+        const result = sanitizeDirection(shortDirection, 2000);
+        expect(result).toBe(shortDirection);
+    });
+
+    it('should handle mixed whitespace and newlines', () => {
+        const input = '  This   has\n  mixed   \n  whitespace  ';
+        const expected = 'This has mixed whitespace';
+        expect(sanitizeDirection(input)).toBe(expected);
     });
 });

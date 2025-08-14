@@ -29,6 +29,8 @@ export const DEFAULT_DRY_RUN = false;
 export const DEFAULT_DEBUG = false;
 export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const DEFAULT_MODEL_STRONG = 'gpt-4o';
+export const DEFAULT_OPENAI_REASONING = 'low';
+export const DEFAULT_OPENAI_MAX_OUTPUT_TOKENS = 10000;
 export const DEFAULT_OUTPUT_DIRECTORY = 'output/kodrdriv';
 
 // Buffer size for git commands that may produce large output (like git log)
@@ -156,6 +158,8 @@ export const KODRDRIV_DEFAULTS = {
     debug: DEFAULT_DEBUG,
     overrides: DEFAULT_OVERRIDES,
     model: DEFAULT_MODEL,
+    openaiReasoning: DEFAULT_OPENAI_REASONING as 'low' | 'medium' | 'high',
+    openaiMaxOutputTokens: DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
     contextDirectories: DEFAULT_CONTEXT_DIRECTORIES,
     commandName: DEFAULT_COMMAND,
     configDirectory: DEFAULT_CONFIG_DIR,
@@ -170,6 +174,8 @@ export const KODRDRIV_DEFAULTS = {
         messageLimit: DEFAULT_MESSAGE_LIMIT,
         skipFileCheck: false,
         maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
+        openaiReasoning: DEFAULT_OPENAI_REASONING as 'low' | 'medium' | 'high',
+        openaiMaxOutputTokens: DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
     },
     release: {
         from: DEFAULT_FROM_COMMIT_ALIAS,
@@ -178,10 +184,14 @@ export const KODRDRIV_DEFAULTS = {
         interactive: DEFAULT_INTERACTIVE_MODE,
         maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
         noMilestones: false,
+        openaiReasoning: DEFAULT_OPENAI_REASONING as 'low' | 'medium' | 'high',
+        openaiMaxOutputTokens: DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
     },
     audioCommit: {
         maxRecordingTime: 300, // 5 minutes default
         audioDevice: undefined, // Auto-detect by default
+        openaiReasoning: DEFAULT_OPENAI_REASONING as 'low' | 'medium' | 'high',
+        openaiMaxOutputTokens: DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
     },
     review: {
         includeCommitHistory: true,
@@ -193,6 +203,8 @@ export const KODRDRIV_DEFAULTS = {
         releaseNotesLimit: 3,
         githubIssuesLimit: 20,
         sendit: DEFAULT_SENDIT_MODE,
+        openaiReasoning: DEFAULT_OPENAI_REASONING as 'low' | 'medium' | 'high',
+        openaiMaxOutputTokens: DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
     },
     audioReview: {
         includeCommitHistory: true,
@@ -207,6 +219,8 @@ export const KODRDRIV_DEFAULTS = {
         maxRecordingTime: 300, // 5 minutes default
         audioDevice: undefined, // Auto-detect by default
         directory: undefined, // No default directory
+        openaiReasoning: DEFAULT_OPENAI_REASONING as 'low' | 'medium' | 'high',
+        openaiMaxOutputTokens: DEFAULT_OPENAI_MAX_OUTPUT_TOKENS,
     },
     publish: {
         mergeMethod: DEFAULT_MERGE_METHOD,

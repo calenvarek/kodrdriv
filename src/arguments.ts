@@ -4,6 +4,7 @@ import path from "path";
 import { z } from "zod";
 import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, KODRDRIV_DEFAULTS, PROGRAM_NAME, VERSION } from "./constants";
 import { getLogger } from "./logging";
+const logger = getLogger();
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
 import { safeJsonParse } from './util/validation';
@@ -17,6 +18,8 @@ export const InputSchema = z.object({
     checkConfig: z.boolean().optional(),
     initConfig: z.boolean().optional(),
     model: z.string().optional(),
+    openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+    openaiMaxOutputTokens: z.number().optional(),
     contextDirectories: z.array(z.string()).optional(),
     configDir: z.string().optional(),
     outputDir: z.string().optional(),
@@ -79,6 +82,8 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     if (finalCliArgs.debug !== undefined) transformedCliArgs.debug = finalCliArgs.debug;
     if (finalCliArgs.overrides !== undefined) transformedCliArgs.overrides = finalCliArgs.overrides;
     if (finalCliArgs.model !== undefined) transformedCliArgs.model = finalCliArgs.model;
+    if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.openaiReasoning = finalCliArgs.openaiReasoning;
+    if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
     if (finalCliArgs.contextDirectories !== undefined) transformedCliArgs.contextDirectories = finalCliArgs.contextDirectories;
 
     // Map configDir (CLI) to configDirectory (Cardigantime standard)
@@ -91,7 +96,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     if (finalCliArgs.preferencesDir !== undefined) transformedCliArgs.preferencesDirectory = finalCliArgs.preferencesDir;
 
     // Nested mappings for 'commit' options
-    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined || finalCliArgs.skipFileCheck !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.amend !== undefined) {
+    if (finalCliArgs.cached !== undefined || finalCliArgs.sendit !== undefined || finalCliArgs.add !== undefined || finalCliArgs.skipFileCheck !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.amend !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined || finalCliArgs.direction !== undefined) {
         transformedCliArgs.commit = {};
         if (finalCliArgs.add !== undefined) transformedCliArgs.commit.add = finalCliArgs.add;
         if (finalCliArgs.cached !== undefined) transformedCliArgs.commit.cached = finalCliArgs.cached;
@@ -103,17 +108,21 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.direction !== undefined) transformedCliArgs.commit.direction = finalCliArgs.direction;
         if (finalCliArgs.skipFileCheck !== undefined) transformedCliArgs.commit.skipFileCheck = finalCliArgs.skipFileCheck;
         if (finalCliArgs.maxDiffBytes !== undefined) transformedCliArgs.commit.maxDiffBytes = finalCliArgs.maxDiffBytes;
+        if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.commit.openaiReasoning = finalCliArgs.openaiReasoning;
+        if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.commit.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
     }
 
     // Nested mappings for 'audioCommit' options
-    if (finalCliArgs.file !== undefined || finalCliArgs.keepTemp !== undefined) {
+    if (finalCliArgs.file !== undefined || finalCliArgs.keepTemp !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined) {
         transformedCliArgs.audioCommit = {};
         if (finalCliArgs.file !== undefined) transformedCliArgs.audioCommit.file = finalCliArgs.file;
         if (finalCliArgs.keepTemp !== undefined) transformedCliArgs.audioCommit.keepTemp = finalCliArgs.keepTemp;
+        if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.audioCommit.openaiReasoning = finalCliArgs.openaiReasoning;
+        if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.audioCommit.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
     }
 
     // Nested mappings for 'release' options
-    if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined) {
+    if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined) {
         transformedCliArgs.release = {};
         if (finalCliArgs.from !== undefined) transformedCliArgs.release.from = finalCliArgs.from;
         if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
@@ -122,6 +131,8 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.messageLimit !== undefined) transformedCliArgs.release.messageLimit = finalCliArgs.messageLimit;
         if (finalCliArgs.maxDiffBytes !== undefined) transformedCliArgs.release.maxDiffBytes = finalCliArgs.maxDiffBytes;
         if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.release.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.release.openaiReasoning = finalCliArgs.openaiReasoning;
+        if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.release.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
     }
 
     // Nested mappings for 'publish' options (only when it's actually a publish command or has publish-specific options)
@@ -182,7 +193,9 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.githubIssuesLimit !== undefined ||
         finalCliArgs.file !== undefined ||
         finalCliArgs.directories !== undefined ||
-        finalCliArgs.keepTemp !== undefined)) {
+        finalCliArgs.keepTemp !== undefined ||
+        finalCliArgs.openaiReasoning !== undefined ||
+        finalCliArgs.openaiMaxOutputTokens !== undefined)) {
         transformedCliArgs.audioReview = {};
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.audioReview.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.audioReview.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -197,6 +210,8 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.file !== undefined) transformedCliArgs.audioReview.file = finalCliArgs.file;
         if (finalCliArgs.directory !== undefined) transformedCliArgs.audioReview.directory = finalCliArgs.directory;
         if (finalCliArgs.keepTemp !== undefined) transformedCliArgs.audioReview.keepTemp = finalCliArgs.keepTemp;
+        if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.audioReview.openaiReasoning = finalCliArgs.openaiReasoning;
+        if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.audioReview.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
     }
 
     // Nested mappings for 'review' options
@@ -210,9 +225,14 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.githubIssuesLimit !== undefined ||
         finalCliArgs.context !== undefined ||
         finalCliArgs.sendit !== undefined ||
-        finalCliArgs.note !== undefined) {
+        finalCliArgs.note !== undefined ||
+        finalCliArgs.openaiReasoning !== undefined ||
+        finalCliArgs.openaiMaxOutputTokens !== undefined ||
+        (commandName === 'review' && (finalCliArgs.file !== undefined || finalCliArgs.directory !== undefined))) {
         transformedCliArgs.review = {};
         if (finalCliArgs.note !== undefined) transformedCliArgs.review.note = finalCliArgs.note;
+        if (commandName === 'review' && finalCliArgs.file !== undefined) transformedCliArgs.review.file = finalCliArgs.file;
+        if (commandName === 'review' && finalCliArgs.directory !== undefined) transformedCliArgs.review.directory = finalCliArgs.directory;
         // Include optional review configuration options if specified
         if (finalCliArgs.includeCommitHistory !== undefined) transformedCliArgs.review.includeCommitHistory = finalCliArgs.includeCommitHistory;
         if (finalCliArgs.includeRecentDiffs !== undefined) transformedCliArgs.review.includeRecentDiffs = finalCliArgs.includeRecentDiffs;
@@ -225,6 +245,8 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.context !== undefined) transformedCliArgs.review.context = finalCliArgs.context;
         if (finalCliArgs.sendit !== undefined) transformedCliArgs.review.sendit = finalCliArgs.sendit;
         if (finalCliArgs.editorTimeout !== undefined) transformedCliArgs.review.editorTimeout = finalCliArgs.editorTimeout;
+        if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.review.openaiReasoning = finalCliArgs.openaiReasoning;
+        if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.review.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
     }
 
     // Nested mappings for 'tree' options (add when relevant args present)
@@ -443,6 +465,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             .option('--debug', 'enable debug logging')
             .option('--overrides', 'enable overrides')
             .option('--model <model>', 'OpenAI model to use')
+            .option('--openai-reasoning <level>', 'OpenAI reasoning level (low, medium, high)')
+            .option('--openai-max-output-tokens <tokens>', 'OpenAI maximum output tokens', parseInt)
             .option('-d, --context-directories [contextDirectories...]', 'directories to scan for context')
             .option('--config-dir <configDir>', 'configuration directory') // Keep config-dir for specifying location
             .option('--output-dir <outputDir>', 'output directory for generated files')
@@ -496,6 +520,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
                 ['--debug', 'enable debug logging'],
                 ['--overrides', 'enable overrides'],
                 ['--model <model>', 'OpenAI model to use'],
+                ['--openai-reasoning <level>', 'OpenAI reasoning level (low, medium, high)'],
+                ['--openai-max-output-tokens <tokens>', 'OpenAI maximum output tokens'],
                 ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
                 ['--config-dir <configDir>', 'configuration directory'],
                 ['--excluded-paths [excludedPatterns...]', 'paths to exclude from the diff'],
@@ -617,6 +643,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
         .option('--release-notes-limit <limit>', 'number of recent release notes to include', parseInt)
         .option('--github-issues-limit <limit>', 'number of open GitHub issues to include (max 20)', parseInt)
         .option('--context <context>', 'additional context for the review')
+        .option('--file <file>', 'read review note from a file')
+        .option('--directory <directory>', 'process all review files in a directory')
         .option('--sendit', 'Create GitHub issues automatically without confirmation')
         .option('--editor-timeout <timeout>', 'timeout for editor in milliseconds (default: no timeout)', parseInt)
         .description('Analyze review note for project issues using AI');
@@ -632,7 +660,9 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
             ];
 
             const reviewOptions = [
-                ['--context <context>', 'additional context for the review']
+                ['--context <context>', 'additional context for the review'],
+                ['--file <file>', 'read review note from a file'],
+                ['--directory <directory>', 'process all review files in a directory']
             ];
 
             const gitContextOptions = [
@@ -660,6 +690,8 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
                 ['--debug', 'enable debug logging'],
                 ['--overrides', 'enable overrides'],
                 ['--model <model>', 'OpenAI model to use'],
+                ['--openai-reasoning <level>', 'OpenAI reasoning level (low, medium, high)'],
+                ['--openai-max-output-tokens <tokens>', 'OpenAI maximum output tokens'],
                 ['-d, --context-directories [contextDirectories...]', 'directories to scan for context'],
                 ['--config-dir <configDir>', 'configuration directory'],
                 ['--output-dir <outputDir>', 'output directory for generated files'],
@@ -723,9 +755,15 @@ export async function getCliConfig(program: Command): Promise<[Input, CommandCon
 
     // Only proceed with command-specific options if validation passed
     if (ALLOWED_COMMANDS.includes(commandName)) {
-        if (commandName === 'commit' && commitCommand.opts) {
+        if (commandName === 'commit') {
             commandOptions = commitCommand.opts<Partial<Input>>();
             // Handle positional argument for direction
+            // Try to get direction from program.args (after the command name)
+            if (program.args.length > 1) {
+                commandOptions.direction = program.args[1];
+            }
+
+            // Also try commitCommand.args as fallback
             const args = commitCommand.args;
             if (args && args.length > 0 && args[0]) {
                 commandOptions.direction = args[0];
@@ -839,6 +877,8 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
         debug: options.debug ?? KODRDRIV_DEFAULTS.debug,
         overrides: options.overrides ?? KODRDRIV_DEFAULTS.overrides,
         model: options.model ?? KODRDRIV_DEFAULTS.model,
+        openaiReasoning: options.openaiReasoning ?? KODRDRIV_DEFAULTS.openaiReasoning,
+        openaiMaxOutputTokens: options.openaiMaxOutputTokens ?? KODRDRIV_DEFAULTS.openaiMaxOutputTokens,
         contextDirectories: contextDirectories,
         configDirectory: configDir,
         outputDirectory: options.outputDirectory ?? KODRDRIV_DEFAULTS.outputDirectory,

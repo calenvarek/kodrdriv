@@ -46,6 +46,12 @@ export const createPrompt = async (
     const contentItems = [];
     const contextItems = [];
 
+    // Developer Note: Direction is injected first as the highest-priority prompt input
+    // This ensures user guidance takes precedence over other context sources like
+    // GitHub issues or commit history. Direction content is sanitized via sanitizeDirection()
+    // to prevent template breakage (newlines converted to spaces, whitespace normalized,
+    // length limited to 2000 chars). See tests/util/validation.test.ts for sanitization behavior
+    // and src/commands/commit.ts line 446 for debug logging of direction processing.
     if (userDirection) {
         contentItems.push({ content: userDirection, title: 'User Direction' });
     }

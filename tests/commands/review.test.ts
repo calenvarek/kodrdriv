@@ -92,7 +92,9 @@ vi.mock('../../src/util/openai', () => ({
             return config.review.model;
         }
         return config.model || 'gpt-4o-mini';
-    })
+    }),
+    getOpenAIReasoningForCommand: vi.fn().mockReturnValue('low'),
+    getOpenAIMaxOutputTokensForCommand: vi.fn().mockReturnValue(10000)
 }));
 
 const mockLogger = {
@@ -120,6 +122,12 @@ const mockStorage = {
 const mockCreateStorage = vi.fn().mockReturnValue(mockStorage);
 vi.mock('../../src/util/storage', () => ({
     create: mockCreateStorage
+}));
+
+// Mock interactive utilities
+const mockGetUserChoice = vi.fn().mockResolvedValue('c');
+vi.mock('../../src/util/interactive', () => ({
+    getUserChoice: mockGetUserChoice
 }));
 
 vi.mock('../../src/constants', () => ({
@@ -154,6 +162,7 @@ vi.mock('fs/promises', () => ({
     default: {
         writeFile: vi.fn().mockResolvedValue(undefined),
         readFile: vi.fn().mockResolvedValue('Test review note content'),
+        readdir: vi.fn().mockResolvedValue([]),
         unlink: vi.fn().mockResolvedValue(undefined),
         access: vi.fn().mockResolvedValue(undefined),
         open: vi.fn().mockResolvedValue({
@@ -209,6 +218,7 @@ describe('review command', () => {
         mockStorage.ensureDirectory.mockResolvedValue(undefined);
         mockStorage.writeFile.mockResolvedValue(undefined);
         mockDiffGetReviewExcludedPatterns.mockReturnValue(['*.test.ts', '*.spec.ts']);
+        mockGetUserChoice.mockResolvedValue('c');
 
         // Mock process stdin
         mockProcess = {
@@ -235,11 +245,22 @@ describe('review command', () => {
         };
         mockSpawn.mockReturnValue(mockChild);
 
+        // Initialize fs mock
         const fs = await import('fs/promises');
         mockFs = fs.default;
 
-        // Set up default fs.readFile behavior for editor scenarios
+        // Re-establish fs mocks after clearing
+        mockFs.writeFile.mockResolvedValue(undefined);
         mockFs.readFile.mockResolvedValue('Test review note content');
+        mockFs.readdir.mockResolvedValue([
+            { name: 'file1.md', isFile: () => true },
+            { name: 'file2.md', isFile: () => true }
+        ]);
+        mockFs.unlink.mockResolvedValue(undefined);
+        mockFs.access.mockResolvedValue(undefined);
+        mockFs.open.mockResolvedValue({
+            close: vi.fn().mockResolvedValue(undefined)
+        });
 
         Review = await import('../../src/commands/review');
     });
@@ -254,6 +275,7 @@ describe('review command', () => {
                 model: 'gpt-4',
                 dryRun: true,
                 review: {
+                    note: 'Test review note',
                     includeCommitHistory: true,
                     includeRecentDiffs: true,
                     includeReleaseNotes: true,
@@ -735,33 +757,34 @@ describe('review command', () => {
             const content = reviewNotesCall![1];
 
             expect(content).toContain('# Review Notes\n\nTest review note');
-            expect(content).toContain('# Commit History Context');
-            expect(content).toContain('# Recent Diffs Context');
-            expect(content).toContain('# Release Notes Context');
-            expect(content).toContain('# GitHub Issues Context');
-            expect(content).toContain('# User Context\n\nUser context');
+            // Note: Context sections are now saved in the analysis result file, not in review notes
         });
 
         it('should handle file saving errors gracefully', async () => {
-            // Mock fs.writeFile to fail for main files but not test files
-            mockFs.writeFile.mockImplementation(async (path: string, data: any, encoding: any) => {
+            const fs = await import('fs/promises');
+            const mockFsWriteFile = fs.default.writeFile as any;
+
+            // Mock writeFile to throw permission error for test files
+            mockFsWriteFile.mockImplementation(async (path: string, data: any, encoding: any) => {
                 if (path.includes('.test')) {
-                    return; // Allow test files to succeed
+                    const error = new Error('Permission denied');
+                    (error as any).code = 'EACCES';
+                    throw error;
                 }
-                throw new Error('Permission denied');
+                return;
             });
 
             const runConfig = {
                 model: 'gpt-4',
                 review: {
-                    note: 'Test note',
+                    note: 'Test review note',
                     sendit: true
                 }
             };
 
             const result = await Review.execute(runConfig);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review notes: %s', expect.any(String));
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save review notes: %s', expect.any(String));
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review analysis: %s', expect.any(String));
             expect(result).toBe('Issues created successfully');
         });
@@ -779,8 +802,30 @@ describe('review command', () => {
             await Review.execute(runConfig);
 
             expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('custom-output');
-            expect(mockFs.writeFile).toHaveBeenCalledWith(
+
+            // Get the actual fs module to check the calls
+            const fs = await import('fs/promises');
+            const mockFsWriteFile = fs.default.writeFile as any;
+
+            // safeWriteFile creates test files first, then the actual files
+            // The test files have .test extension and contain "test" content
+            expect(mockFsWriteFile).toHaveBeenCalledWith(
+                'custom-output/review-notes-123456.md.test',
+                'test',
+                'utf-8'
+            );
+            expect(mockFsWriteFile).toHaveBeenCalledWith(
                 'custom-output/review-notes-123456.md',
+                expect.any(String),
+                'utf-8'
+            );
+            expect(mockFsWriteFile).toHaveBeenCalledWith(
+                'custom-output/review-123456.md.test',
+                'test',
+                'utf-8'
+            );
+            expect(mockFsWriteFile).toHaveBeenCalledWith(
+                'custom-output/review-123456.md',
                 expect.any(String),
                 'utf-8'
             );
@@ -812,26 +857,41 @@ describe('review command', () => {
         });
 
         it('should handle issue creation in interactive mode', async () => {
-            const runConfig = {
-                model: 'gpt-4',
-                review: {
-                    note: 'Test note',
-                    sendit: false
-                }
+            // Mock process.stdin.once for interactive mode
+            const originalStdin = process.stdin;
+            const mockStdin = {
+                isTTY: true,
+                once: vi.fn().mockImplementation((event, callback) => {
+                    // Simulate user pressing Enter (approving the file)
+                    setTimeout(() => callback(Buffer.from('\n')), 0);
+                })
             };
+            (process as any).stdin = mockStdin;
 
-            const result = await Review.execute(runConfig);
+            try {
+                const runConfig = {
+                    model: 'gpt-4',
+                    review: {
+                        note: 'Test note',
+                        sendit: false
+                    }
+                };
 
-            expect(mockIssuesHandleIssueCreation).toHaveBeenCalledWith({
-                summary: 'Review analysis summary',
-                totalIssues: 3,
-                issues: [
-                    { title: 'Issue 1', priority: 'high' },
-                    { title: 'Issue 2', priority: 'medium' },
-                    { title: 'Issue 3', priority: 'low' }
-                ]
-            }, false);
-            expect(result).toBe('Issues created successfully');
+                const result = await Review.execute(runConfig);
+
+                expect(mockIssuesHandleIssueCreation).toHaveBeenCalledWith({
+                    summary: 'Review analysis summary',
+                    totalIssues: 3,
+                    issues: [
+                        { title: 'Issue 1', priority: 'high' },
+                        { title: 'Issue 2', priority: 'medium' },
+                        { title: 'Issue 3', priority: 'low' }
+                    ]
+                }, false);
+                expect(result).toBe('Issues created successfully');
+            } finally {
+                process.stdin = originalStdin;
+            }
         });
     });
 
@@ -937,6 +997,11 @@ describe('review command', () => {
             const result = await Review.execute(runConfig);
 
             expect(result).toBe('Issues created successfully');
+            // The context gathering should complete successfully even with empty content
+            expect(mockLogGet).toHaveBeenCalled();
+            expect(mockDiffGetRecentDiffsForReview).toHaveBeenCalled();
+            expect(mockReleaseNotesGet).toHaveBeenCalled();
+            expect(mockIssuesGet).toHaveBeenCalled();
         });
 
         it('should handle analysis with no issues found', async () => {
@@ -962,22 +1027,30 @@ describe('review command', () => {
         });
 
         it('should handle maxContextErrors configuration', async () => {
-            // Mock all context sources to fail
-            mockLogGet.mockRejectedValue(new Error('Log failed'));
-            mockDiffGetRecentDiffsForReview.mockRejectedValue(new Error('Diff failed'));
-            mockReleaseNotesGet.mockRejectedValue(new Error('Release failed'));
-            mockIssuesGet.mockRejectedValue(new Error('Issues failed'));
+            // Mock multiple context gathering failures
+            mockLogGet.mockRejectedValue(new Error('Log context failed'));
+            mockDiffGetRecentDiffsForReview.mockRejectedValue(new Error('Diff context failed'));
+            mockReleaseNotesGet.mockRejectedValue(new Error('Release notes context failed'));
+            mockIssuesGet.mockRejectedValue(new Error('Issues context failed'));
+
+            // Mock fs.readdir to return a file so that the directory processing logic is used
+            mockFs.readdir.mockResolvedValue([
+                { name: 'test-review.md', isFile: () => true }
+            ]);
+
+            // Mock fs.readFile to return valid content for the review file
+            mockFs.readFile.mockResolvedValue('This is a valid review note content for testing');
 
             const runConfig = {
                 model: 'gpt-4',
                 review: {
-                    note: 'Test note',
+                    directory: 'test-directory', // Use directory mode to trigger file processing
+                    sendit: true,
                     includeCommitHistory: true,
                     includeRecentDiffs: true,
                     includeReleaseNotes: true,
                     includeGithubIssues: true,
-                    maxContextErrors: 2, // Allow only 2 errors
-                    sendit: true
+                    maxContextErrors: 2 // Allow only 2 errors, but we'll have 4
                 }
             };
 
@@ -1031,7 +1104,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
+                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on temporary file: Failed to create temp file: Cannot create file');
             });
         });
 
@@ -1057,7 +1130,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Editor \'vi\' timed out after 100ms. Consider using a different editor or increasing the timeout.');
             });
 
             it('should handle editor SIGTERM signal', async () => {
@@ -1081,7 +1154,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Editor was terminated (SIGTERM)');
             });
 
             it('should handle editor non-zero exit code', async () => {
@@ -1105,7 +1178,7 @@ describe('review command', () => {
                     }
                 };
 
-                await expect(Review.execute(runConfig)).rejects.toThrow('File operation failed on /tmp: Temp directory not writable: Permission denied');
+                await expect(Review.execute(runConfig)).rejects.toThrow('Editor exited with non-zero code: 1');
             });
 
             it('should handle editor without timeout when editorTimeout is not specified', async () => {
@@ -1262,7 +1335,7 @@ describe('review command', () => {
                 const result = await Review.execute(runConfig);
                 expect(result).toBe('Issues created successfully');
                 expect(mockLogger.warn).toHaveBeenCalledWith(
-                    'Failed to save timestamped review notes: %s',
+                    'Failed to save review notes: %s',
                     expect.any(String)
                 );
             });
@@ -1293,7 +1366,7 @@ describe('review command', () => {
                 const result = await Review.execute(runConfig);
                 expect(result).toBe('Issues created successfully');
                 expect(mockLogger.warn).toHaveBeenCalledWith(
-                    'Failed to save timestamped review notes: %s',
+                    'Failed to save review notes: %s',
                     expect.any(String)
                 );
             });
@@ -1513,6 +1586,700 @@ describe('review command', () => {
                 expect.any(Object)
             );
             expect(result).toBe('Issues created successfully');
+        });
+    });
+
+    describe('directory processing', () => {
+        it('should process files from directory when directory is specified', async () => {
+            // Mock fs.readdir to return multiple files
+            mockFs.readdir.mockResolvedValue([
+                { name: 'review1.md', isFile: () => true },
+                { name: 'review2.md', isFile: () => true },
+                { name: 'review3.md', isFile: () => true }
+            ]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-reviews',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('📁 Processing review files in directory: test-reviews');
+            expect(mockLogger.info).toHaveBeenCalledWith('📁 Found 3 files to process');
+            expect(mockLogger.info).toHaveBeenCalledWith('Auto-selecting all 3 files for processing (--sendit mode)');
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should throw error when directory contains no files', async () => {
+            mockFs.readdir.mockResolvedValue([]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'empty-directory',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('No review files found in directory: empty-directory');
+        });
+
+        it('should throw error when directory does not exist', async () => {
+            const fs = await import('fs/promises');
+            const mockFsReaddir = fs.default.readdir as any;
+            mockFsReaddir.mockRejectedValue({ code: 'ENOENT', message: 'Directory not found' });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'non-existent-directory',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Directory not found: non-existent-directory');
+        });
+
+        it('should handle directory read errors gracefully', async () => {
+            const fs = await import('fs/promises');
+            const mockFsReaddir = fs.default.readdir as any;
+            mockFsReaddir.mockRejectedValue({ code: 'EACCES', message: 'Permission denied' });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'permission-denied-directory',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Failed to read directory: permission-denied-directory');
+        });
+
+        it('should filter out directories and only process files', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'review1.md', isFile: () => true },
+                { name: 'subdirectory', isFile: () => false },
+                { name: 'review2.md', isFile: () => true }
+            ]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'mixed-directory',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('📁 Found 2 files to process');
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should sort files alphabetically', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'zebra.md', isFile: () => true },
+                { name: 'alpha.md', isFile: () => true },
+                { name: 'beta.md', isFile: () => true }
+            ]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'unsorted-directory',
+                    sendit: true
+                }
+            };
+
+            await Review.execute(runConfig);
+
+            // The files should be processed in alphabetical order
+            expect(mockLogger.info).toHaveBeenCalledWith('📁 Found 3 files to process');
+        });
+    });
+
+    describe('file selection and processing', () => {
+        it('should handle file selection in interactive mode', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            // Mock getUserChoice to return different choices
+            mockGetUserChoice
+                .mockResolvedValueOnce('c') // Confirm first file
+                .mockResolvedValueOnce('s'); // Skip second file
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: false
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('\n📁 File Selection Phase');
+            expect(mockLogger.info).toHaveBeenCalledWith('Found 2 files to review. Select which ones to process:');
+            expect(mockLogger.info).toHaveBeenCalledWith('✅ File selected for processing: test-directory/file1.md');
+            expect(mockLogger.info).toHaveBeenCalledWith('⏭️  File skipped: test-directory/file2.md');
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should handle abort during file selection', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            mockGetUserChoice.mockResolvedValueOnce('a'); // Abort
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: false
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Review process aborted by user');
+            expect(mockLogger.info).toHaveBeenCalledWith('🛑 Aborting review process as requested');
+        });
+
+        it('should handle no files selected during file selection', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            mockGetUserChoice
+                .mockResolvedValueOnce('s') // Skip first file
+                .mockResolvedValueOnce('s'); // Skip second file
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: false
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('No files were selected for processing');
+        });
+
+        it('should handle non-interactive environment in file selection', async () => {
+            mockProcess.stdin.isTTY = false;
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: true // Need sendit for non-interactive
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            // In sendit mode, the warning about non-interactive environment is not shown
+            // because sendit mode auto-selects all files
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should handle non-interactive environment without sendit', async () => {
+            mockProcess.stdin.isTTY = false;
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true }
+            ]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: false
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Piped input requires --sendit flag for non-interactive operation');
+        });
+    });
+
+    describe('multiple file processing', () => {
+        it('should process multiple files and combine results', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            // Mock different results for each file
+            mockCreateCompletion
+                .mockResolvedValueOnce({
+                    summary: 'First file analysis',
+                    totalIssues: 2,
+                    issues: [
+                        { title: 'Issue 1', priority: 'high' },
+                        { title: 'Issue 2', priority: 'medium' }
+                    ]
+                })
+                .mockResolvedValueOnce({
+                    summary: 'Second file analysis',
+                    totalIssues: 1,
+                    issues: [
+                        { title: 'Issue 3', priority: 'low' }
+                    ]
+                });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('✅ Successfully processed 2 review files');
+            expect(mockLogger.info).toHaveBeenCalledWith('📝 Processing file 1/2: test-directory/file1.md');
+            expect(mockLogger.info).toHaveBeenCalledWith('📝 Processing file 2/2: test-directory/file2.md');
+            expect(result).toBe('Issues created successfully');
+
+            // Verify combined results were saved
+            const fs = await import('fs/promises');
+            const mockFsWriteFile = fs.default.writeFile as any;
+            expect(mockFsWriteFile).toHaveBeenCalledWith(
+                'output/review-123456.md',
+                expect.stringContaining('# Combined Review Analysis Result'),
+                'utf-8'
+            );
+        });
+
+        it('should handle file processing errors gracefully in directory mode', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            // Mock first file to succeed, second to fail
+            mockCreateCompletion
+                .mockResolvedValueOnce({
+                    summary: 'First file analysis',
+                    totalIssues: 1,
+                    issues: [{ title: 'Issue 1', priority: 'high' }]
+                })
+                .mockRejectedValueOnce(new Error('Processing failed'));
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to process file test-directory/file2.md: Review analysis failed: Processing failed');
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should throw error when no files are processed successfully', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            // Mock both files to fail
+            mockCreateCompletion
+                .mockRejectedValueOnce(new Error('First file failed'))
+                .mockRejectedValueOnce(new Error('Second file failed'));
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('No files were processed successfully');
+        });
+
+
+
+        it('should handle non-critical errors gracefully in directory mode', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true }
+            ]);
+
+            // Mock a non-critical error that should be caught and logged
+            mockCreateCompletion.mockRejectedValue(new Error('Some other error'));
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: true
+                }
+            };
+
+            // This should fail because no files were processed successfully
+            await expect(Review.execute(runConfig)).rejects.toThrow('No files were processed successfully');
+        });
+    });
+
+    describe('file reading functionality', () => {
+        it('should read review note from file successfully', async () => {
+            mockFs.readFile.mockResolvedValue('Test review content from file');
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    file: 'test-review.md',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('📁 Reading review note from file: test-review.md');
+            expect(mockLogger.debug).toHaveBeenCalledWith('Successfully read review note from file: test-review.md (29 characters)');
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should throw error when review file is empty', async () => {
+            mockFs.readFile.mockResolvedValue('   \n\n  ');
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    file: 'empty-review.md',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Review file is empty: empty-review.md');
+        });
+
+        it('should throw error when review file does not exist', async () => {
+            const fs = await import('fs/promises');
+            const mockFsReadFile = fs.default.readFile as any;
+            mockFsReadFile.mockRejectedValue({ code: 'ENOENT', message: 'File not found' });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    file: 'non-existent-review.md',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Review file not found: non-existent-review.md');
+        });
+
+        it('should handle file read errors gracefully', async () => {
+            const fs = await import('fs/promises');
+            const mockFsReadFile = fs.default.readFile as any;
+            mockFsReadFile.mockRejectedValue({ code: 'EACCES', message: 'Permission denied' });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    file: 'permission-denied-review.md',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Failed to read review file: Permission denied');
+        });
+    });
+
+    describe('dry run mode enhancements', () => {
+        it('should show directory processing in dry run mode', async () => {
+            const runConfig = {
+                model: 'gpt-4',
+                dryRun: true,
+                review: {
+                    directory: 'test-directory'
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would process review files in directory: %s', 'test-directory');
+            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would first select which files to process, then analyze selected files');
+            expect(result).toBe('DRY RUN: Review command would analyze note, gather context, and create GitHub issues');
+        });
+
+        it('should show file reading in dry run mode', async () => {
+            const runConfig = {
+                model: 'gpt-4',
+                dryRun: true,
+                review: {
+                    file: 'test-review.md'
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would read review note from file: %s', 'test-review.md');
+            expect(result).toBe('DRY RUN: Review command would analyze note, gather context, and create GitHub issues');
+        });
+
+        it('should show editor opening in dry run mode', async () => {
+            const runConfig = {
+                model: 'gpt-4',
+                dryRun: true,
+                review: {}
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would open editor to capture review note');
+            expect(result).toBe('DRY RUN: Review command would analyze note, gather context, and create GitHub issues');
+        });
+    });
+
+    describe('error handling enhancements', () => {
+        it('should handle ValidationError in execute wrapper', async () => {
+            // Mock fs.readdir to return empty array to trigger validation error
+            mockFs.readdir.mockResolvedValue([]);
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'empty-directory',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('No review files found in directory: empty-directory');
+            expect(mockLogger.error).toHaveBeenCalledWith('review failed: No review files found in directory: empty-directory');
+        });
+
+        it('should handle FileOperationError in execute wrapper', async () => {
+            const fs = await import('fs/promises');
+            const mockFsReadFile = fs.default.readFile as any;
+            mockFsReadFile.mockRejectedValue({ code: 'ENOENT', message: 'File not found' });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    file: 'non-existent.md'
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Review file not found: non-existent.md');
+            expect(mockLogger.error).toHaveBeenCalledWith('review failed: File operation failed on non-existent.md: Review file not found: non-existent.md');
+        });
+
+        it('should handle CommandError in execute wrapper', async () => {
+            // Mock a CommandError to be thrown
+            const { CommandError } = await import('../../src/error/CommandErrors');
+            mockCreateCompletion.mockRejectedValue(new CommandError('Test command error', 'TEST_ERROR'));
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    note: 'Test note',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Test command error');
+            expect(mockLogger.error).toHaveBeenCalledWith('review encountered unexpected error: Review analysis failed: Test command error');
+        });
+
+        it('should handle unexpected errors in execute wrapper', async () => {
+            mockCreateCompletion.mockRejectedValue(new Error('Unexpected error'));
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    note: 'Test note',
+                    sendit: true
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('Unexpected error');
+            expect(mockLogger.error).toHaveBeenCalledWith('review encountered unexpected error: Review analysis failed: Unexpected error');
+        });
+    });
+
+    describe('context gathering enhancements', () => {
+        it('should handle empty context content gracefully', async () => {
+            mockLogGet.mockResolvedValue('');
+            mockDiffGetRecentDiffsForReview.mockResolvedValue('');
+            mockReleaseNotesGet.mockResolvedValue('');
+            mockIssuesGet.mockResolvedValue('');
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    note: 'Test note',
+                    includeCommitHistory: true,
+                    includeRecentDiffs: true,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: true,
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(result).toBe('Issues created successfully');
+            // The context gathering should complete successfully even with empty content
+            expect(mockLogGet).toHaveBeenCalled();
+            expect(mockDiffGetRecentDiffsForReview).toHaveBeenCalled();
+            expect(mockReleaseNotesGet).toHaveBeenCalled();
+            expect(mockIssuesGet).toHaveBeenCalled();
+        });
+
+        it('should handle context gathering with custom limits', async () => {
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    note: 'Test note',
+                    includeCommitHistory: true,
+                    includeRecentDiffs: true,
+                    includeReleaseNotes: true,
+                    includeGithubIssues: true,
+                    commitHistoryLimit: 25,
+                    diffHistoryLimit: 15,
+                    releaseNotesLimit: 8,
+                    githubIssuesLimit: 30,
+                    sendit: true
+                }
+            };
+
+            await Review.execute(runConfig);
+
+            expect(mockLogCreate).toHaveBeenCalledWith({ limit: 25 });
+            expect(mockDiffGetRecentDiffsForReview).toHaveBeenCalledWith({
+                limit: 15,
+                baseExcludedPatterns: ['node_modules', '*.test.ts']
+            });
+            expect(mockReleaseNotesGet).toHaveBeenCalledWith({ limit: 8 });
+            expect(mockIssuesGet).toHaveBeenCalledWith({ limit: 30 });
+        });
+    });
+
+    describe('file saving enhancements', () => {
+        it('should handle combined results file saving errors', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true },
+                { name: 'file2.md', isFile: () => true }
+            ]);
+
+            // Mock file system to fail on combined results save
+            const fs = await import('fs/promises');
+            const mockFsWriteFile = fs.default.writeFile as any;
+            mockFsWriteFile.mockImplementation(async (path: string, content: string) => {
+                if (path.includes('review-123456.md') && !path.includes('.test')) {
+                    throw new Error('Failed to save combined results');
+                }
+                return;
+            });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save combined review analysis: %s', 'Failed to write file output/review-123456.md: Failed to save combined results');
+            expect(result).toBe('Issues created successfully');
+        });
+
+        it('should handle review notes file saving errors', async () => {
+            const fs = await import('fs/promises');
+            const mockFsWriteFile = fs.default.writeFile as any;
+            mockFsWriteFile.mockImplementation(async (path: string, content: string) => {
+                if (path.includes('review-notes-123456.md') && !path.includes('.test')) {
+                    throw new Error('Failed to save review notes');
+                }
+                return;
+            });
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    note: 'Test note',
+                    sendit: true
+                }
+            };
+
+            const result = await Review.execute(runConfig);
+
+            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save review notes: %s', 'Failed to write file output/review-notes-123456.md: Failed to save review notes');
+            expect(result).toBe('Issues created successfully');
+        });
+    });
+
+    describe('interactive mode enhancements', () => {
+        it('should handle interactive mode with file processing confirmation', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true }
+            ]);
+
+            // Mock process.stdin.once for interactive confirmation
+            const originalStdin = process.stdin;
+            const mockStdin = {
+                isTTY: true,
+                once: vi.fn().mockImplementation((event, callback) => {
+                    // Simulate user pressing Enter (confirming the file)
+                    setTimeout(() => callback(Buffer.from('\n')), 0);
+                })
+            };
+            (process as any).stdin = mockStdin;
+
+            try {
+                const runConfig = {
+                    model: 'gpt-4',
+                    review: {
+                        directory: 'test-directory',
+                        sendit: false
+                    }
+                };
+
+                const result = await Review.execute(runConfig);
+
+                expect(result).toBe('Issues created successfully');
+            } finally {
+                process.stdin = originalStdin;
+            }
+        });
+
+        it('should handle interactive mode with file skip', async () => {
+            mockFs.readdir.mockResolvedValue([
+                { name: 'file1.md', isFile: () => true }
+            ]);
+
+            // Mock getUserChoice to return 's' for skip
+            mockGetUserChoice.mockResolvedValueOnce('s');
+
+            const runConfig = {
+                model: 'gpt-4',
+                review: {
+                    directory: 'test-directory',
+                    sendit: false
+                }
+            };
+
+            await expect(Review.execute(runConfig)).rejects.toThrow('No files were selected for processing');
         });
     });
 });

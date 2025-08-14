@@ -7,6 +7,8 @@ export const ConfigSchema = z.object({
     debug: z.boolean().optional(),
     overrides: z.boolean().optional(),
     model: z.string().optional(),
+    openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+    openaiMaxOutputTokens: z.number().optional(),
     contextDirectories: z.array(z.string()).optional(),
     outputDirectory: z.string().optional(),
     preferencesDirectory: z.string().optional(),
@@ -22,12 +24,17 @@ export const ConfigSchema = z.object({
         skipFileCheck: z.boolean().optional(),
         maxDiffBytes: z.number().optional(),
         model: z.string().optional(),
+        openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+        openaiMaxOutputTokens: z.number().optional(),
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
         audioDevice: z.string().optional(),
         file: z.string().optional(),
         keepTemp: z.boolean().optional(),
+        model: z.string().optional(),
+        openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+        openaiMaxOutputTokens: z.number().optional(),
     }).optional(),
     release: z.object({
         from: z.string().optional(),
@@ -38,6 +45,8 @@ export const ConfigSchema = z.object({
         focus: z.string().optional(),
         maxDiffBytes: z.number().optional(),
         model: z.string().optional(),
+        openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+        openaiMaxOutputTokens: z.number().optional(),
         noMilestones: z.boolean().optional(),
     }).optional(),
     review: z.object({
@@ -55,6 +64,10 @@ export const ConfigSchema = z.object({
         editorTimeout: z.number().optional(),
         maxContextErrors: z.number().optional(),
         model: z.string().optional(),
+        openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+        openaiMaxOutputTokens: z.number().optional(),
+        file: z.string().optional(), // File path to read review note from
+        directory: z.string().optional(), // Directory to process multiple review files
     }).optional(),
     audioReview: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -72,6 +85,9 @@ export const ConfigSchema = z.object({
         file: z.string().optional(),
         directory: z.string().optional(),
         keepTemp: z.boolean().optional(),
+        model: z.string().optional(),
+        openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
+        openaiMaxOutputTokens: z.number().optional(),
     }).optional(),
     publish: z.object({
         mergeMethod: z.enum(['merge', 'squash', 'rebase']).optional(),
@@ -163,6 +179,8 @@ export type ReleaseConfig = {
     messageLimit?: number;
     maxDiffBytes?: number;
     model?: string;
+    openaiReasoning?: 'low' | 'medium' | 'high';
+    openaiMaxOutputTokens?: number;
 }
 
 export type ReviewConfig = {
@@ -180,6 +198,8 @@ export type ReviewConfig = {
     editorTimeout?: number;
     maxContextErrors?: number;
     model?: string;
+    openaiReasoning?: 'low' | 'medium' | 'high';
+    openaiMaxOutputTokens?: number;
 }
 
 export type AudioReviewConfig = {
@@ -198,6 +218,9 @@ export type AudioReviewConfig = {
     file?: string;
     directory?: string;
     keepTemp?: boolean;
+    model?: string;
+    openaiReasoning?: 'low' | 'medium' | 'high';
+    openaiMaxOutputTokens?: number;
 }
 
 export type CommitConfig = {
@@ -211,6 +234,8 @@ export type CommitConfig = {
     skipFileCheck?: boolean;
     maxDiffBytes?: number;
     model?: string;
+    openaiReasoning?: 'low' | 'medium' | 'high';
+    openaiMaxOutputTokens?: number;
 }
 
 export type AudioCommitConfig = {
@@ -218,6 +243,9 @@ export type AudioCommitConfig = {
     audioDevice?: string;
     file?: string;
     keepTemp?: boolean;
+    model?: string;
+    openaiReasoning?: 'low' | 'medium' | 'high';
+    openaiMaxOutputTokens?: number;
 }
 
 export type LinkConfig = {

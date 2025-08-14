@@ -75,6 +75,35 @@ export const validateString = (value: any, fieldName: string): string => {
 };
 
 /**
+ * Sanitizes and truncates direction parameter for safe use in prompts
+ * @param direction The direction string to sanitize
+ * @param maxLength Maximum length before truncation (default: 2000)
+ * @returns Sanitized and truncated direction string
+ */
+export const sanitizeDirection = (direction: string | undefined, maxLength: number = 2000): string | undefined => {
+    if (!direction) {
+        return undefined;
+    }
+
+    // Remove newlines and excessive whitespace to prevent template breakage
+    const sanitized = direction
+        .replace(/\r?\n/g, ' ') // Replace newlines with spaces
+        .replace(/\s+/g, ' ')   // Replace multiple whitespace with single space
+        .trim();
+
+    // Truncate if too long
+    if (sanitized.length > maxLength) {
+        const truncated = sanitized.substring(0, maxLength - 3) + '...';
+        // Log truncation for debugging
+        // eslint-disable-next-line no-console
+        console.warn(`Direction truncated from ${sanitized.length} to ${truncated.length} characters`);
+        return truncated;
+    }
+
+    return sanitized;
+};
+
+/**
  * Validates that a value exists and has a specific property
  */
 export const validateHasProperty = (obj: any, property: string, context?: string): void => {

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import { ValidationError, FileOperationError, CommandError } from '../error/CommandErrors';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { createCompletion, getModelForCommand } from '../util/openai';
+import { createCompletion, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
 import * as ReviewPrompt from '../prompt/review';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
@@ -13,10 +14,162 @@ import * as Issues from '../content/issues';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
+import { getUserChoice } from '../util/interactive';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
+
+// Utility function to read a review note from a file
+const readReviewNoteFromFile = async (filePath: string): Promise<string> => {
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Reading review note from file: ${filePath}`);
+        const content = await fs.readFile(filePath, 'utf8');
+
+        if (!content.trim()) {
+            throw new ValidationError(`Review file is empty: ${filePath}`);
+        }
+
+        logger.debug(`Successfully read review note from file: ${filePath} (${content.length} characters)`);
+        return content.trim();
+    } catch (error: any) {
+        if (error.code === 'ENOENT') {
+            throw new FileOperationError(`Review file not found: ${filePath}`, filePath, error);
+        }
+        if (error instanceof ValidationError) {
+            throw error;
+        }
+        throw new FileOperationError(`Failed to read review file: ${error.message}`, filePath, error);
+    }
+};
+
+// Utility function to get all review files in a directory
+const getReviewFilesInDirectory = async (directoryPath: string): Promise<string[]> => {
+    const logger = getLogger();
+
+    try {
+        logger.debug(`Scanning directory for review files: ${directoryPath}`);
+        const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+
+        // Filter for regular files (not directories) and get full paths
+        const files = entries
+            .filter(entry => entry.isFile())
+            .map(entry => path.join(directoryPath, entry.name))
+            .sort(); // Sort alphabetically
+
+        logger.debug(`Found ${files.length} files in directory: ${directoryPath}`);
+        return files;
+    } catch (error: any) {
+        if (error.code === 'ENOENT') {
+            throw new FileOperationError(`Directory not found: ${directoryPath}`, directoryPath, error);
+        }
+        throw new FileOperationError(`Failed to read directory: ${directoryPath}`, directoryPath, error);
+    }
+};
+
+// Utility function to confirm processing of individual files
+const confirmFileProcessing = async (filePath: string, senditMode: boolean): Promise<boolean> => {
+    const logger = getLogger();
+
+    if (senditMode) {
+        logger.info(`Processing file: ${filePath} (auto-confirmed due to --sendit)`);
+        return true;
+    }
+
+    // Check if we're in an interactive environment
+    if (!isTTYSafe()) {
+        logger.warn(`Non-interactive environment detected, skipping confirmation for: ${filePath}`);
+        return true;
+    }
+
+    // For interactive mode, we'll use a simple prompt
+    // In a real implementation, you might want to use a more sophisticated prompt library
+    logger.info(`\nReview file: ${filePath}`);
+    logger.info('Press Enter to process this file, or type "skip" to skip:');
+
+    // This is a simplified confirmation - in practice you might want to use a proper prompt library
+    return new Promise((resolve) => {
+        process.stdin.once('data', (data) => {
+            const input = data.toString().trim().toLowerCase();
+            if (input === 'skip' || input === 'n' || input === 'no') {
+                logger.info(`Skipping file: ${filePath}`);
+                resolve(false);
+            } else {
+                logger.info(`Processing file: ${filePath}`);
+                resolve(true);
+            }
+        });
+    });
+};
+
+// New function for file selection phase
+const selectFilesForProcessing = async (reviewFiles: string[], senditMode: boolean): Promise<string[]> => {
+    const logger = getLogger();
+
+    if (senditMode) {
+        logger.info(`Auto-selecting all ${reviewFiles.length} files for processing (--sendit mode)`);
+        return reviewFiles;
+    }
+
+    // Check if we're in an interactive environment
+    if (!isTTYSafe()) {
+        logger.warn(`Non-interactive environment detected, selecting all files for processing`);
+        return reviewFiles;
+    }
+
+    logger.info(`\n📁 File Selection Phase`);
+    logger.info(`Found ${reviewFiles.length} files to review. Select which ones to process:`);
+    logger.info(`[c] Confirm this file for processing`);
+    logger.info(`[s] Skip this file`);
+    logger.info(`[a] Abort the entire review process`);
+    logger.info(``);
+
+    const selectedFiles: string[] = [];
+    let shouldAbort = false;
+
+    for (let i = 0; i < reviewFiles.length; i++) {
+        const filePath = reviewFiles[i];
+        logger.info(`File ${i + 1}/${reviewFiles.length}: ${filePath}`);
+
+        const choice = await getUserChoice(
+            `Select action for this file:`,
+            [
+                { key: 'c', label: 'Confirm and process' },
+                { key: 's', label: 'Skip this file' },
+                { key: 'a', label: 'Abort entire review' }
+            ]
+        );
+
+        if (choice === 'a') {
+            logger.info(`🛑 Aborting review process as requested`);
+            shouldAbort = true;
+            break;
+        } else if (choice === 'c') {
+            selectedFiles.push(filePath);
+            logger.info(`✅ File selected for processing: ${filePath}`);
+        } else if (choice === 's') {
+            logger.info(`⏭️  File skipped: ${filePath}`);
+        }
+    }
+
+    if (shouldAbort) {
+        throw new Error('Review process aborted by user');
+    }
+
+    if (selectedFiles.length === 0) {
+        throw new Error('No files were selected for processing');
+    }
+
+    logger.info(`\n📋 File selection complete. ${selectedFiles.length} files selected for processing:`);
+    selectedFiles.forEach((file, index) => {
+        logger.info(`  ${index + 1}. ${file}`);
+    });
+    logger.info(``);
+
+    return selectedFiles;
+};
 
 // Safe temp file handling with proper permissions and validation
 const createSecureTempFile = async (): Promise<string> => {
@@ -223,119 +376,9 @@ const safeWriteFile = async (filePath: string, content: string, encoding: Buffer
     }
 };
 
-const executeInternal = async (runConfig: Config): Promise<string> => {
+// Helper function to process a single review note
+const processSingleReview = async (reviewNote: string, runConfig: Config, outputDirectory: string): Promise<Issues.ReviewResult> => {
     const logger = getLogger();
-    const isDryRun = runConfig.dryRun || false;
-
-    // Show configuration even in dry-run mode
-    logger.debug('Review context configuration:');
-    logger.debug('  Include commit history: %s', runConfig.review?.includeCommitHistory);
-    logger.debug('  Include recent diffs: %s', runConfig.review?.includeRecentDiffs);
-    logger.debug('  Include release notes: %s', runConfig.review?.includeReleaseNotes);
-    logger.debug('  Include GitHub issues: %s', runConfig.review?.includeGithubIssues);
-    logger.debug('  Commit history limit: %d', runConfig.review?.commitHistoryLimit);
-    logger.debug('  Diff history limit: %d', runConfig.review?.diffHistoryLimit);
-    logger.debug('  Release notes limit: %d', runConfig.review?.releaseNotesLimit);
-    logger.debug('  GitHub issues limit: %d', runConfig.review?.githubIssuesLimit);
-    logger.debug('  Sendit mode (auto-create issues): %s', runConfig.review?.sendit);
-
-    if (isDryRun) {
-        logger.info('DRY RUN: Would analyze provided note for review');
-        logger.info('DRY RUN: Would gather additional context based on configuration above');
-        logger.info('DRY RUN: Would analyze note and identify issues');
-
-        if (runConfig.review?.sendit) {
-            logger.info('DRY RUN: Would automatically create GitHub issues (sendit mode enabled)');
-        } else {
-            logger.info('DRY RUN: Would prompt for confirmation before creating GitHub issues');
-        }
-
-        // Show what exclusion patterns would be used in dry-run mode
-        if (runConfig.review?.includeRecentDiffs) {
-            const basePatterns = runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS;
-            const reviewExcluded = Diff.getReviewExcludedPatterns(basePatterns);
-            logger.info('DRY RUN: Would use %d exclusion patterns for diff context', reviewExcluded.length);
-            logger.debug('DRY RUN: Sample exclusions: %s', reviewExcluded.slice(0, 15).join(', ') +
-                (reviewExcluded.length > 15 ? '...' : ''));
-        }
-
-        return 'DRY RUN: Review command would analyze note, gather context, and create GitHub issues';
-    }
-
-    // Enhanced TTY check with proper error handling
-    const isInteractive = isTTYSafe();
-    if (!isInteractive && !runConfig.review?.sendit) {
-        logger.error('❌ STDIN is piped but --sendit flag is not enabled');
-        logger.error('   Interactive prompts cannot be used when input is piped');
-        logger.error('   Solutions:');
-        logger.error('   • Add --sendit flag to auto-create all issues');
-        logger.error('   • Use terminal input instead of piping');
-        logger.error('   • Example: echo "note" | kodrdriv review --sendit');
-        throw new ValidationError('Piped input requires --sendit flag for non-interactive operation');
-    }
-
-    // Get the review note from configuration
-    let reviewNote = runConfig.review?.note;
-
-    // If no review note was provided via CLI arg or STDIN, open the user's editor to capture it.
-    if (!reviewNote || !reviewNote.trim()) {
-        const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
-
-        let tmpFilePath: string | null = null;
-        try {
-            // Create secure temporary file
-            tmpFilePath = await createSecureTempFile();
-
-            // Pre-populate the file with a helpful header so users know what to do.
-            const templateContent = [
-                '# Kodrdriv Review Note',
-                '',
-                '# Please enter your review note below. Lines starting with "#" will be ignored.',
-                '# Save and close the editor when you are done.',
-                '',
-                '',
-            ].join('\n');
-
-            await safeWriteFile(tmpFilePath, templateContent);
-
-            logger.info(`No review note provided – opening ${editor} to capture input...`);
-
-            // Open the editor with optional timeout protection
-            const editorTimeout = runConfig.review?.editorTimeout; // No default timeout - let user take their time
-            await openEditorWithTimeout(editor, tmpFilePath, editorTimeout);
-
-            // Read the file back in, stripping comment lines and whitespace.
-            const fileContent = (await fs.readFile(tmpFilePath, 'utf8'))
-                .split('\n')
-                .filter(line => !line.trim().startsWith('#'))
-                .join('\n')
-                .trim();
-
-            if (!fileContent) {
-                throw new ValidationError('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
-            }
-
-            reviewNote = fileContent;
-
-            // If the original runConfig.review object exists, update it so downstream code has the note.
-            if (runConfig.review) {
-                runConfig.review.note = reviewNote;
-            }
-
-        } catch (error: any) {
-            logger.error(`Failed to capture review note via editor: ${error.message}`);
-            throw error;
-        } finally {
-            // Always clean up the temp file
-            if (tmpFilePath) {
-                await cleanupTempFile(tmpFilePath);
-            }
-        }
-    }
-
-    logger.info('📝 Starting review analysis...');
-    logger.debug('Review note: %s', reviewNote);
-    logger.debug('Review note length: %d characters', reviewNote.length);
 
     // Gather additional context based on configuration with improved error handling
     let logContext = '';
@@ -456,42 +499,6 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
     };
     const prompt = await ReviewPrompt.createPrompt(promptConfig, promptContent, promptContext);
 
-    const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-    const storage = createStorage({ log: logger.info });
-    await storage.ensureDirectory(outputDirectory);
-
-    // Save timestamped copy of review notes and context to output directory
-    try {
-        // Save the original review note
-        const reviewNotesFilename = getTimestampedReviewNotesFilename();
-        const reviewNotesPath = getOutputPath(outputDirectory, reviewNotesFilename);
-
-        let reviewNotesContent = `# Review Notes\n\n${reviewNote}\n\n`;
-
-        // Add all context sections if they exist
-        if (logContext.trim()) {
-            reviewNotesContent += `# Commit History Context\n\n${logContext}\n\n`;
-        }
-        if (diffContext.trim()) {
-            reviewNotesContent += `# Recent Diffs Context\n\n${diffContext}\n\n`;
-        }
-        if (releaseNotesContext.trim()) {
-            reviewNotesContent += `# Release Notes Context\n\n${releaseNotesContext}\n\n`;
-        }
-        if (issuesContext.trim()) {
-            reviewNotesContent += `# GitHub Issues Context\n\n${issuesContext}\n\n`;
-        }
-        if (runConfig.review?.context?.trim()) {
-            reviewNotesContent += `# User Context\n\n${runConfig.review.context}\n\n`;
-        }
-
-        await safeWriteFile(reviewNotesPath, reviewNotesContent);
-        logger.debug('Saved timestamped review notes and context: %s', reviewNotesPath);
-    } catch (error: any) {
-        logger.warn('Failed to save timestamped review notes: %s', error.message);
-        // Don't fail the entire operation for this
-    }
-
     const modelToUse = getModelForCommand(runConfig, 'review');
     const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
 
@@ -499,6 +506,8 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
     try {
         const rawResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
             model: modelToUse,
+            openaiReasoning: getOpenAIReasoningForCommand(runConfig, 'review'),
+            openaiMaxOutputTokens: getOpenAIMaxOutputTokensForCommand(runConfig, 'review'),
             responseFormat: { type: 'json_object' },
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('review-analysis')),
@@ -540,6 +549,273 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
     } catch (error: any) {
         logger.warn('Failed to save timestamped review analysis: %s', error.message);
         // Don't fail the entire operation for this
+    }
+
+    return analysisResult;
+};
+
+const executeInternal = async (runConfig: Config): Promise<string> => {
+    const logger = getLogger();
+    const isDryRun = runConfig.dryRun || false;
+
+    // Show configuration even in dry-run mode
+    logger.debug('Review context configuration:');
+    logger.debug('  Include commit history: %s', runConfig.review?.includeCommitHistory);
+    logger.debug('  Include recent diffs: %s', runConfig.review?.includeRecentDiffs);
+    logger.debug('  Include release notes: %s', runConfig.review?.includeReleaseNotes);
+    logger.debug('  Include GitHub issues: %s', runConfig.review?.includeGithubIssues);
+    logger.debug('  Commit history limit: %d', runConfig.review?.commitHistoryLimit);
+    logger.debug('  Diff history limit: %d', runConfig.review?.diffHistoryLimit);
+    logger.debug('  Release notes limit: %d', runConfig.review?.releaseNotesLimit);
+    logger.debug('  GitHub issues limit: %d', runConfig.review?.githubIssuesLimit);
+    logger.debug('  Sendit mode (auto-create issues): %s', runConfig.review?.sendit);
+    logger.debug('  File: %s', runConfig.review?.file || 'not specified');
+    logger.debug('  Directory: %s', runConfig.review?.directory || 'not specified');
+
+    if (isDryRun) {
+        if (runConfig.review?.file) {
+            logger.info('DRY RUN: Would read review note from file: %s', runConfig.review.file);
+        } else if (runConfig.review?.directory) {
+            logger.info('DRY RUN: Would process review files in directory: %s', runConfig.review.directory);
+            logger.info('DRY RUN: Would first select which files to process, then analyze selected files');
+        } else if (runConfig.review?.note) {
+            logger.info('DRY RUN: Would analyze provided note for review');
+        } else {
+            logger.info('DRY RUN: Would open editor to capture review note');
+        }
+
+        logger.info('DRY RUN: Would gather additional context based on configuration above');
+        logger.info('DRY RUN: Would analyze note and identify issues');
+
+        if (runConfig.review?.sendit) {
+            logger.info('DRY RUN: Would automatically create GitHub issues (sendit mode enabled)');
+        } else {
+            logger.info('DRY RUN: Would prompt for confirmation before creating GitHub issues');
+        }
+
+        // Show what exclusion patterns would be used in dry-run mode
+        if (runConfig.review?.includeRecentDiffs) {
+            const basePatterns = runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS;
+            const reviewExcluded = Diff.getReviewExcludedPatterns(basePatterns);
+            logger.info('DRY RUN: Would use %d exclusion patterns for diff context', reviewExcluded.length);
+            logger.debug('DRY RUN: Sample exclusions: %s', reviewExcluded.slice(0, 15).join(', ') +
+                (reviewExcluded.length > 15 ? '...' : ''));
+        }
+
+        return 'DRY RUN: Review command would analyze note, gather context, and create GitHub issues';
+    }
+
+    // Enhanced TTY check with proper error handling
+    const isInteractive = isTTYSafe();
+    if (!isInteractive && !runConfig.review?.sendit) {
+        logger.error('❌ STDIN is piped but --sendit flag is not enabled');
+        logger.error('   Interactive prompts cannot be used when input is piped');
+        logger.error('   Solutions:');
+        logger.error('   • Add --sendit flag to auto-create all issues');
+        logger.error('   • Use terminal input instead of piping');
+        logger.error('   • Example: echo "note" | kodrdriv review --sendit');
+        throw new ValidationError('Piped input requires --sendit flag for non-interactive operation');
+    }
+
+    // Get the review note from configuration
+    let reviewNote = runConfig.review?.note;
+    let reviewFiles: string[] = [];
+
+    // Check if we should process a single file
+    if (runConfig.review?.file) {
+        logger.info(`📁 Reading review note from file: ${runConfig.review.file}`);
+        reviewNote = await readReviewNoteFromFile(runConfig.review.file);
+        reviewFiles = [runConfig.review.file];
+    }
+    // Check if we should process a directory
+    else if (runConfig.review?.directory) {
+        logger.info(`📁 Processing review files in directory: ${runConfig.review.directory}`);
+        reviewFiles = await getReviewFilesInDirectory(runConfig.review.directory);
+
+        if (reviewFiles.length === 0) {
+            throw new ValidationError(`No review files found in directory: ${runConfig.review.directory}`);
+        }
+
+        logger.info(`📁 Found ${reviewFiles.length} files to process`);
+
+        // Set a dummy reviewNote for directory mode to satisfy validation
+        // The actual review notes will be read from each file during processing
+        reviewNote = `Processing ${reviewFiles.length} files from directory`;
+
+        // If not in sendit mode, explain the two-phase process
+        if (!runConfig.review?.sendit) {
+            logger.info(`📝 Interactive mode: You will first select which files to process, then they will be analyzed in order.`);
+            logger.info(`📝 Use --sendit to process all files automatically without confirmation.`);
+        }
+    }
+    // Otherwise, use the note from configuration or open editor
+    else if (runConfig.review?.note) {
+        reviewNote = runConfig.review.note;
+        reviewFiles = ['provided note'];
+    } else {
+        // Open editor to capture review note
+        const editor = process.env.EDITOR || process.env.VISUAL || 'vi';
+
+        let tmpFilePath: string | null = null;
+        try {
+            // Create secure temporary file
+            tmpFilePath = await createSecureTempFile();
+
+            // Pre-populate the file with a helpful header so users know what to do.
+            const templateContent = [
+                '# Kodrdriv Review Note',
+                '',
+                '# Please enter your review note below. Lines starting with "#" will be ignored.',
+                '# Save and close the editor when you are done.',
+                '',
+                '',
+            ].join('\n');
+
+            await safeWriteFile(tmpFilePath, templateContent);
+
+            logger.info(`No review note provided – opening ${editor} to capture input...`);
+
+            // Open the editor with optional timeout protection
+            const editorTimeout = runConfig.review?.editorTimeout; // No default timeout - let user take their time
+            await openEditorWithTimeout(editor, tmpFilePath, editorTimeout);
+
+            // Read the file back in, stripping comment lines and whitespace.
+            const fileContent = (await fs.readFile(tmpFilePath, 'utf8'))
+                .split('\n')
+                .filter(line => !line.trim().startsWith('#'))
+                .join('\n')
+                .trim();
+
+            if (!fileContent) {
+                throw new ValidationError('Review note is empty – aborting. Provide a note as an argument, via STDIN, or through the editor.');
+            }
+
+            reviewNote = fileContent;
+
+            // If the original runConfig.review object exists, update it so downstream code has the note.
+            if (runConfig.review) {
+                runConfig.review.note = reviewNote;
+            }
+
+        } catch (error: any) {
+            logger.error(`Failed to capture review note via editor: ${error.message}`);
+            throw error;
+        } finally {
+            // Always clean up the temp file
+            if (tmpFilePath) {
+                await cleanupTempFile(tmpFilePath);
+            }
+        }
+
+        reviewFiles = ['editor input'];
+    }
+
+    if (!reviewNote || !reviewNote.trim()) {
+        throw new ValidationError('No review note provided or captured');
+    }
+
+    logger.info('📝 Starting review analysis...');
+    logger.debug('Review note: %s', reviewNote);
+    logger.debug('Review note length: %d characters', reviewNote.length);
+
+    const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
+    const storage = createStorage({ log: logger.info });
+    await storage.ensureDirectory(outputDirectory);
+
+    // Save timestamped copy of review notes to output directory
+    try {
+        const reviewNotesFilename = getTimestampedReviewNotesFilename();
+        const reviewNotesPath = getOutputPath(outputDirectory, reviewNotesFilename);
+        const reviewNotesContent = `# Review Notes\n\n${reviewNote}\n\n`;
+        await safeWriteFile(reviewNotesPath, reviewNotesContent);
+        logger.debug('Saved timestamped review notes: %s', reviewNotesPath);
+    } catch (error: any) {
+        logger.warn('Failed to save review notes: %s', error.message);
+    }
+
+    // Phase 1: File selection (only for directory mode)
+    let selectedFiles: string[];
+    if (runConfig.review?.directory) {
+        selectedFiles = await selectFilesForProcessing(reviewFiles, runConfig.review?.sendit || false);
+    } else {
+        // For single note mode, just use the note directly
+        selectedFiles = ['single note'];
+    }
+
+    // Phase 2: Process selected files in order
+    logger.info(`\n📝 Starting analysis phase...`);
+    const results: Issues.ReviewResult[] = [];
+    const processedFiles: string[] = [];
+
+    if (runConfig.review?.directory) {
+        // Directory mode: process each selected file
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const filePath = selectedFiles[i];
+            try {
+                logger.info(`📝 Processing file ${i + 1}/${selectedFiles.length}: ${filePath}`);
+                const fileNote = await readReviewNoteFromFile(filePath);
+                const fileResult = await processSingleReview(fileNote, runConfig, outputDirectory);
+                results.push(fileResult);
+                processedFiles.push(filePath);
+            } catch (error: any) {
+                // Check if this is a critical error that should be propagated
+                if (error.message.includes('Too many context gathering errors')) {
+                    throw error; // Propagate critical context errors
+                }
+                logger.warn(`Failed to process file ${filePath}: ${error.message}`);
+                // Continue with other files for non-critical errors
+            }
+        }
+    } else {
+        // Single note mode: process the note directly
+        try {
+            logger.info(`📝 Processing single review note`);
+            const fileResult = await processSingleReview(reviewNote, runConfig, outputDirectory);
+            results.push(fileResult);
+            processedFiles.push('single note');
+        } catch (error: any) {
+            logger.warn(`Failed to process review note: ${error.message}`);
+            throw error; // Re-throw for single note mode since there's only one item
+        }
+    }
+
+    if (results.length === 0) {
+        throw new ValidationError('No files were processed successfully');
+    }
+
+    // Combine results if we processed multiple files
+    let analysisResult: Issues.ReviewResult;
+    if (results.length === 1) {
+        analysisResult = results[0];
+    } else {
+        logger.info(`✅ Successfully processed ${results.length} review files`);
+
+        // Create a combined summary
+        const totalIssues = results.reduce((sum, result) => sum + result.totalIssues, 0);
+        const allIssues = results.flatMap(result => result.issues || []);
+
+        analysisResult = {
+            summary: `Combined analysis of ${results.length} review files. Total issues found: ${totalIssues}`,
+            totalIssues,
+            issues: allIssues
+        };
+
+        // Save combined results
+        try {
+            const combinedFilename = getTimestampedReviewFilename();
+            const combinedPath = getOutputPath(outputDirectory, combinedFilename);
+            const combinedContent = `# Combined Review Analysis Result\n\n` +
+                `## Summary\n${analysisResult.summary}\n\n` +
+                `## Total Issues Found\n${totalIssues}\n\n` +
+                `## Files Processed\n${processedFiles.join('\n')}\n\n` +
+                `## Issues\n\n${JSON.stringify(allIssues, null, 2)}\n\n` +
+                `---\n\n*Combined analysis completed at ${new Date().toISOString()}*`;
+
+            await safeWriteFile(combinedPath, combinedContent);
+            logger.debug('Saved combined review analysis: %s', combinedPath);
+        } catch (error: any) {
+            logger.warn('Failed to save combined review analysis: %s', error.message);
+        }
     }
 
     // Handle GitHub issue creation using the issues module
