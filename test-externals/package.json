@@ -1,0 +1,8 @@
+{
+  "name": "@test/app",
+  "version": "1.0.0",
+  "dependencies": {
+    "@external/lib": "^1.0.0",
+    "lodash": "^4.17.0"
+  }
+}
