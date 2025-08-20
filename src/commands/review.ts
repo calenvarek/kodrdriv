@@ -836,16 +836,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         if (error instanceof FileOperationError) {
             logger.error(`review failed: ${error.message}`);
-            if (error.cause) {
-                logger.debug(`Caused by: ${error.cause.message}`);
+            if (error.cause && typeof error.cause === 'object' && 'message' in error.cause) {
+                logger.debug(`Caused by: ${(error.cause as Error).message}`);
             }
             throw error;
         }
 
         if (error instanceof CommandError) {
             logger.error(`review failed: ${error.message}`);
-            if (error.cause) {
-                logger.debug(`Caused by: ${error.cause.message}`);
+            if (error.cause && typeof error.cause === 'object' && 'message' in error.cause) {
+                logger.debug(`Caused by: ${(error.cause as Error).message}`);
             }
             throw error;
         }

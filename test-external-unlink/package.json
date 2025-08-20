@@ -1,0 +1,16 @@
+{
+  "name": "@test/external-unlink-test",
+  "version": "1.0.0",
+  "description": "Test package for external unlink patterns",
+  "main": "index.js",
+  "dependencies": {
+    "@somelib/core": "^1.0.0",
+    "@somelib/utils": "^1.0.0",
+    "lodash": "^4.17.21",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@somelib/dev": "^1.0.0",
+    "jest": "^29.0.0"
+  }
+}

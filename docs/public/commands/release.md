@@ -30,7 +30,7 @@ The release command analyzes changes between two Git references and generates st
 - `--interactive`: Present the generated release notes for interactive review and editing
 - `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
 - `--focus <focus>`: Provide specific focus or theme for the release notes generation. This helps guide the AI to emphasize particular aspects or areas of the changes.
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 50). Reducing this number can make the summary more focused, while increasing it provides broader historical context.
+ while increasing it provides broader historical context.
 - `--max-diff-bytes <bytes>`: Maximum bytes per file in diff analysis (default: 2048). See [Diff Size Management](#diff-size-management) for details.
 
 ## Diff Size Management
@@ -119,7 +119,7 @@ kodrdriv release --interactive --context "Major release" --focus "Performance an
 kodrdriv release --focus "Performance improvements and bug fixes"
 
 # Focused release notes with limited history
-kodrdriv release --message-limit 20
+kodrdriv release
 
 # Dry-run to preview without entering interactive mode
 kodrdriv release --interactive --dry-run

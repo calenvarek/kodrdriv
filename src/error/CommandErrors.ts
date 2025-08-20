@@ -2,14 +2,25 @@
  * Base class for all command-related errors
  */
 export class CommandError extends Error {
+    public readonly code: string;
+    public readonly recoverable: boolean;
+    public readonly originalCause?: Error;
+
     constructor(
         message: string,
-        public readonly code: string,
-        public readonly recoverable: boolean = false,
-        public readonly cause?: Error
+        code: string,
+        recoverable: boolean = false,
+        cause?: Error
     ) {
         super(message);
         this.name = 'CommandError';
+        this.code = code;
+        this.recoverable = recoverable;
+        this.originalCause = cause;
+        // Also set the standard cause property for compatibility
+        if (cause) {
+            (this as any).cause = cause;
+        }
     }
 }
 

@@ -40,7 +40,7 @@ The tree command provides two execution modes:
 **Key Features:**
 - Dependency-aware execution order
 - Configuration isolation per package
-- Parallel execution support
+
 - Error recovery and resume capabilities
 - Multi-directory workspace support
 
@@ -162,7 +162,7 @@ STDIN input is particularly useful for:
 - `--cached`: Use cached diff for generating commit messages
 - `--sendit`: Commit with the generated message without review (default: false)
 - `--context <context>`: Provide additional context (as a string or file path) to guide the commit message generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the commit.
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the prompt for context (default: 50)
+
 
 ### Examples
 
@@ -184,7 +184,7 @@ git add src/auth.ts
 kodrdriv commit --cached --context "Part of security improvements"
 
 # Limit commit history context
-kodrdriv commit --message-limit 5 "quick fix"
+kodrdriv commit "quick fix"
 ```
 
 ## Audio Commit Command
@@ -208,7 +208,7 @@ The audio commit command allows you to speak your commit intentions, which are t
 - `--cached`: Use cached diff for generating commit messages
 - `--sendit`: Commit with the generated message without review
 - `--direction <direction>`: Fallback text direction if audio fails
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages to include in context
+
 - `--file <file>`: Process an existing audio file instead of recording (supports: mp3, mp4, mpeg, mpga, m4a, wav, webm, flac, aac, ogg, opus)
 
 ### Examples
@@ -362,7 +362,7 @@ The release command analyzes changes between two Git references and generates st
 - `--from <from>`: Branch or reference to generate release notes from (default: automatically detected - tries `main`, then `master`, then `origin/main`)
 - `--to <to>`: Branch or reference to generate release notes to (default: 'HEAD')
 - `--context <context>`: Provide additional context (as a string or file path) to guide the release notes generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the release.
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the release notes prompt (default: 50). Reducing this number can make the summary more focused, while increasing it provides broader historical context.
+ while increasing it provides broader historical context.
 
 ### Examples
 
@@ -380,7 +380,7 @@ kodrdriv release --from main --to feature/new-auth
 kodrdriv release --context "Major security update with breaking changes"
 
 # Focused release notes with limited history
-kodrdriv release --message-limit 20
+kodrdriv release
 ```
 
 ## Publish Command
@@ -638,69 +638,6 @@ The `tree` command is designed for workspace environments where you have multipl
 1. **Package Discovery**: Scans the target directory (current directory by default) for all `package.json` files in subdirectories
 2. **Dependency Analysis**: Reads each package's dependencies and identifies local workspace dependencies
 3. **Topological Sorting**: Creates a dependency graph and performs topological sorting to determine the correct build order
-4. **Command Execution**: Executes a specified command in each package directory in the correct dependency order
-
-### Key Features
-
-- **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
-- **Resume Capability**: Can resume from a specific package if a previous run failed
-- **Flexible Command Execution**: Execute any shell command across all packages
-- **Parallel Execution**: Execute packages in parallel when dependencies allow, significantly speeding up operations
-- **Pattern Exclusion**: Exclude specific packages or directories from processing
-- **Dry Run Mode**: Preview the build order and execution plan without making changes
-
-### Tree Command Options
-
-- `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
-- `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
-- `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
-- `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
-- `--excluded-patterns [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
-
-### Tree Usage Examples
-
-**Basic command execution:**
-```bash
-kodrdriv tree --cmd "npm install"
-```
-
-**Parallel execution:**
-```bash
-kodrdriv tree --cmd "npm run build" --parallel
-```
-
-**Resume from failed package:**
-```bash
-kodrdriv tree --cmd "npm run test" --start-from my-package
-```
-
-**Custom directory with exclusions:**
-```bash
-kodrdriv tree --directory ./packages --excluded-patterns "test-*" --cmd "npm run lint"
-```
-
-**Display dependency order only:**
-```bash
-kodrdriv tree
-```
-
-For detailed documentation, see [Tree Command](commands/tree.md).
-
-## Tree Command
-
-Analyze dependency order and execute commands across multiple packages in a workspace:
-
-```bash
-kodrdriv tree --cmd "npm install"
-```
-
-The `tree` command is designed for workspace environments where you have multiple packages with interdependencies. It analyzes your workspace structure, builds a dependency graph, determines the correct order for processing packages, and executes a specified command in each package in the correct dependency order.
-
-### What It Does
-
-1. **Package Discovery**: Scans the target directory (current directory by default) for all `package.json` files in subdirectories
-2. **Dependency Analysis**: Reads each package's dependencies and identifies local workspace dependencies
-3. **Topological Sorting**: Creates a dependency graph and performs topological sorting to determine the correct build order
 4. **Execution**: Optionally executes scripts, commands, or the publish process in each package in the correct order
 
 ### Key Features
@@ -708,7 +645,6 @@ The `tree` command is designed for workspace environments where you have multipl
 - **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
 - **Resume Capability**: Can resume from a specific package if a previous run failed
 - **Flexible Execution**: Supports custom scripts, shell commands, or the kodrdriv publish command
-- **Parallel Execution**: Execute packages in parallel when dependencies allow, significantly speeding up build times
 - **Pattern Exclusion**: Exclude specific packages or directories from processing
 - **Dry Run Mode**: Preview the build order and execution plan without making changes
 
@@ -717,8 +653,7 @@ The `tree` command is designed for workspace environments where you have multipl
 - `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
 - `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
-- `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
-- `--excluded-patterns [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
+- `--exclude [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
 
 > [!NOTE]
 > ### Command Precedence
@@ -737,11 +672,6 @@ The `tree` command is designed for workspace environments where you have multipl
 kodrdriv tree --cmd "npm install"
 ```
 
-**Parallel execution:**
-```bash
-kodrdriv tree --cmd "npm run build" --parallel
-```
-
 **Resume from failed package:**
 ```bash
 kodrdriv tree --cmd "npm run test" --start-from my-package
@@ -749,7 +679,7 @@ kodrdriv tree --cmd "npm run test" --start-from my-package
 
 **Custom directory with exclusions:**
 ```bash
-kodrdriv tree --directory ./packages --excluded-patterns "test-*" --cmd "npm run lint"
+kodrdriv tree --directory ./packages --exclude "test-*" --cmd "npm run lint"
 ```
 
 **Display dependency order only:**
@@ -783,16 +713,16 @@ You can configure tree behavior in your `.kodrdriv/config.json` file:
     "excludedPatterns": ["**/node_modules/**", "**/dist/**", "**/examples/**"],
     "cmd": "npm run build",
     "startFrom": null,
-    "parallel": true
+
   }
 }
 ```
 
 **Configuration Options:**
 - `directory`: Default target directory for package scanning
-- `excludedPatterns`: Array of glob patterns to exclude packages
+- `excludedPatterns`: Array of glob patterns to exclude packages (use `--exclude` for CLI). **Note**: These patterns match against directory paths and file paths, not package names from package.json files.
 - `cmd`: Default shell command to execute in each package
-- `parallel`: Execute packages in parallel when dependencies allow
+
 - `startFrom`: Default package to start from (useful for automated retries)
 
 ### Typical Workflows
@@ -803,11 +733,7 @@ You can configure tree behavior in your `.kodrdriv/config.json` file:
 kodrdriv tree --cmd "npm run build"
 ```
 
-**Fast Parallel Build:**
-```bash
-# Build packages in parallel for faster CI/CD execution
-kodrdriv tree --cmd "npm run build" --parallel
-```
+
 
 **Incremental Publishing:**
 ```bash
@@ -844,10 +770,10 @@ To resume from this package, use: --start-from api-client
 
 ### Performance Tips
 
-- Use `--excluded-patterns` to skip unnecessary packages (tests, examples, etc.)
+- Use `--exclude` to skip unnecessary packages (tests, examples, etc.)
 - Consider using `--start-from` for large workspaces when resuming failed builds
 - Use dry run mode first to verify the build order makes sense
-- For parallel-safe operations, use `--parallel` flag for faster execution
+
 
 For detailed documentation, see [Tree Command](commands/tree.md).
 

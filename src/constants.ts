@@ -238,6 +238,7 @@ export const KODRDRIV_DEFAULTS = {
         scopeRoots: {},
         dryRun: false,
         packageArgument: undefined,
+        externals: [],
     },
     unlink: {
         scopeRoots: {},
@@ -245,18 +246,20 @@ export const KODRDRIV_DEFAULTS = {
         dryRun: false,
         cleanNodeModules: false,
         packageArgument: undefined,
+        externals: [],
     },
     tree: {
         directories: undefined,
-        excludedPatterns: undefined,
+        exclude: undefined,
         startFrom: undefined,
         stopAt: undefined,
         cmd: undefined,
-        parallel: false,
+
         builtInCommand: undefined,
         continue: false,
         packageArgument: undefined,
         cleanNodeModules: false,
+        externals: [],
     },
     development: {
         targetVersion: 'patch',

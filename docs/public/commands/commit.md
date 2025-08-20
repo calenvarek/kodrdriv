@@ -16,8 +16,7 @@ The commit command can be executed across multiple packages using the tree comma
 # Execute commit across all packages in dependency order
 kodrdriv tree commit
 
-# Execute with parallel processing
-kodrdriv tree commit --parallel
+
 
 # Resume from a specific package if one fails
 kodrdriv tree commit --start-from my-package
@@ -28,7 +27,7 @@ kodrdriv tree commit --start-from my-package
 - **Configuration Isolation**: Each package uses its own `.kodrdriv` configuration
 - **Dependency Awareness**: Packages are processed in dependency order
 - **Individual Git Context**: Each package maintains its own git history and context
-- **Parallel Execution**: Independent packages can commit simultaneously when using `--parallel`
+
 
 ### Tree Mode vs Single Package
 
@@ -255,11 +254,81 @@ kodrdriv commit --direction "test direction"
 - `--sendit`: Commit with the generated message without review (default: false)
 - `--interactive`: Present the generated commit message for interactive review and editing
 - `--amend`: Amend the last commit with the generated message instead of creating a new commit
+- `--push [remote]`: Push the commit to remote after successful commit (default: origin when no remote specified)
 - `--direction <direction>`: Provide high-priority guidance for commit message generation. This direction is treated as the highest-priority prompt input and can specify focus, tone, or specific aspects to emphasize. Maximum length: 2,000 characters (recommended: 1,000 or less).
 - `--context <context>`: Provide additional context (as a string or file path) to guide the commit message generation. This context is included in the prompt sent to the AI and can be used to specify the purpose, theme, or any special considerations for the commit.
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages (from git log) to include in the prompt for context (default: 50)
+
 - `--skip-file-check`: Skip check for file: dependencies before committing (useful in CI/CD environments where local file dependencies are expected)
 - `--max-diff-bytes <maxDiffBytes>`: Maximum bytes per file to include in diff analysis (default: 2048). Larger files will be summarized rather than included in full.
+
+## Push Functionality
+
+The `--push` option allows you to automatically push your commits to a remote repository after a successful commit. This is particularly useful for streamlining your workflow when you want to commit and push in a single command.
+
+### Usage
+
+**Push to origin (default):**
+```bash
+kodrdriv commit --sendit --push
+```
+
+**Push to a specific remote:**
+```bash
+kodrdriv commit --sendit --push upstream
+kodrdriv commit --sendit --push origin
+```
+
+**Interactive mode with push:**
+```bash
+kodrdriv commit --interactive --sendit --push
+```
+
+**Dry run to see what would happen:**
+```bash
+kodrdriv commit --sendit --push --dry-run
+```
+
+### Configuration File Support
+
+You can configure the push option in your `.kodrdriv/config.yaml` file:
+
+```yaml
+commit:
+  sendit: true
+  push: true  # Push to origin (default)
+```
+
+Or specify a custom remote:
+
+```yaml
+commit:
+  sendit: true
+  push: "upstream"  # Push to upstream remote
+```
+
+### Behavior
+
+- **Requires `--sendit`**: The `--push` option only works when `--sendit` is enabled (since it needs to actually commit first)
+- **Automatic execution**: Push happens automatically after a successful commit
+- **Error handling**: If the push fails, the command will exit with an error message
+- **Dry run support**: Shows what push command would be executed without actually running it
+- **Remote validation**: Uses the specified remote or defaults to `origin`
+
+### Examples
+
+```bash
+# Quick commit and push to origin
+kodrdriv commit --sendit --push
+
+# Commit and push to upstream
+kodrdriv commit --sendit --push upstream
+
+# Interactive commit with push
+kodrdriv commit --interactive --sendit --push
+
+# See what would happen (dry run)
+kodrdriv commit --sendit --push --dry-run
+```
 
 ## Working with Excluded Files
 
@@ -279,7 +348,7 @@ When no regular changes are detected, KodrDriv checks for changes to critical fi
 
 **Default Mode (Interactive)**:
 - If only excluded files changed, suggests command-line options to include them
-- Provides helpful guidance on using `--excluded-paths` or `--sendit`
+- Provides helpful guidance on using `--exclude` or `--sendit`
 
 **SendIt Mode (`--sendit`)**:
 - Automatically includes critical files when no other changes are detected
@@ -325,10 +394,19 @@ git add src/auth.ts
 kodrdriv commit --cached --interactive --direction "Focus on authentication improvements" --context "Part of security improvements"
 
 # Limit commit history context
-kodrdriv commit --message-limit 5 "quick fix"
+kodrdriv commit "quick fix"
 
 # Amend last commit with new direction
 kodrdriv commit --amend --direction "Fix the commit message to be more descriptive and follow conventional commits"
+
+# Quick commit and push to origin
+kodrdriv commit --sendit --push
+
+# Commit and push to specific remote
+kodrdriv commit --sendit --push upstream
+
+# Interactive commit with push
+kodrdriv commit --interactive --sendit --push
 ```
 
 ### GitHub Issues Integration Examples
@@ -396,7 +474,7 @@ When using `--interactive`, you'll see the generated commit message and can choo
 kodrdriv commit
 # Output: No changes found with current exclusion patterns, but detected changes to critical files: package-lock.json
 # Output: Consider including these files by using:
-# Output:   kodrdriv commit --excluded-paths "node_modules" "dist" "*.log"
+# Output:   kodrdriv commit --exclude "node_modules" "dist" "*.log"
 # Output: Or run with --sendit to automatically include critical files.
 
 # Auto-commit dependency updates with --sendit
@@ -409,7 +487,7 @@ kodrdriv commit --dry-run
 # Generates commit message template even when only excluded files changed
 
 # Manually include specific excluded files
-kodrdriv commit --excluded-paths "node_modules" "dist"
+kodrdriv commit --exclude "node_modules" "dist"
 # Includes package-lock.json and other critical files while still excluding build artifacts
 
 # Combine with add flag for dependency updates

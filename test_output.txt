@@ -1,0 +1,161 @@
+
+> @eldrforge/kodrdriv@1.2.3-dev.0 test
+> vitest run --coverage tests/commands/tree.test.ts
+
+
+ RUN  v3.2.4 /Users/tobrien/gitw/calenvarek/kodrdriv
+      Coverage enabled with v8
+
+ ❯ tests/commands/tree.test.ts (60 tests | 6 failed) 57ms
+   ✓ tree > execute > should handle empty directory with no package.json files 3ms
+   ✓ tree > execute > should scan and build dependency graph for simple packages 1ms
+   ✓ tree > execute > should handle circular dependencies 1ms
+   ✓ tree > execute > should exclude packages based on patterns 1ms
+   ✓ tree > execute > should start from specified package 1ms
+   ✓ tree > execute > should throw error for invalid startFrom package 0ms
+   ✓ tree > execute > should stop at specified package 0ms
+   ✓ tree > execute > should stop at specified package with multiple dependencies 1ms
+   ✓ tree > execute > should combine startFrom and stopAt options 0ms
+   ✓ tree > execute > should throw error for invalid stopAt package 0ms
+   ✓ tree > execute > should execute command in dry run mode 1ms
+   ✓ tree > execute > should execute command in packages 1ms
+   ✓ tree > execute > should handle command execution failure and provide recovery command 1ms
+   ✓ tree > execute > should handle package.json without name field 1ms
+   ✓ tree > execute > should handle invalid JSON in package.json 1ms
+   ✓ tree > execute > should handle file system errors during scanning 0ms
+   ✓ tree > execute > should use custom directories from config 0ms
+   ✓ tree > execute > should return build order without executing command when no cmd provided 1ms
+   ✓ tree > execute > should collect all dependency types 1ms
+   ✓ tree > error formatting and handling > should format command errors with stderr and stdout 1ms
+   ✓ tree > error formatting and handling > should format simple errors without stderr/stdout 1ms
+   ✓ tree > error formatting and handling > should restore working directory after command failure 1ms
+   ✓ tree > error formatting and handling > should handle packages with no version field 1ms
+   ✓ tree > complex dependency scenarios > should handle deep dependency chains 1ms
+   ✓ tree > complex dependency scenarios > should handle diamond dependency pattern 1ms
+   ✓ tree > complex dependency scenarios > should handle multiple independent packages 1ms
+   ✓ tree > complex dependency scenarios > should handle mixed dependency types 1ms
+   ✓ tree > inter-project dependency updates for tree publish > should handle dry run for inter-project dependency updates 1ms
+   ✓ tree > continue functionality and execution context > should handle missing execution context gracefully 1ms
+   × tree > continue functionality and execution context > should save execution context for publish commands 6ms
+     → Failed to analyze workspace: Command failed in package package-a
+   × tree > continue functionality and execution context > should cleanup context on successful completion 1ms
+     → Failed to analyze workspace: Command failed in package package-a
+   ✓ tree > built-in command execution > should execute commit command across packages 1ms
+   ✓ tree > built-in command execution > should execute link command with package argument 1ms
+   ✓ tree > built-in command execution > should execute unlink command with clean-node-modules option 1ms
+   × tree > built-in command execution > should propagate global options to built-in commands 2ms
+     → expected "spy" to be called at least once
+   ✓ tree > built-in command execution > should handle link status subcommand 1ms
+   ✓ tree > built-in command execution > should handle unlink status subcommand 1ms
+   ✓ tree > built-in command execution > should throw error for unsupported built-in command 1ms
+   × tree > inter-project dependency updates > should update inter-project dependencies before publish 1ms
+     → Failed to analyze workspace: Command failed in package package-a
+   × tree > inter-project dependency updates > should commit dependency updates before publish 1ms
+     → Failed to analyze workspace: Command failed in package package-a
+   ✓ tree > error handling edge cases > should handle working directory restoration failure 2ms
+   × tree > error handling edge cases > should handle storage errors during context operations 1ms
+     → Failed to analyze workspace: Command failed in package package-a
+   ✓ tree > error handling edge cases > should handle invalid execution context data 1ms
+   ✓ tree > multiple directory scenarios > should handle empty directories gracefully 1ms
+   ✓ tree > multiple directory scenarios > should handle mixed directory scenarios 1ms
+   ✓ tree > exclusion pattern edge cases > should handle complex glob patterns 1ms
+   ✓ tree > exclusion pattern edge cases > should handle exclusion patterns with special characters 1ms
+   ✓ tree > package logger functionality > should create package-specific loggers with correct prefixes 1ms
+   ✓ tree > package logger functionality > should handle dry run logging correctly 1ms
+   ✓ tree > branches command advanced features > should handle packages with consumers and link problems 1ms
+   ✓ tree > branches command advanced features > should handle ANSI color support detection 1ms
+   ✓ tree > verbose and debug logging modes > should provide detailed logging in verbose mode 1ms
+   ✓ tree > additional tree functionality > should handle exclusion patterns correctly 1ms
+   ✓ tree > additional tree functionality > should handle multiple directories scanning 1ms
+   ✓ tree > additional tree functionality > should show appropriate logging levels for command execution 1ms
+   ✓ tree > branches command > should display branch status table for all packages 1ms
+   ✓ tree > branches command > should handle git errors gracefully in branches command 1ms
+   ✓ tree > branches command > should format table columns correctly with varying lengths 1ms
+   ✓ tree > branches command > should not execute other commands when branches is specified 1ms
+   ✓ tree > branches command > should display asterisk for packages with linked dependencies 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/commands/tree.test.ts > tree > continue functionality and execution context > should save execution context for publish commands
+Error: Failed to analyze workspace: Command failed in package package-a
+ ❯ Module.execute src/commands/tree.ts:1648:15
+    1646|         const errorMessage = `Failed to analyze workspace: ${error.mes…
+    1647|         logger.error(errorMessage);
+    1648|         throw new Error(errorMessage);
+       |               ^
+    1649|     } finally {
+    1650|         // Clean up mutex resources to prevent memory leaks
+ ❯ tests/commands/tree.test.ts:968:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/commands/tree.test.ts > tree > continue functionality and execution context > should cleanup context on successful completion
+Error: Failed to analyze workspace: Command failed in package package-a
+ ❯ Module.execute src/commands/tree.ts:1648:15
+    1646|         const errorMessage = `Failed to analyze workspace: ${error.mes…
+    1647|         logger.error(errorMessage);
+    1648|         throw new Error(errorMessage);
+       |               ^
+    1649|     } finally {
+    1650|         // Clean up mutex resources to prevent memory leaks
+ ❯ tests/commands/tree.test.ts:993:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/commands/tree.test.ts > tree > built-in command execution > should propagate global options to built-in commands
+AssertionError: expected "spy" to be called at least once
+ ❯ tests/commands/tree.test.ts:1105:37
+    1103| 
+    1104|             // Verify the command was executed (basic check)
+    1105|             expect(mockExecPromise).toHaveBeenCalled();
+       |                                     ^
+    1106|         });
+    1107| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/commands/tree.test.ts > tree > inter-project dependency updates > should update inter-project dependencies before publish
+Error: Failed to analyze workspace: Command failed in package package-a
+ ❯ Module.execute src/commands/tree.ts:1648:15
+    1646|         const errorMessage = `Failed to analyze workspace: ${error.mes…
+    1647|         logger.error(errorMessage);
+    1648|         throw new Error(errorMessage);
+       |               ^
+    1649|     } finally {
+    1650|         // Clean up mutex resources to prevent memory leaks
+ ❯ tests/commands/tree.test.ts:1186:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  tests/commands/tree.test.ts > tree > inter-project dependency updates > should commit dependency updates before publish
+Error: Failed to analyze workspace: Command failed in package package-a
+ ❯ Module.execute src/commands/tree.ts:1648:15
+    1646|         const errorMessage = `Failed to analyze workspace: ${error.mes…
+    1647|         logger.error(errorMessage);
+    1648|         throw new Error(errorMessage);
+       |               ^
+    1649|     } finally {
+    1650|         // Clean up mutex resources to prevent memory leaks
+ ❯ tests/commands/tree.test.ts:1206:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  tests/commands/tree.test.ts > tree > error handling edge cases > should handle storage errors during context operations
+Error: Failed to analyze workspace: Command failed in package package-a
+ ❯ Module.execute src/commands/tree.ts:1648:15
+    1646|         const errorMessage = `Failed to analyze workspace: ${error.mes…
+    1647|         logger.error(errorMessage);
+    1648|         throw new Error(errorMessage);
+       |               ^
+    1649|     } finally {
+    1650|         // Clean up mutex resources to prevent memory leaks
+ ❯ tests/commands/tree.test.ts:1253:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 54 passed (60)
+   Start at  10:00:29
+   Duration  500ms (transform 80ms, setup 0ms, collect 97ms, tests 57ms, environment 0ms, prepare 35ms)
+
