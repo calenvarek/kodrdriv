@@ -50,8 +50,7 @@ kodrdriv tree unlink
 # With clean installation for all packages
 kodrdriv tree unlink --clean-node-modules
 
-# Execute with parallel processing by dependency level
-kodrdriv tree unlink --parallel
+
 
 # Dry run to preview what would be unlinked
 kodrdriv tree unlink --dry-run
@@ -60,7 +59,7 @@ kodrdriv tree unlink --dry-run
 kodrdriv tree unlink --start-from my-package
 
 # Exclude certain packages from unlinking
-kodrdriv tree unlink --excluded-patterns "build-*" "temp-*"
+kodrdriv tree unlink --exclude "build-*" "temp-*"
 ```
 
 ### Tree Mode Benefits
@@ -68,7 +67,7 @@ kodrdriv tree unlink --excluded-patterns "build-*" "temp-*"
 - **Dependency Order**: Unlinks packages in the correct dependency order
 - **Workspace-wide Cleanup**: Automatically discovers and unlinks all workspace packages
 - **Consistent Release Environment**: Ensures all packages are properly prepared for CI/CD
-- **Parallel Execution**: Packages at the same dependency level can be unlinked simultaneously
+
 - **Error Recovery**: Resume from failed packages without affecting completed ones
 
 ### Tree Mode vs Single Package

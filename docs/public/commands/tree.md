@@ -27,15 +27,15 @@ Execute any shell command across all packages:
 ```bash
 kodrdriv tree --cmd "npm install"
 kodrdriv tree --cmd "git status"
-kodrdriv tree --cmd "npm run build" --parallel
+kodrdriv tree --cmd "npm run build"
 ```
 
 ### Built-in Command Mode
 Execute kodrdriv commands with configuration isolation:
 ```bash
-kodrdriv tree commit --parallel
+kodrdriv tree commit
 kodrdriv tree publish --start-from my-package
-kodrdriv tree link --excluded-patterns "test-*"
+kodrdriv tree link --exclude "test-*"
 kodrdriv tree unlink --dry-run
 ```
 
@@ -61,7 +61,7 @@ For detailed documentation of built-in commands, see [Tree Built-in Commands](tr
 - **Circular Dependency Detection**: Identifies and reports circular dependencies between packages
 - **Resume Capability**: Can resume from a specific package if a previous run failed
 - **Flexible Command Execution**: Execute any shell command across all packages
-- **Parallel Execution**: Execute packages in parallel when dependencies allow, significantly speeding up operations
+
 - **Pattern Exclusion**: Exclude specific packages or directories from processing
 - **Dry Run Mode**: Preview the build order and execution plan without making changes
 
@@ -72,13 +72,32 @@ For detailed documentation of built-in commands, see [Tree Built-in Commands](tr
 - `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
 - `--stop-at <stopAt>`: Stop execution before this package directory name (the specified package will not be executed)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
-- `--parallel`: Execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)
-- `--excluded-patterns [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
+
+- `--exclude [excludedPatterns...]`: Patterns to exclude packages from processing. **Note**: These patterns match against directory paths and file paths, not package names from package.json files. Examples: `"**/node_modules/**"`, `"dist/*"`, `"test-*"`, `"packages/legacy"`
 
 > [!NOTE]
 > ### Command Priority
 >
 > If both a built-in command and `--cmd` are specified, the built-in command takes precedence and `--cmd` is ignored.
+
+> [!IMPORTANT]
+> ### How Exclude Patterns Work
+>
+> The `--exclude` option uses glob patterns that match against:
+> - **Directory paths**: The full path to directories containing package.json files
+> - **File paths**: The complete path to package.json files themselves
+> - **Relative paths**: Paths relative to your current working directory
+>
+> **What they DON'T match**: Package names from the `name` field in package.json files
+>
+> **Examples**:
+> - `"**/node_modules/**"` → Excludes any package.json in node_modules directories
+> - `"dist/*"` → Excludes package.json files in dist subdirectories
+> - `"test-*"` → Excludes package.json files in directories starting with "test-"
+> - `"packages/legacy"` → Excludes the specific "legacy" package directory
+> - `"**/examples/**"` → Excludes any package.json in examples directories
+>
+> If you need to exclude based on package names, use path patterns that match where those packages are located in your directory structure.
 
 ## Multi-Directory Dependency Analysis
 
@@ -130,7 +149,7 @@ kodrdriv tree --directories ./client-apps ./shared-libs --cmd "npm install"
 
 #### Build Dependencies in Correct Order Across Trees
 ```bash
-kodrdriv tree --directories ./main-app ./oss-modules --cmd "npm run build" --parallel
+kodrdriv tree --directories ./main-app ./oss-modules --cmd "npm run build"
 ```
 
 #### Custom Directory Structures
@@ -163,7 +182,7 @@ Execute kodrdriv commands across all packages in dependency order:
 kodrdriv tree commit
 
 # Publish all packages in dependency order
-kodrdriv tree publish --parallel
+kodrdriv tree publish
 
 # Link all workspace packages for development
 kodrdriv tree link
@@ -184,18 +203,7 @@ kodrdriv tree --cmd "npm install"
 kodrdriv tree --cmd "npm test"
 ```
 
-### Parallel Execution
 
-Speed up operations by running independent packages in parallel:
-
-```bash
-# Parallel built-in commands
-kodrdriv tree commit --parallel
-kodrdriv tree publish --parallel
-
-# Parallel custom commands
-kodrdriv tree --cmd "npm run build" --parallel
-```
 
 ### Resume from Failed Package
 
@@ -243,7 +251,7 @@ kodrdriv tree branches
 kodrdriv tree branches --directories ./apps ./packages
 
 # Check branch status with exclusions
-kodrdriv tree branches --excluded-patterns "temp-*" "test-*"
+kodrdriv tree branches --exclude "temp-*" "test-*"
 ```
 
 The `branches` command provides a comprehensive overview of:
@@ -271,7 +279,7 @@ kodrdriv tree --directories /path/to/main-workspace /path/to/shared-libs --cmd "
 Skip certain packages from processing:
 
 ```bash
-kodrdriv tree --cmd "npm run lint" --excluded-patterns "test-*" "internal-*"
+kodrdriv tree --cmd "npm run lint" --exclude "test-*" "internal-*"
 ```
 
 ### Dry Run
@@ -297,8 +305,8 @@ kodrdriv tree
 # Install dependencies in all packages
 kodrdriv tree --cmd "npm install"
 
-# Install and build everything in parallel
-kodrdriv tree --cmd "npm install && npm run build" --parallel
+# Install and build everything
+kodrdriv tree --cmd "npm install && npm run build"
 ```
 
 ### Code Quality
@@ -329,19 +337,10 @@ kodrdriv tree --cmd "npm install"
 kodrdriv link
 
 # Build everything after linking
-kodrdriv tree --cmd "npm run build" --parallel
+kodrdriv tree --cmd "npm run build"
 ```
 
-## Understanding Dependency Levels
 
-When using `--parallel`, the command groups packages into dependency levels:
-
-- **Level 1**: Packages with no local dependencies (can run immediately)
-- **Level 2**: Packages that only depend on Level 1 packages
-- **Level 3**: Packages that depend on Level 1 and/or Level 2 packages
-- And so on...
-
-Packages within the same level can execute in parallel, while levels execute sequentially.
 
 ## Error Handling and Recovery
 
@@ -382,7 +381,7 @@ kodrdriv tree --cmd "npm install"
 kodrdriv tree link
 
 # 3. Build all packages
-kodrdriv tree --cmd "npm run build" --parallel
+kodrdriv tree --cmd "npm run build"
 
 # 4. Run tests
 kodrdriv tree --cmd "npm test"
@@ -398,10 +397,10 @@ The `tree` command is now the central hub for all dependency-aware operations ac
 
 ## Performance Tips
 
-1. **Use Parallel Execution**: Add `--parallel` for commands that can run independently
-2. **Exclude Unnecessary Packages**: Use `--excluded-patterns` to skip packages that don't need processing
-3. **Resume from Failures**: Use `--start-from` instead of restarting from the beginning
-4. **Combine Operations**: Use shell operators to combine multiple commands: `"npm install && npm run build"`
+1. **Exclude Unnecessary Packages**: Use `--exclude` to skip packages that don't need processing
+2. **Resume from Failures**: Use `--start-from` instead of restarting from the beginning
+3. **Combine Operations**: Use shell operators to combine multiple commands: `"npm install && npm run build"`
+
 
 ## Output Format
 
@@ -440,16 +439,11 @@ Build Order for 5 packages:
    Path: /path/to/workspace/app
    Local Dependencies: api, ui
 
-Executing command "npm install" in 5 packages (with parallel execution)...
-Level 1: Executing utils...
+Executing command "npm install" in 5 packages...
 [1/5] utils: ✅ Execution completed successfully
-Level 2: Executing core...
 [2/5] core: ✅ Execution completed successfully
-Level 3: Executing 2 packages in parallel: api, ui...
 [3/5] api: ✅ Execution completed successfully
 [4/5] ui: ✅ Execution completed successfully
-✅ Level 3 completed: all 2 packages finished successfully
-Level 4: Executing app...
 [5/5] app: ✅ Execution completed successfully
 
 All 5 packages completed successfully! 🎉

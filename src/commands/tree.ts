@@ -41,6 +41,8 @@ import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { getOutputPath } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Commit from './commit';
+import * as Link from './link';
+import * as Unlink from './unlink';
 import { getGitStatusSummary, getGloballyLinkedPackages, getLinkedDependencies, getLinkCompatibilityProblems } from '../util/git';
 
 // Track published versions during tree publish
@@ -637,69 +639,7 @@ const topologicalSort = (graph: DependencyGraph): string[] => {
     return result;
 };
 
-// Group packages into dependency levels for parallel execution
-const groupPackagesByDependencyLevels = (graph: DependencyGraph, buildOrder: string[], runConfig?: Config): string[][] => {
-    const logger = getLogger();
-    const { edges } = graph;
-    const levels: string[][] = [];
-    const packageLevels = new Map<string, number>();
 
-    // Calculate the dependency level for each package
-    const calculateLevel = (packageName: string): number => {
-        if (packageLevels.has(packageName)) {
-            return packageLevels.get(packageName)!;
-        }
-
-        const deps = edges.get(packageName) || new Set();
-        if (deps.size === 0) {
-            // No dependencies - this is level 0
-            packageLevels.set(packageName, 0);
-            if (runConfig?.debug) {
-                logger.debug(`${packageName}: Level 0 (no local dependencies)`);
-            }
-            return 0;
-        }
-
-        // Level is 1 + max level of dependencies
-        let maxDepLevel = -1;
-        for (const dep of deps) {
-            const depLevel = calculateLevel(dep);
-            maxDepLevel = Math.max(maxDepLevel, depLevel);
-        }
-
-        const level = maxDepLevel + 1;
-        packageLevels.set(packageName, level);
-        if (runConfig?.debug) {
-            const depsList = Array.from(deps).join(', ');
-            logger.debug(`${packageName}: Level ${level} (depends on: ${depsList})`);
-        }
-        return level;
-    };
-
-    // Calculate levels for all packages
-    for (const packageName of buildOrder) {
-        calculateLevel(packageName);
-    }
-
-    // Group packages by their levels
-    for (const packageName of buildOrder) {
-        const level = packageLevels.get(packageName)!;
-        while (levels.length <= level) {
-            levels.push([]);
-        }
-        levels[level].push(packageName);
-    }
-
-    // Only show grouping info if verbose or debug mode is enabled
-    if (runConfig?.verbose || runConfig?.debug) {
-        logger.verbose(`Packages grouped into ${levels.length} dependency levels for parallel execution`);
-        for (let i = 0; i < levels.length; i++) {
-            logger.verbose(`  Level ${i}: ${levels[i].join(', ')}`);
-        }
-    }
-
-    return levels;
-};
 
 // Execute a single package and return execution result
 const executePackage = async (
@@ -737,7 +677,7 @@ const executePackage = async (
     }
 
     try {
-        if (isDryRun) {
+        if (isDryRun && !isBuiltInCommand) {
             // Handle inter-project dependency updates for publish commands in dry run mode
             if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
                 let mutexLocked = false;
@@ -782,8 +722,8 @@ const executePackage = async (
                     packageLogger.debug(`Changed to directory: ${packageDir}`);
                 }
 
-                // Handle inter-project dependency updates for publish commands before executing
-                if (isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
+                // Handle inter-project dependency updates for publish commands before executing (skip during dry run)
+                if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
                     packageLogger.info('Updating inter-project dependencies based on previously published packages...');
                     const hasUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
 
@@ -816,15 +756,19 @@ const executePackage = async (
                     if (runConfig.debug) {
                         packageLogger.debug(`Shelling out to separate kodrdriv process for ${builtInCommandName} command`);
                     }
+                    // Ensure dry-run propagates to subprocess even during overall dry-run mode
+                    const effectiveCommand = runConfig.dryRun && !commandToRun.includes('--dry-run')
+                        ? `${commandToRun} --dry-run`
+                        : commandToRun;
                     // Use runWithLogging for built-in commands to capture all output
-                    await runWithLogging(commandToRun, packageLogger, {}, showOutput);
+                    await runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
                 } else {
                     // For custom commands, use the existing logic
                     await runWithLogging(commandToRun, packageLogger, {}, showOutput);
                 }
 
-                // Track published version after successful publish
-                if (isBuiltInCommand && commandToRun.includes('publish')) {
+                // Track published version after successful publish (skip during dry run)
+                if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish')) {
                     const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
                     if (publishedVersion) {
                         let mutexLocked = false;
@@ -933,17 +877,63 @@ export const execute = async (runConfig: Config): Promise<string> => {
     }
 
     // Determine the target directories - either specified or current working directory
-    const targetDirectories = runConfig.tree?.directories || [process.cwd()];
+    const directories = runConfig.tree?.directories || [process.cwd()];
 
-    if (targetDirectories.length === 1) {
-        logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Analyzing workspace at: ${targetDirectories[0]}`);
+    // Handle link status subcommand
+    if (builtInCommand === 'link' && runConfig.tree?.packageArgument === 'status') {
+        // For tree link status, we want to show status across all packages
+        logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Running link status across workspace...`);
+
+        // Create a config that will be passed to the link command
+        const linkConfig: Config = {
+            ...runConfig,
+            tree: {
+                ...runConfig.tree,
+                directories: directories
+            }
+        };
+
+        try {
+            const result = await Link.execute(linkConfig, 'status');
+            return result;
+        } catch (error: any) {
+            logger.error(`Link status failed: ${error.message}`);
+            throw error;
+        }
+    }
+
+    // Handle unlink status subcommand
+    if (builtInCommand === 'unlink' && runConfig.tree?.packageArgument === 'status') {
+        // For tree unlink status, we want to show status across all packages
+        logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Running unlink status across workspace...`);
+
+        // Create a config that will be passed to the unlink command
+        const unlinkConfig: Config = {
+            ...runConfig,
+            tree: {
+                ...runConfig.tree,
+                directories: directories
+            }
+        };
+
+        try {
+            const result = await Unlink.execute(unlinkConfig, 'status');
+            return result;
+        } catch (error: any) {
+            logger.error(`Unlink status failed: ${error.message}`);
+            throw error;
+        }
+    }
+
+    if (directories.length === 1) {
+        logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Analyzing workspace at: ${directories[0]}`);
     } else {
-        logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Analyzing workspaces at: ${targetDirectories.join(', ')}`);
+        logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Analyzing workspaces at: ${directories.join(', ')}`);
     }
 
     try {
         // Get exclusion patterns from config, fallback to empty array
-        const excludedPatterns = runConfig.tree?.excludedPatterns || [];
+        const excludedPatterns = runConfig.tree?.exclude || [];
 
         if (excludedPatterns.length > 0) {
             logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Using exclusion patterns: ${excludedPatterns.join(', ')}`);
@@ -953,7 +943,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Scanning for package.json files...`);
         let allPackageJsonPaths: string[] = [];
 
-        for (const targetDirectory of targetDirectories) {
+        for (const targetDirectory of directories) {
             logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Scanning directory: ${targetDirectory}`);
             const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, excludedPatterns);
             allPackageJsonPaths = allPackageJsonPaths.concat(packageJsonPaths);
@@ -962,7 +952,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         const packageJsonPaths = allPackageJsonPaths;
 
         if (packageJsonPaths.length === 0) {
-            const directoriesStr = targetDirectories.join(', ');
+            const directoriesStr = directories.join(', ');
             const message = `No package.json files found in subdirectories of: ${directoriesStr}`;
             logger.warn(message);
             return message;
@@ -993,7 +983,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (startIndex === -1) {
                 // Check if the package exists but was excluded across all directories
                 let allPackageJsonPathsForCheck: string[] = [];
-                for (const targetDirectory of targetDirectories) {
+                for (const targetDirectory of directories) {
                     const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, []); // No exclusions
                     allPackageJsonPathsForCheck = allPackageJsonPathsForCheck.concat(packageJsonPaths);
                 }
@@ -1053,7 +1043,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (stopIndex === -1) {
                 // Check if the package exists but was excluded across all directories
                 let allPackageJsonPathsForCheck: string[] = [];
-                for (const targetDirectory of targetDirectories) {
+                for (const targetDirectory of directories) {
                     const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, []); // No exclusions
                     allPackageJsonPathsForCheck = allPackageJsonPathsForCheck.concat(packageJsonPaths);
                 }
@@ -1493,7 +1483,6 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         // Execute command if provided (custom command or built-in command)
         const cmd = runConfig.tree?.cmd;
-        const useParallel = runConfig.tree?.parallel || false;
 
         // Determine command to execute
         let commandToRun: string | undefined;
@@ -1530,6 +1519,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
             if (builtInCommand === 'unlink' && runConfig.tree?.cleanNodeModules) {
                 commandSpecificOptions += ' --clean-node-modules';
             }
+            if ((builtInCommand === 'link' || builtInCommand === 'unlink') && runConfig.tree?.externals && runConfig.tree.externals.length > 0) {
+                commandSpecificOptions += ` --externals ${runConfig.tree.externals.join(' ')}`;
+            }
 
             commandToRun = `kodrdriv ${builtInCommand}${optionsString}${packageArgString}${commandSpecificOptions}`;
             isBuiltInCommand = true;
@@ -1563,8 +1555,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Add spacing before command execution
             logger.info('');
             const executionDescription = isBuiltInCommand ? `built-in command "${builtInCommand}"` : `"${commandToRun}"`;
-            const parallelInfo = useParallel ? ' (with parallel execution)' : '';
-            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${executionDescription} in ${buildOrder.length} packages${parallelInfo}...`);
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${executionDescription} in ${buildOrder.length} packages...`);
 
             // Show info for publish commands
             if (isBuiltInCommand && builtInCommand === 'publish') {
@@ -1577,220 +1568,66 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // If continuing, start from where we left off
             const startIndex = isContinue && executionContext ? executionContext.completedPackages.length : 0;
 
-            if (useParallel) {
-                // Parallel execution: group packages by dependency levels
-                const dependencyLevels = groupPackagesByDependencyLevels(dependencyGraph, buildOrder, runConfig);
+            // Sequential execution
+            for (let i = startIndex; i < buildOrder.length; i++) {
+                const packageName = buildOrder[i];
 
-                if (runConfig.debug) {
-                    logger.debug(`Parallel execution strategy: ${dependencyLevels.length} dependency levels identified`);
-                    for (let i = 0; i < dependencyLevels.length; i++) {
-                        const level = dependencyLevels[i];
-                        logger.debug(`  Level ${i + 1}: ${level.join(', ')} ${level.length > 1 ? '(parallel)' : '(sequential)'}`);
-                    }
+                // Skip if already completed (in continue mode)
+                if (executionContext && executionContext.completedPackages.includes(packageName)) {
+                    successCount++;
+                    continue;
                 }
 
-                for (let levelIndex = 0; levelIndex < dependencyLevels.length; levelIndex++) {
-                    const currentLevel = dependencyLevels[levelIndex];
+                const packageInfo = dependencyGraph.packages.get(packageName)!;
+                const packageLogger = createPackageLogger(packageName, i + 1, buildOrder.length, isDryRun);
 
-                    if (runConfig.debug) {
-                        if (currentLevel.length === 1) {
-                            const packageName = currentLevel[0];
-                            logger.debug(`Starting Level ${levelIndex + 1}: ${packageName} (no dependencies within this level)`);
+                const result = await executePackage(
+                    packageName,
+                    packageInfo,
+                    commandToRun!,
+                    runConfig,
+                    isDryRun,
+                    i,
+                    buildOrder.length,
+                    allPackageNames,
+                    isBuiltInCommand
+                );
+
+                if (result.success) {
+                    successCount++;
+
+                    // Update context
+                    if (executionContext && isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                        executionContext.completedPackages.push(packageName);
+                        executionContext.publishedVersions = publishedVersions;
+                        executionContext.lastUpdateTime = new Date();
+                        await saveExecutionContext(executionContext, runConfig.outputDirectory);
+                    }
+
+                    // Add spacing between packages (except after the last one)
+                    if (i < buildOrder.length - 1) {
+                        logger.info('');
+                        logger.info('');
+                    }
+                } else {
+                    failedPackage = packageName;
+                    const formattedError = formatSubprojectError(packageName, result.error);
+
+                    if (!isDryRun) {
+                        packageLogger.error(`Execution failed`);
+                        logger.error(formattedError);
+                        logger.error(`Failed after ${successCount} successful packages.`);
+
+                        logger.error(`To resume from this point, run:`);
+                        if (isBuiltInCommand) {
+                            logger.error(`    kodrdriv tree ${builtInCommand} --continue`);
                         } else {
-                            logger.debug(`Starting Level ${levelIndex + 1}: ${currentLevel.length} packages can run in parallel`);
-                            logger.debug(`  Parallel packages: ${currentLevel.join(', ')}`);
+                            logger.error(`    kodrdriv tree --continue --cmd "${commandToRun}"`);
                         }
-                    } else if (runConfig.verbose) {
-                        if (currentLevel.length === 1) {
-                            const packageName = currentLevel[0];
-                            logger.verbose(`Level ${levelIndex + 1}: Executing ${packageName}...`);
-                        } else {
-                            logger.verbose(`Level ${levelIndex + 1}: Executing ${currentLevel.length} packages in parallel: ${currentLevel.join(', ')}...`);
-                        }
-                    } else {
-                        // Basic level info
-                        if (currentLevel.length === 1) {
-                            const packageName = currentLevel[0];
-                            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Level ${levelIndex + 1}: Executing ${packageName}...`);
-                        } else {
-                            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Level ${levelIndex + 1}: Executing ${currentLevel.length} packages in parallel: ${currentLevel.join(', ')}...`);
-                        }
+
+                        throw new Error(`Command failed in package ${packageName}`);
                     }
-
-                    // Execute all packages in this level in parallel
-                    const levelPromises = currentLevel.map((packageName) => {
-                        const packageInfo = dependencyGraph.packages.get(packageName)!;
-                        const globalIndex = buildOrder.indexOf(packageName);
-                        return executePackage(
-                            packageName,
-                            packageInfo,
-                            commandToRun!,
-                            runConfig,
-                            isDryRun,
-                            globalIndex,
-                            buildOrder.length,
-                            allPackageNames,
-                            isBuiltInCommand
-                        );
-                    });
-
-                    // Wait for all packages in this level to complete
-                    const results = await Promise.allSettled(levelPromises);
-
-                    // Check results and handle errors
-                    for (let i = 0; i < results.length; i++) {
-                        const result = results[i];
-                        const packageName = currentLevel[i];
-                        const globalIndex = buildOrder.indexOf(packageName);
-                        const packageLogger = createPackageLogger(packageName, globalIndex + 1, buildOrder.length, isDryRun);
-
-                        if (result.status === 'fulfilled') {
-                            if (result.value.success) {
-                                successCount++;
-                                // Add spacing between packages (except after the last one in the level)
-                                if (i < currentLevel.length - 1) {
-                                    logger.info('');
-                                    logger.info('');
-                                }
-                            } else {
-                                // Package failed
-                                failedPackage = packageName;
-                                const formattedError = formatSubprojectError(packageName, result.value.error);
-
-                                if (!isDryRun) {
-                                    packageLogger.error(`Execution failed`);
-                                    logger.error(formattedError);
-                                    logger.error(`Failed after ${successCount} successful packages.`);
-
-                                    const packageDir = dependencyGraph.packages.get(packageName)!.path;
-                                    const packageDirName = path.basename(packageDir);
-                                    logger.error(`To resume from this package, run:`);
-                                    if (isBuiltInCommand) {
-                                        logger.error(`    kodrdriv tree ${builtInCommand} --start-from ${packageDirName}`);
-                                    } else {
-                                        logger.error(`    kodrdriv tree --start-from ${packageDirName} --cmd "${commandToRun}"`);
-                                    }
-
-                                    throw new Error(`Command failed in package ${packageName}`);
-                                }
-                                break;
-                            }
-                        } else {
-                            // Promise was rejected
-                            failedPackage = packageName;
-
-                            if (!isDryRun) {
-                                packageLogger.error(`Unexpected error: ${result.reason}`);
-                                logger.error(`Failed after ${successCount} successful packages.`);
-
-                                const packageDir = dependencyGraph.packages.get(packageName)!.path;
-                                const packageDirName = path.basename(packageDir);
-                                logger.error(`To resume from this package, run:`);
-                                if (isBuiltInCommand) {
-                                    logger.error(`    kodrdriv tree ${builtInCommand} --start-from ${packageDirName}`);
-                                } else {
-                                    logger.error(`    kodrdriv tree --start-from ${packageDirName} --cmd "${commandToRun}"`);
-                                }
-
-                                throw new Error(`Unexpected error in package ${packageName}`);
-                            }
-                            break;
-                        }
-                    }
-
-                    // If any package failed, stop execution
-                    if (failedPackage) {
-                        break;
-                    }
-
-                    // Level completion logging
-                    if (runConfig.debug) {
-                        if (currentLevel.length > 1) {
-                            logger.debug(`✅ Level ${levelIndex + 1} completed: all ${currentLevel.length} packages finished successfully`);
-                            logger.debug(`  Completed packages: ${currentLevel.join(', ')}`);
-                        } else if (currentLevel.length === 1 && successCount > 0) {
-                            const packageName = currentLevel[0];
-                            logger.debug(`✅ Level ${levelIndex + 1} completed: ${packageName} finished successfully`);
-                        }
-                    } else if (runConfig.verbose) {
-                        if (currentLevel.length > 1) {
-                            logger.verbose(`✅ Level ${levelIndex + 1} completed: all ${currentLevel.length} packages finished successfully`);
-                        } else if (currentLevel.length === 1 && successCount > 0) {
-                            const packageName = currentLevel[0];
-                            logger.verbose(`✅ Level ${levelIndex + 1} completed: ${packageName} finished successfully`);
-                        }
-                    } else {
-                        // Basic completion info
-                        if (currentLevel.length > 1) {
-                            logger.info(`✅ Level ${levelIndex + 1} completed: all ${currentLevel.length} packages finished successfully`);
-                        } else if (currentLevel.length === 1 && successCount > 0) {
-                            const packageName = currentLevel[0];
-                            logger.info(`✅ Level ${levelIndex + 1} completed: ${packageName} finished successfully`);
-                        }
-                    }
-                }
-            } else {
-                // Sequential execution
-                for (let i = startIndex; i < buildOrder.length; i++) {
-                    const packageName = buildOrder[i];
-
-                    // Skip if already completed (in continue mode)
-                    if (executionContext && executionContext.completedPackages.includes(packageName)) {
-                        successCount++;
-                        continue;
-                    }
-
-                    const packageInfo = dependencyGraph.packages.get(packageName)!;
-                    const packageLogger = createPackageLogger(packageName, i + 1, buildOrder.length, isDryRun);
-
-                    const result = await executePackage(
-                        packageName,
-                        packageInfo,
-                        commandToRun!,
-                        runConfig,
-                        isDryRun,
-                        i,
-                        buildOrder.length,
-                        allPackageNames,
-                        isBuiltInCommand
-                    );
-
-                    if (result.success) {
-                        successCount++;
-
-                        // Update context
-                        if (executionContext && isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
-                            executionContext.completedPackages.push(packageName);
-                            executionContext.publishedVersions = publishedVersions;
-                            executionContext.lastUpdateTime = new Date();
-                            await saveExecutionContext(executionContext, runConfig.outputDirectory);
-                        }
-
-                        // Add spacing between packages (except after the last one)
-                        if (i < buildOrder.length - 1) {
-                            logger.info('');
-                            logger.info('');
-                        }
-                    } else {
-                        failedPackage = packageName;
-                        const formattedError = formatSubprojectError(packageName, result.error);
-
-                        if (!isDryRun) {
-                            packageLogger.error(`Execution failed`);
-                            logger.error(formattedError);
-                            logger.error(`Failed after ${successCount} successful packages.`);
-
-                            logger.error(`To resume from this point, run:`);
-                            if (isBuiltInCommand) {
-                                logger.error(`    kodrdriv tree ${builtInCommand} --continue`);
-                            } else {
-                                logger.error(`    kodrdriv tree --continue --cmd "${commandToRun}"`);
-                            }
-
-                            throw new Error(`Command failed in package ${packageName}`);
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
 
@@ -1814,7 +1651,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.error(errorMessage);
         throw new Error(errorMessage);
     } finally {
-        // Clean up mutex resources to prevent memory leaks
-        globalStateMutex.destroy();
+        // Intentionally preserve the mutex across executions to support multiple runs in the same process (e.g., test suite)
+        // Do not destroy here; the process lifecycle will clean up resources.
     }
 };

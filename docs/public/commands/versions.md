@@ -113,8 +113,7 @@ Would update dependencies.@utils/common: >=3.0.1 → >=3.0
 # Apply version normalization across entire workspace
 kodrdriv tree versions minor
 
-# Apply with parallel processing
-kodrdriv tree versions minor --parallel
+
 ```
 
 ## Configuration

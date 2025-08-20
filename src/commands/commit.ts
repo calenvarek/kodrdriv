@@ -217,6 +217,34 @@ const hasCommits = async (): Promise<boolean> => {
     }
 };
 
+// Helper function to push the commit
+const pushCommit = async (pushConfig: boolean | string | undefined, logger: any, isDryRun: boolean): Promise<void> => {
+    if (!pushConfig) {
+        return; // No push requested
+    }
+
+    // Determine the remote to push to
+    let remote = 'origin';
+    if (typeof pushConfig === 'string') {
+        remote = pushConfig;
+    }
+
+    const pushCommand = `git push ${remote}`;
+
+    if (isDryRun) {
+        logger.info('Would push to %s with: %s', remote, pushCommand);
+    } else {
+        logger.info('🚀 Pushing to %s...', remote);
+        try {
+            await run(pushCommand);
+            logger.info('✅ Push successful!');
+        } catch (error: any) {
+            logger.error('Failed to push to %s: %s', remote, error.message);
+            throw new ExternalDependencyError(`Failed to push to ${remote}`, 'git', error);
+        }
+    }
+};
+
 // Simplified cached determination with single check
 const determineCachedState = async (config: Config): Promise<boolean> => {
     // If amend is used, we use staged changes (since we're amending the last commit)
@@ -595,6 +623,9 @@ const executeInternal = async (runConfig: Config) => {
                     `git commit -m ${escapedSummary}`;
                 await run(commitCommand);
                 logger.info('✅ Commit successful!');
+
+                // Push if requested
+                await pushCommit(runConfig.commit?.push, logger, isDryRun);
             } catch (error: any) {
                 logger.error('Failed to commit:', error);
                 throw new ExternalDependencyError('Failed to create commit', 'git', error);
@@ -625,6 +656,12 @@ const executeInternal = async (runConfig: Config) => {
             logger.info('Would commit with message: \n\n%s\n\n', summary);
             const commitAction = runConfig.commit?.amend ? 'git commit --amend -m <generated-message>' : 'git commit -m <generated-message>';
             logger.info('Would execute: %s', commitAction);
+
+            // Show push command in dry run if requested
+            if (runConfig.commit?.push) {
+                const remote = typeof runConfig.commit.push === 'string' ? runConfig.commit.push : 'origin';
+                logger.info('Would push to %s with: git push %s', remote, remote);
+            }
         } else if (hasActualChanges && cached) {
             const commitAction = runConfig.commit?.amend ? 'amending commit' : 'committing';
             logger.info('SendIt mode enabled. %s with message: \n\n%s\n\n', commitAction.charAt(0).toUpperCase() + commitAction.slice(1), summary);
@@ -636,6 +673,9 @@ const executeInternal = async (runConfig: Config) => {
                     `git commit -m ${escapedSummary}`;
                 await run(commitCommand);
                 logger.info('Commit successful!');
+
+                // Push if requested
+                await pushCommit(runConfig.commit?.push, logger, isDryRun);
             } catch (error: any) {
                 logger.error('Failed to commit:', error);
                 throw new ExternalDependencyError('Failed to create commit', 'git', error);
@@ -663,8 +703,10 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         if (error instanceof ValidationError || error instanceof ExternalDependencyError || error instanceof CommandError) {
             standardLogger.error(`commit failed: ${error.message}`);
-            if (error.cause) {
-                standardLogger.debug(`Caused by: ${error.cause.message}`);
+            if (error.cause && typeof error.cause === 'object' && 'message' in error.cause) {
+                standardLogger.debug(`Caused by: ${(error.cause as Error).message}`);
+            } else if (error.cause) {
+                standardLogger.debug(`Caused by: ${error.cause}`);
             }
             throw error;
         }

@@ -18,6 +18,7 @@ export const ConfigSchema = z.object({
         sendit: z.boolean().optional(),
         interactive: z.boolean().optional(),
         amend: z.boolean().optional(),
+        push: z.union([z.boolean(), z.string()]).optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
         direction: z.string().optional(),
@@ -112,6 +113,7 @@ export const ConfigSchema = z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
         dryRun: z.boolean().optional(),
         packageArgument: z.string().optional(),
+        externals: z.array(z.string()).optional(),
     }).optional(),
     unlink: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
@@ -119,18 +121,19 @@ export const ConfigSchema = z.object({
         dryRun: z.boolean().optional(),
         cleanNodeModules: z.boolean().optional(),
         packageArgument: z.string().optional(),
+        externals: z.array(z.string()).optional(),
     }).optional(),
     tree: z.object({
         directories: z.array(z.string()).optional(),
-        excludedPatterns: z.array(z.string()).optional(),
+        exclude: z.array(z.string()).optional(),
         startFrom: z.string().optional(),
         stopAt: z.string().optional(),
         cmd: z.string().optional(),
-        parallel: z.boolean().optional(),
         builtInCommand: z.string().optional(),
         continue: z.boolean().optional(),
         packageArgument: z.string().optional(),
         cleanNodeModules: z.boolean().optional(),
+        externals: z.array(z.string()).optional(),
     }).optional(),
     development: z.object({
         targetVersion: z.string().optional(),
@@ -141,6 +144,7 @@ export const ConfigSchema = z.object({
         directories: z.array(z.string()).optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
+    traits: z.any().optional(), // Add traits property for cardigantime compatibility
 });
 
 export const SecureConfigSchema = z.object({
@@ -252,6 +256,7 @@ export type LinkConfig = {
     scopeRoots?: Record<string, string>;
     dryRun?: boolean;
     packageArgument?: string;
+    externalLinkPatterns?: string[];
 }
 
 export type UnlinkConfig = {
@@ -286,11 +291,12 @@ export type TreeConfig = {
     startFrom?: string;
     stopAt?: string;
     cmd?: string;
-    parallel?: boolean;
+
     builtInCommand?: string;
     continue?: boolean; // Continue from previous tree publish execution
     packageArgument?: string; // Package argument for link/unlink commands (e.g., "@fjell" or "@fjell/core")
     cleanNodeModules?: boolean; // For unlink command: remove node_modules and package-lock.json, then reinstall dependencies
+    externalLinkPatterns?: string[];
 }
 
 export type DevelopmentConfig = {

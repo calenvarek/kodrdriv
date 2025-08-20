@@ -126,7 +126,7 @@ function LandingPage() {
                         <a href="#workflow">Workflow</a>
                         <a href="#installation">Install</a>
                         <a href="/kodrdriv/story" className="nav-link-story">Story</a>
-                        <a href="/kodrdriv/installation" className="nav-link-docs">Docs</a>
+                        <a href="/kodrdriv/commands/" className="nav-link-docs">Docs</a>
                         <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer" className="nav-link-github">GitHub</a>
                     </div>
                 </div>
@@ -144,9 +144,9 @@ function LandingPage() {
                         <span className="gradient-text">Git workflows</span>
                     </h1>
                     <p className="hero-description">
-                        KodrDriv is a professional-grade tool that leverages advanced AI to automatically generate
+                        KodrDriv is a professional-grade tool designed specifically for npm projects that leverages advanced AI to automatically generate
                         intelligent commit messages, comprehensive release notes, and orchestrate complex Git workflows
-                        with enterprise-level precision.
+                        with enterprise-level precision. Built for collections of interconnected projects without requiring complicated workspace management approaches.
                     </p>
                     <div className="hero-actions">
                         <button className="btn-primary" onClick={() => document.getElementById('installation')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -232,8 +232,8 @@ function LandingPage() {
 
                         <div className="feature-card">
                             <div className="feature-icon">🏗️</div>
-                            <h3>Monorepo Ready</h3>
-                            <p>Built-in workspace dependency management and cross-package linking for complex project architectures.</p>
+                            <h3>Multi-Project Ready</h3>
+                            <p>Manage collections of interconnected npm projects without complex workspace management. Simple dependency linking and cross-project workflows.</p>
                         </div>
                     </div>
                 </div>
@@ -243,7 +243,7 @@ function LandingPage() {
             <section id="workflow" className="workflow">
                 <div className="section-content">
                     <div className="section-header">
-                        <h2>How developers automate Git</h2>
+                        <h2>How npm developers automate Git</h2>
                         <p>From chaos to clarity in three steps</p>
                     </div>
 
@@ -378,8 +378,8 @@ function LandingPage() {
                 <div className="section-content">
                     <div className="installation-content">
                         <div className="installation-text">
-                            <h2>Start automating in 30 seconds</h2>
-                            <p>Install globally and configure for your workflow</p>
+                            <h2>Start automating npm workflows in 30 seconds</h2>
+                            <p>Install globally and configure for your npm project workflow</p>
                             <div className="install-steps">
                                 <div className="install-step">
                                     <span className="step-num">1</span>
