@@ -222,15 +222,8 @@ describe('Application module', () => {
             expect(Cardigantime.create).toHaveBeenCalledWith({
                 defaults: {
                     configDirectory: '.kodrdriv',
-                    pathResolution: {
-                        resolvePathArray: ['contextDirectories']
-                    },
-                    fieldOverlaps: {
-                        'contextDirectories': 'prepend'
-                    }
                 },
                 features: ['config', 'hierarchical'],
-                configShape: {},
                 logger: mockLogger
             });
         });
@@ -662,7 +655,7 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(runConfig.tree?.excludedPatterns).toEqual(['*.test.ts', '*.spec.ts']);
+            expect(runConfig.tree?.exclude).toEqual(['*.test.ts', '*.spec.ts']);
             expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
         });
 
@@ -841,7 +834,7 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree).toBeDefined();
-            expect(runConfig.tree.excludedPatterns).toEqual(['*.test.ts']);
+            expect(runConfig.tree.exclude).toEqual(['*.test.ts']);
             expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
         });
 

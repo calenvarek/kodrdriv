@@ -64,6 +64,8 @@ publish:
   unlinkWorkspacePackages: true
 commit:
   add: true
+  sendit: true
+  push: true  # Push to origin (default)
   messageLimit: 5
 release:
   from: main
@@ -78,6 +80,44 @@ excludedPatterns:
   - node_modules
   - dist
   - "*.log"
+```
+
+### Commit Configuration Options
+
+The `commit` section supports the following options:
+
+```yaml
+commit:
+  add: true                    # Add all changes before committing (git add -A)
+  sendit: true                 # Automatically commit without review
+  push: true                   # Push to origin after commit (default)
+  push: "upstream"             # Push to specific remote
+  interactive: false           # Enable interactive mode (overrides sendit)
+  amend: false                 # Amend last commit instead of creating new
+  messageLimit: 5              # Number of recent commits to include in context
+  context: "Project context"   # Additional context for commit messages
+  direction: "Focus on..."     # High-priority guidance for commit messages
+  skipFileCheck: false         # Skip file dependency safety checks
+  maxDiffBytes: 2048           # Maximum bytes per file in diff analysis
+```
+
+**Push Configuration Examples:**
+
+```yaml
+# Push to origin (default)
+commit:
+  sendit: true
+  push: true
+
+# Push to specific remote
+commit:
+  sendit: true
+  push: "upstream"
+
+# No push (default behavior)
+commit:
+  sendit: true
+  # push: not specified
 ```
 
 Configuration options set in the file can be overridden by command-line arguments. The precedence order is:
@@ -299,15 +339,15 @@ publish:
 
 Filter out specific files or directories from analysis:
 
-- `--excluded-paths [excludedPatterns...]`: Paths to exclude from the diff (can specify multiple patterns)
+- `--exclude [excludedPatterns...]`: Paths to exclude from the diff (can specify multiple patterns)
 
 Examples:
 ```bash
 # Exclude specific files or directories from diff analysis
-kodrdriv commit --excluded-paths "*.lock" "dist/" "node_modules/"
+kodrdriv commit --exclude "*.lock" "dist/" "node_modules/"
 
 # Exclude patterns from release notes
-kodrdriv release --excluded-paths "package-lock.json"
+kodrdriv release --exclude "package-lock.json"
 ```
 
 You can also configure excluded patterns in your configuration file:
@@ -319,6 +359,9 @@ excludedPatterns:
   - "*.log"
   - "*.lock"
 ```
+
+> [!NOTE]
+> **CLI vs Configuration Mapping**: The CLI argument `--exclude` maps to the `excludedPatterns` property in configuration files. This design allows you to use the more intuitive `--exclude` flag on the command line while maintaining the descriptive `excludedPatterns` name in configuration files.
 
 ## Diff Size Management
 
@@ -402,6 +445,9 @@ This ensures reliable operation regardless of changeset size while providing tra
 
 ### Commit Configuration
 
+> [!NOTE]
+> **Configuration-Only Options**: The `messageLimit` option is only available in configuration files, not as a command-line option. This design choice keeps the CLI focused on essential workflow options while allowing detailed configuration through config files.
+
 ```yaml
 commit:
   add: true                    # Automatically stage all changes before committing
@@ -418,6 +464,9 @@ commit:
 
 ### Release Configuration
 
+> [!NOTE]
+> **Configuration-Only Options**: The `messageLimit` option is only available in configuration files, not as a command-line option. This design choice keeps the CLI focused on essential workflow options while allowing detailed configuration through config files.
+
 ```yaml
 release:
   from: main                   # Starting point for release diff
@@ -431,6 +480,9 @@ release:
 ```
 
 ### Review Configuration
+
+> [!NOTE]
+> **Configuration-Only Options**: The context inclusion and limit options below are only available in configuration files, not as command-line options. This design choice keeps the CLI focused on essential workflow options while allowing detailed configuration through config files.
 
 ```yaml
 review:
@@ -550,7 +602,32 @@ link:
   scopeRoots:
     "@company": "../"
     "@myorg": "../../org-packages/"
+  externals:
+    - "@somelib"
+    - "lodash"
+    - "@external/*"
 ```
+
+### Tree Configuration
+
+The tree command supports both single and multiple directory analysis:
+
+```yaml
+tree:
+  directories: ["./packages", "../shared-libs"]  # Multiple directories to analyze
+  # OR
+  directory: "./packages"                         # Single directory (converted to directories array)
+  exclude: ["**/node_modules/**", "dist/*"]      # Patterns to exclude packages
+  startFrom: "core"                              # Resume from specific package
+  stopAt: "web"                                  # Stop at specific package
+  cmd: "npm install"                             # Custom command to run
+  continue: false                                # Continue from previous execution
+  cleanNodeModules: false                        # Clean node_modules during unlink
+  externals: ["@external/*", "lodash"]           # External dependency patterns
+```
+
+> [!NOTE]
+> **Tree Command Options**: The tree command supports both `--directory` (single) and `--directories` (multiple) CLI options. When using `--directory`, it's automatically converted to a `directories` array in the configuration. This provides flexibility for both single-workspace and multi-workspace scenarios.
 
 ## Basic Options
 
@@ -564,3 +641,31 @@ Global options that apply to all commands:
 - `--check-config`: Display the current configuration hierarchy showing how values are merged from defaults, config files, and CLI arguments. This is useful for debugging configuration issues and understanding which settings are active.
 - `--init-config`: Generate an initial configuration file with common default values in the specified config directory (default: '.kodrdriv')
 - `--version`: Display version information
+
+## Configuration vs CLI Options
+
+KodrDriv provides two ways to configure behavior:
+
+### CLI-Only Options
+These options are only available via command-line arguments and cannot be set in configuration files:
+- `--dry-run`: For one-time dry runs
+- `--verbose` / `--debug`: For temporary debugging
+- `--check-config`: For configuration diagnostics
+- `--init-config`: For initial setup
+
+### Configuration-Only Options
+These options are only available in configuration files and provide persistent settings:
+- `messageLimit`: For commit and release commands
+- `includeCommitHistory`, `includeRecentDiffs`, etc.: For review context control
+- `dependencyUpdatePatterns`: For publish workflows
+- `linkWorkspacePackages`: For monorepo management
+
+### Shared Options
+These options can be set both via CLI and configuration files:
+- `--model` / `model`: AI model selection
+- `--exclude` / `excludedPatterns`: File exclusion patterns
+- `--max-diff-bytes` / `maxDiffBytes`: Diff size limits
+- `--context` / `context`: Additional context for AI
+
+> [!TIP]
+> **Best Practice**: Use configuration files for persistent settings and CLI arguments for one-time overrides. This approach provides consistency across your project while maintaining flexibility for specific use cases.

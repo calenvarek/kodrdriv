@@ -26,7 +26,7 @@ Each package executes with its own kodrdriv configuration:
 ### Dependency-Aware Execution
 Commands execute in topological dependency order:
 - Dependencies are processed before dependents
-- Parallel execution when dependencies allow
+
 - Proper error handling and recovery points
 
 ### Unified Error Handling
@@ -51,14 +51,13 @@ Executes commit operations across all packages that have uncommitted changes.
 # Commit across all packages
 kodrdriv tree commit
 
-# Commit with parallel execution
-kodrdriv tree commit --parallel
+
 
 # Resume from a specific package
 kodrdriv tree commit --start-from my-package
 
 # Exclude certain packages
-kodrdriv tree commit --excluded-patterns "test-*" "temp-*"
+kodrdriv tree commit --exclude "test-*" "temp-*"
 ```
 
 **Configuration:**
@@ -86,8 +85,7 @@ Executes publish operations across all packages in dependency order.
 # Publish all packages in dependency order
 kodrdriv tree publish
 
-# Publish with parallel execution (respects dependencies)
-kodrdriv tree publish --parallel
+
 
 # Resume from a specific package
 kodrdriv tree publish --start-from my-package
@@ -123,14 +121,19 @@ Links workspace packages across all packages for local development.
 # Link all workspace packages
 kodrdriv tree link
 
-# Link with parallel execution
-kodrdriv tree link --parallel
+
 
 # Link specific directories only
 kodrdriv tree link --directories ./apps ./packages
 
 # Exclude certain packages from linking
-kodrdriv tree link --excluded-patterns "build-*"
+kodrdriv tree link --exclude "build-*"
+
+# Link external dependencies that match patterns
+kodrdriv tree link --externals "@somelib" "lodash"
+
+# Link both same-scope and external dependencies
+kodrdriv tree link --externals "@external/lib"
 ```
 
 **Configuration:**
@@ -160,8 +163,7 @@ Unlinks workspace packages across all packages, restoring registry dependencies.
 # Unlink all workspace packages
 kodrdriv tree unlink
 
-# Unlink with parallel execution
-kodrdriv tree unlink --parallel
+
 
 # Dry run to see what would be unlinked
 kodrdriv tree unlink --dry-run
@@ -192,7 +194,7 @@ kodrdriv tree development --target-version minor
 kodrdriv tree development --start-from my-package
 
 # Exclude certain packages
-kodrdriv tree development --excluded-patterns "test-*" "build-*"
+kodrdriv tree development --exclude "test-*" "build-*"
 
 # Disable milestone integration across workspace
 kodrdriv tree development --no-milestones
@@ -234,7 +236,7 @@ kodrdriv tree branches
 kodrdriv tree branches --directories ./apps ./packages
 
 # Check branch status with package exclusions
-kodrdriv tree branches --excluded-patterns "temp-*" "build-*"
+kodrdriv tree branches --exclude "temp-*" "build-*"
 
 # Analyze branches across multiple directory trees
 kodrdriv tree branches --directories ./client-apps ./server-packages ./shared-libs
@@ -285,22 +287,7 @@ Level 3: Packages depending on Level 1 and/or Level 2 packages
 ...
 ```
 
-### Parallel Execution
 
-When using `--parallel`, packages within the same dependency level execute simultaneously:
-
-```bash
-# Execute packages in parallel where possible
-kodrdriv tree publish --parallel
-```
-
-Example execution flow:
-```
-Level 1: utils, constants (parallel)
-Level 2: core, helpers (parallel, after Level 1 completes)
-Level 3: api, ui (parallel, after Level 2 completes)
-Level 4: app (sequential, after Level 3 completes)
-```
 
 ## Error Handling and Recovery
 
@@ -364,7 +351,7 @@ kodrdriv tree development
 kodrdriv tree link
 
 # 3. Development iteration
-kodrdriv tree --cmd "npm run build" --parallel
+kodrdriv tree --cmd "npm run build"
 kodrdriv tree --cmd "npm test"
 
 # 4. Verify workspace before commit
@@ -375,7 +362,7 @@ kodrdriv tree commit
 
 # 6. Prepare for release
 kodrdriv tree unlink
-kodrdriv tree --cmd "npm run build" --parallel
+kodrdriv tree --cmd "npm run build"
 
 # 7. Publish release (with stop-at for staged releases)
 kodrdriv tree publish --stop-at main-app

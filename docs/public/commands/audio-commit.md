@@ -19,7 +19,7 @@ The audio commit command allows you to speak your commit intentions, which are t
 - `--cached`: Use cached diff for generating commit messages
 - `--sendit`: Commit with the generated message without review
 - `--direction <direction>`: Fallback text direction if audio fails
-- `--message-limit <messageLimit>`: Limit the number of recent commit messages to include in context
+
 - `--file <file>`: Process an existing audio file instead of recording (supports: mp3, mp4, mpeg, mpga, m4a, wav, webm, flac, aac, ogg, opus)
 
 ## Examples

@@ -72,8 +72,7 @@ The publish command can be executed across multiple packages using the tree comm
 # Execute publish across all packages in dependency order
 kodrdriv tree publish
 
-# Execute with parallel processing (respects dependencies)
-kodrdriv tree publish --parallel
+
 
 # Resume from a specific package if one fails
 kodrdriv tree publish --start-from my-package

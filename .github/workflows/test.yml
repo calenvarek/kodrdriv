@@ -25,7 +25,3 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm run test
-      - uses: codecov/codecov-action@v5
-        with:
-          slug: calenvarek/kodrdriv
-          token: ${{ secrets.CODECOV_TOKEN }}

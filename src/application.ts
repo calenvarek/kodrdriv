@@ -6,20 +6,19 @@ import * as AudioCommit from './commands/audio-commit';
 import * as AudioReview from './commands/audio-review';
 import * as Clean from './commands/clean';
 import * as Commit from './commands/commit';
+import * as Development from './commands/development';
 import * as Link from './commands/link';
 import * as Publish from './commands/publish';
-import * as Tree from './commands/tree';
 import * as Release from './commands/release';
 import * as Review from './commands/review';
 import * as SelectAudio from './commands/select-audio';
+import * as Tree from './commands/tree';
 import * as Unlink from './commands/unlink';
-import * as Development from './commands/development';
 import * as Versions from './commands/versions';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_TREE, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_UNLINK, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR } from './constants';
-import { getLogger, setLogLevel } from './logging';
-import { Config, ConfigSchema, SecureConfig } from './types';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_TREE, COMMAND_UNLINK, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR, VERSION } from './constants';
 import { UserCancellationError } from './error/CommandErrors';
-import { VERSION } from './constants';
+import { getLogger, setLogLevel } from './logging';
+import { Config, SecureConfig } from './types';
 
 /**
  * Print debug information about the command being executed when debug flag is enabled.
@@ -79,20 +78,10 @@ export async function runApplication(): Promise<void> {
     const cardigantime = createCardigantime({
         defaults: {
             configDirectory: DEFAULT_CONFIG_DIR,
-            // Move pathResolution INSIDE defaults
-            pathResolution: {
-                resolvePathArray: ['contextDirectories'], // Resolve contextDirectories array elements as paths
-            },
-            // Use fieldOverlaps instead of mergeStrategy, INSIDE defaults
-            fieldOverlaps: {
-                'contextDirectories': 'prepend', // Use prepend strategy for contextDirectories array
-                // Add other field overlap configurations as needed
-            },
         },
         features: ['config', 'hierarchical'],
-        configShape: ConfigSchema.shape, // No need for 'as any' now
         logger: getLogger(),
-    }); // No need for 'as any' at the end
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [runConfig, secureConfig, commandConfig]: [Config, SecureConfig, CommandConfig] = await Arguments.configure(cardigantime); // Pass cardigantime instance
@@ -170,9 +159,9 @@ export async function runApplication(): Promise<void> {
                 runConfig.tree.directories = [runConfig.audioReview.directory];
             }
             // Handle tree exclusion patterns - use global excludedPatterns for tree
-            if (runConfig.excludedPatterns && !runConfig.tree?.excludedPatterns) {
+            if (runConfig.excludedPatterns && !runConfig.tree?.exclude) {
                 runConfig.tree = runConfig.tree || {};
-                runConfig.tree.excludedPatterns = runConfig.excludedPatterns;
+                runConfig.tree.exclude = runConfig.excludedPatterns;
             }
             summary = await Tree.execute(runConfig);
         } else if (commandName === COMMAND_LINK) {

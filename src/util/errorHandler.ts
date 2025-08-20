@@ -48,10 +48,10 @@ export const handleCommandError = async (
             logger.info('Detailed recovery instructions were provided above.');
         } else {
             logger.error(`${command} failed: ${error.message}`);
-            if (error.cause) {
-                logger.debug(`Caused by: ${error.cause.message}`);
-                if (logger.isDebugEnabled()) {
-                    logger.debug(`Stack trace:`, error.cause.stack);
+            if (error.cause && typeof error.cause === 'object' && 'message' in error.cause) {
+                logger.debug(`Caused by: ${(error.cause as Error).message}`);
+                if (logger.isDebugEnabled() && 'stack' in error.cause) {
+                    logger.debug(`Stack trace:`, (error.cause as Error).stack);
                 }
             }
 

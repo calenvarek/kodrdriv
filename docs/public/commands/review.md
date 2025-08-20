@@ -150,24 +150,25 @@ Simply type your review notes below the template comments. Lines starting with `
 
 ## Command Options
 
-**Context Configuration:**
-- `--include-commit-history` / `--no-include-commit-history`: Include recent commit log messages in context (default: true)
-- `--include-recent-diffs` / `--no-include-recent-diffs`: Include recent commit diffs in context (default: true)
-- `--include-release-notes` / `--no-include-release-notes`: Include recent release notes in context (default: false)
-- `--include-github-issues` / `--no-include-github-issues`: Include open GitHub issues in context (default: true)
-
-**Context Limits:**
-- `--commit-history-limit <limit>`: Number of recent commits to include (default: 10)
-- `--diff-history-limit <limit>`: Number of recent commit diffs to include (default: 5)
-- `--release-notes-limit <limit>`: Number of recent release notes to include (default: 3)
-- `--github-issues-limit <limit>`: Number of open GitHub issues to include, max 20 (default: 20)
-
-**Other Options:**
+**Review Options:**
 - `--context <context>`: Additional context for the review
 - `--file <file>`: Read review note from a file
 - `--directory <directory>`: Process all review files in a directory
 - `--sendit`: Create GitHub issues automatically without confirmation
 - `--editor-timeout <timeout>`: Timeout for editor in milliseconds (default: no timeout)
+
+> [!NOTE]
+> **Context Configuration Options**: The following options are available in configuration files only (not as CLI options):
+> - `includeCommitHistory`: Include recent commit log messages in context (default: true)
+> - `includeRecentDiffs`: Include recent commit diffs in context (default: true)
+> - `includeReleaseNotes`: Include recent release notes in context (default: false)
+> - `includeGithubIssues`: Include open GitHub issues in context (default: true)
+> - `commitHistoryLimit`: Number of recent commits to include (default: 10)
+> - `diffHistoryLimit`: Number of recent commit diffs to include (default: 5)
+> - `releaseNotesLimit`: Number of recent release notes to include (default: 3)
+> - `githubIssuesLimit`: Number of open GitHub issues to include, max 20 (default: 20)
+>
+> See the [Configuration Guide](../configuration.md) for details on setting these options in your config file.
 
 ## File Outputs
 
@@ -194,9 +195,6 @@ The review command includes robust error handling:
 # Basic review analysis
 kodrdriv review "The user interface needs improvement"
 
-# Review with custom context limits
-kodrdriv review --commit-history-limit 5 --diff-history-limit 2 "Performance issues"
-
 # Auto-create issues without confirmation
 kodrdriv review --sendit "Critical security vulnerabilities found"
 
@@ -206,14 +204,8 @@ kodrdriv review --file review_notes.md
 # Process multiple review files in a directory
 kodrdriv review --directory ./reviews/ --sendit
 
-# Review with minimal context
-kodrdriv review --no-include-commit-history --no-include-recent-diffs "UI feedback"
-
 # Pipe detailed review from file (requires --sendit)
 cat code_review.md | kodrdriv review --context "Sprint 2 review" --sendit
-
-# Review with only specific context types
-kodrdriv review --no-include-recent-diffs --no-include-release-notes "Authentication flow review"
 
 # Review from file with custom context
 kodrdriv review --file sprint_review.md --context "Sprint 3 retrospective"

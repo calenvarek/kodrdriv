@@ -18,7 +18,7 @@ kodrdriv commit --sendit
 
 Use custom context and message limit:
 ```bash
-kodrdriv commit --context "Refactoring for performance" --message-limit 5
+kodrdriv commit --context "Refactoring for performance"
 ```
 
 Work with staged changes only:
@@ -45,7 +45,7 @@ kodrdriv commit --dry-run
 # Generates template message even for excluded-only changes
 
 # Manual exclusion control
-kodrdriv commit --excluded-paths "node_modules" "dist"
+kodrdriv commit --exclude "node_modules" "dist"
 # Includes critical files while excluding build artifacts
 ```
 
@@ -93,7 +93,7 @@ kodrdriv release
 
 Use custom context for quarterly release:
 ```bash
-kodrdriv release --context "Quarterly release, focus on stability" --message-limit 20
+kodrdriv release --context "Quarterly release, focus on stability"
 ```
 
 ### Publish Examples
@@ -157,12 +157,12 @@ kodrdriv release --config-dir ~/my-kodrdriv-config --overrides
 
 Exclude specific files or directories from diff analysis:
 ```bash
-kodrdriv commit --excluded-paths "*.lock" "dist/" "node_modules/"
+kodrdriv commit --exclude "*.lock" "dist/" "node_modules/"
 ```
 
 Exclude patterns from release notes:
 ```bash
-kodrdriv release --excluded-paths "package-lock.json"
+kodrdriv release --exclude "package-lock.json"
 ```
 
 ### Verbose and Debug Mode
@@ -273,7 +273,7 @@ kodrdriv --check-config
 
 2. **Build all packages in dependency order**:
    ```bash
-   kodrdriv tree --cmd "npm run build" --excluded-patterns "**/test-*/**"
+   kodrdriv tree --cmd "npm run build" --exclude "**/test-*/**"
    ```
 
 3. **Test packages after build**:
@@ -304,7 +304,7 @@ kodrdriv tree --cmd "npm ci"
 # 3. Build packages with exclusions
 kodrdriv tree \
   --cmd "npm run build" \
-  --excluded-patterns "**/examples/**,**/*-demo,**/node_modules/**"
+  --exclude "**/examples/**,**/*-demo,**/node_modules/**"
 
 # 4. Run quality checks
 kodrdriv tree --cmd "npm run lint && npm run test"
@@ -319,7 +319,7 @@ kodrdriv tree publish --start-from core-lib
 kodrdriv tree \
   --cmd "npm update" \
   --start-from api-client \
-  --excluded-patterns "**/legacy-*/**"
+  --exclude "**/legacy-*/**"
 ```
 
 ## Environment-Specific Examples
@@ -486,6 +486,10 @@ link:
   scopeRoots:
     "@company": "../"
     "@shared": "../../shared-packages/"
+  externals:
+    - "@somelib"
+    - "lodash"
+    - "@external/*"
 ```
 
 ### Project-Specific Configuration

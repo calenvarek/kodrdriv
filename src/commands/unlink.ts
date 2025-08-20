@@ -6,9 +6,156 @@ import {
     findAllPackageJsonFiles
 } from '../util/performance';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
+import fs from 'fs/promises';
+import path from 'path';
+
+// Helper function to check if a dependency matches any external unlink patterns
+export const matchesExternalUnlinkPattern = (dependencyName: string, externalUnlinkPatterns: string[]): boolean => {
+    if (!externalUnlinkPatterns || externalUnlinkPatterns.length === 0) {
+        return false;
+    }
+
+    return externalUnlinkPatterns.some(pattern => {
+        // Simple string matching - could be enhanced with glob patterns later
+        return dependencyName === pattern || dependencyName.startsWith(pattern);
+    });
+};
+
+// Helper function to check if a path is a symbolic link
+export const isSymbolicLink = async (filePath: string): Promise<boolean> => {
+    try {
+        const stats = await fs.lstat(filePath);
+        return stats.isSymbolicLink();
+    } catch {
+        return false;
+    }
+};
+
+// Helper function to get the target of a symbolic link
+export const getSymbolicLinkTarget = async (filePath: string): Promise<string | null> => {
+    try {
+        const target = await fs.readlink(filePath);
+        return target;
+    } catch {
+        return null;
+    }
+};
+
+// Helper function to find all linked dependencies in a package
+export const findLinkedDependencies = async (
+    packagePath: string,
+    packageName: string,
+    storage: any,
+    logger: any
+): Promise<Array<{ dependencyName: string; targetPath: string; isExternal: boolean }>> => {
+    const linkedDependencies: Array<{ dependencyName: string; targetPath: string; isExternal: boolean }> = [];
+
+    try {
+        const packageJsonPath = path.join(packagePath, 'package.json');
+        const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+        const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+        const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+        const allDependencies = {
+            ...packageJson.dependencies,
+            ...packageJson.devDependencies
+        };
+
+        const nodeModulesPath = path.join(packagePath, 'node_modules');
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        for (const [dependencyName, version] of Object.entries(allDependencies)) {
+            let dependencyPath: string;
+
+            if (dependencyName.startsWith('@')) {
+                // Scoped package
+                const [scope, name] = dependencyName.split('/');
+                dependencyPath = path.join(nodeModulesPath, scope, name);
+            } else {
+                // Unscoped package
+                dependencyPath = path.join(nodeModulesPath, dependencyName);
+            }
+
+            if (await isSymbolicLink(dependencyPath)) {
+                const target = await getSymbolicLinkTarget(dependencyPath);
+                if (target) {
+                    // Determine if this is an external dependency (not in the same workspace)
+                    const isExternal = !target.includes('node_modules') || target.startsWith('..');
+                    linkedDependencies.push({
+                        dependencyName,
+                        targetPath: target,
+                        isExternal
+                    });
+                }
+            }
+        }
+    } catch (error: any) {
+        logger.warn(`Failed to check linked dependencies in ${packageName}: ${error.message}`);
+    }
+
+    return linkedDependencies;
+};
+
+// Helper function to remove symbolic links manually
+export const removeSymbolicLink = async (
+    packageName: string,
+    targetDir: string,
+    logger: any,
+    isDryRun: boolean = false
+): Promise<boolean> => {
+    try {
+        // Parse package name to get scope and name parts
+        const [scope, name] = packageName.startsWith('@')
+            ? packageName.split('/')
+            : [null, packageName];
+
+        // Create the target path structure
+        const nodeModulesPath = path.join(targetDir, 'node_modules');
+        let targetPath: string;
+
+        if (scope) {
+            // Scoped package: node_modules/@scope/name
+            targetPath = path.join(nodeModulesPath, scope, name);
+        } else {
+            // Unscoped package: node_modules/name
+            targetPath = path.join(nodeModulesPath, name);
+        }
+
+        if (isDryRun) {
+            logger.verbose(`DRY RUN: Would check and remove symlink: ${targetPath}`);
+            return true;
+        }
+
+        // Check if something exists at the target path
+        try {
+            const stats = await fs.lstat(targetPath); // Use lstat to not follow symlinks
+
+            if (stats.isSymbolicLink()) {
+                // It's a symlink, remove it
+                await fs.unlink(targetPath);
+                logger.verbose(`Removed symlink: ${targetPath}`);
+                return true;
+            } else {
+                logger.verbose(`Target exists but is not a symlink: ${targetPath}`);
+                return false;
+            }
+        } catch (error: any) {
+            if (error.code === 'ENOENT') {
+                // Nothing exists at target path, nothing to remove
+                logger.verbose(`No symlink found at: ${targetPath}`);
+                return true;
+            } else {
+                throw error; // Re-throw unexpected errors
+            }
+        }
+    } catch (error: any) {
+        logger.warn(`Failed to remove symlink for ${packageName}: ${error.message}`);
+        return false;
+    }
+};
 
 // Helper function to parse package names and scopes (same as link command)
-const parsePackageArgument = (packageArg: string): { scope: string; packageName?: string } => {
+export const parsePackageArgument = (packageArg: string): { scope: string; packageName?: string } => {
     if (packageArg.startsWith('@')) {
         const parts = packageArg.split('/');
         if (parts.length === 1) {
@@ -119,6 +266,11 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
     const logger = getDryRunLogger(isDryRun);
     const storage = createStorage({ log: logger.info });
 
+    // Check if this is a status command
+    if (packageArgument === 'status') {
+        return await executeStatus(runConfig);
+    }
+
     // Get target directories from config, default to current directory
     const targetDirectories = runConfig.tree?.directories || [process.cwd()];
 
@@ -162,21 +314,63 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
         logger.info(`Processing package: ${packageName}`);
 
         const cleanNodeModules = runConfig.unlink?.cleanNodeModules || false;
+        const externalUnlinkPatterns = runConfig.unlink?.externals || [];
 
+        // Step 0: Handle external dependencies if patterns are specified
+        if (externalUnlinkPatterns.length > 0) {
+            logger.info(`Step 0: Processing external dependencies matching patterns: ${externalUnlinkPatterns.join(', ')}`);
 
+            // Read package.json to get dependencies
+            const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+            const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+            const allDependencies = {
+                ...packageJson.dependencies,
+                ...packageJson.devDependencies
+            };
+
+            const externalDependencies = Object.keys(allDependencies).filter(depName =>
+                matchesExternalUnlinkPattern(depName, externalUnlinkPatterns)
+            );
+
+            if (externalDependencies.length > 0) {
+                logger.info(`Found ${externalDependencies.length} external dependencies to unlink: ${externalDependencies.join(', ')}`);
+
+                for (const depName of externalDependencies) {
+                    try {
+                        const success = await removeSymbolicLink(depName, currentDir, logger, isDryRun);
+                        if (success) {
+                            logger.info(`✅ Unlinked external dependency: ${depName}`);
+                        } else {
+                            logger.warn(`⚠️ Failed to unlink external dependency: ${depName}`);
+                        }
+                    } catch (error: any) {
+                        logger.warn(`⚠️ Error unlinking external dependency ${depName}: ${error.message}`);
+                    }
+                }
+            } else {
+                logger.info('No external dependencies found matching the specified patterns');
+            }
+        }
 
         if (isDryRun) {
-            logger.info(`DRY RUN: Would execute unlink steps for ${packageName}:`);
-            logger.info(`  1. npm unlink -g`);
-            if (cleanNodeModules) {
-                logger.info(`  2. rm -rf node_modules package-lock.json`);
-                logger.info(`  3. npm install`);
-                logger.info(`  4. Check for remaining links with npm ls --link`);
-            } else {
-                logger.info(`  2. Check for remaining links with npm ls --link`);
-                logger.info(`  Note: Use --clean-node-modules flag to also clean and reinstall dependencies`);
+            let dryRunMessage = `DRY RUN: Would execute unlink steps for ${packageName}:\n`;
+            if (externalUnlinkPatterns.length > 0) {
+                dryRunMessage += `  0. Unlink external dependencies matching patterns: ${externalUnlinkPatterns.join(', ')}\n`;
             }
-            return `DRY RUN: Would execute unlink steps for ${packageName}`;
+            dryRunMessage += `  1. npm unlink -g\n`;
+            if (cleanNodeModules) {
+                dryRunMessage += `  2. rm -rf node_modules package-lock.json\n`;
+                dryRunMessage += `  3. npm install\n`;
+                dryRunMessage += `  4. Check for remaining links with npm ls --link`;
+            } else {
+                dryRunMessage += `  2. Check for remaining links with npm ls --link\n`;
+                dryRunMessage += `  Note: Use --clean-node-modules flag to also clean and reinstall dependencies`;
+            }
+
+            logger.info(dryRunMessage);
+            return dryRunMessage;
         }
 
         // Step 1: Remove global link
@@ -354,10 +548,96 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
     return summary;
 };
 
+// Status function to show what's currently linked (same as link command)
+const executeStatus = async (runConfig: Config): Promise<string> => {
+    const logger = getLogger();
+    const storage = createStorage({ log: logger.info });
+
+    // Get target directories from config, default to current directory
+    const targetDirectories = runConfig.tree?.directories || [process.cwd()];
+
+    if (targetDirectories.length === 1) {
+        logger.info(`🔍 Checking link status in: ${targetDirectories[0]}`);
+    } else {
+        logger.info(`🔍 Checking link status in: ${targetDirectories.join(', ')}`);
+    }
+
+    // Find all packages in the workspace
+    let allPackageJsonFiles: any[] = [];
+    for (const targetDirectory of targetDirectories) {
+        const packageJsonFiles = await findAllPackageJsonFiles(targetDirectory, storage);
+        allPackageJsonFiles = allPackageJsonFiles.concat(packageJsonFiles);
+    }
+
+    const packageStatuses: Array<{
+        name: string;
+        path: string;
+        linkedDependencies: Array<{ dependencyName: string; targetPath: string; isExternal: boolean }>;
+    }> = [];
+
+    for (const packageJsonLocation of allPackageJsonFiles) {
+        const packageDir = packageJsonLocation.path.replace('/package.json', '');
+
+        try {
+            const packageJsonContent = await storage.readFile(packageJsonLocation.path, 'utf-8');
+            const parsed = safeJsonParse(packageJsonContent, packageJsonLocation.path);
+            const packageJson = validatePackageJson(parsed, packageJsonLocation.path);
+
+            if (!packageJson.name) continue;
+
+            const linkedDependencies = await findLinkedDependencies(packageDir, packageJson.name, storage, logger);
+
+            if (linkedDependencies.length > 0) {
+                packageStatuses.push({
+                    name: packageJson.name,
+                    path: packageDir,
+                    linkedDependencies
+                });
+            }
+        } catch (error: any) {
+            logger.warn(`Failed to parse ${packageJsonLocation.path}: ${error.message}`);
+        }
+    }
+
+    if (packageStatuses.length === 0) {
+        return 'No linked dependencies found in workspace.';
+    }
+
+    // Format the output
+    let output = `Found ${packageStatuses.length} package(s) with linked dependencies:\n\n`;
+
+    for (const packageStatus of packageStatuses) {
+        output += `📦 ${packageStatus.name}\n`;
+        output += `   Path: ${packageStatus.path}\n`;
+
+        if (packageStatus.linkedDependencies.length > 0) {
+            output += `   Linked dependencies:\n`;
+            for (const dep of packageStatus.linkedDependencies) {
+                const type = dep.isExternal ? '🔗 External' : '🔗 Internal';
+                output += `     ${type} ${dep.dependencyName} -> ${dep.targetPath}\n`;
+            }
+        }
+        output += '\n';
+    }
+
+    return output;
+};
+
 export const execute = async (runConfig: Config, packageArgument?: string): Promise<string> => {
     try {
+        // Check if this is a status command from direct parameter
+        if (packageArgument === 'status') {
+            return await executeStatus(runConfig);
+        }
+
         // Use packageArgument from runConfig if not provided as parameter
         const finalPackageArgument = packageArgument || runConfig.unlink?.packageArgument;
+
+        // Check if this is a status command from config
+        if (finalPackageArgument === 'status') {
+            return await executeStatus(runConfig);
+        }
+
         return await executeInternal(runConfig, finalPackageArgument);
     } catch (error: any) {
         const logger = getLogger();

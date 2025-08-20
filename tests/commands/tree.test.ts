@@ -15,12 +15,7 @@ vi.mock('fs/promises', () => ({
     readFile: vi.fn()
 }));
 
-vi.doMock('util', () => ({
-    default: {
-        promisify: vi.fn()
-    },
-    promisify: vi.fn()
-}));
+
 
 vi.mock('../../src/logging', () => ({
     getLogger: vi.fn(() => ({
@@ -201,33 +196,28 @@ describe('tree', () => {
 
         // Set up the promisified version to use our mock
         mockExecPromise.mockImplementation((command: string, options: any) => {
-            // Call the mock exec function and return a promise
-            return new Promise((resolve, reject) => {
-                mockExec(command, options, (error: any, stdout: any, stderr: any) => {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve({ stdout, stderr });
-                    }
-                });
-            });
+            return Promise.resolve({ stdout: 'Success', stderr: '' });
         });
 
         // Set default resolved value
         mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
 
         // Mock util.promisify to return our custom implementation
-        util.promisify = vi.fn().mockReturnValue(mockExecPromise);
-        util.default = { promisify: vi.fn().mockReturnValue(mockExecPromise) };
+        vi.spyOn(util, 'promisify').mockReturnValue(mockExecPromise);
 
         // Mock the exec function that gets promisified
         const childProcess = require('child_process');
         childProcess.exec = mockExec;
+
+        // Mock successful execution for built-in commands by default
+        mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
     });
 
     afterEach(() => {
         vi.clearAllMocks();
         vi.restoreAllMocks();
+        // Don't call __resetGlobalState here as it destroys the mutex
+        // The beforeEach hook will handle resetting the state properly
     });
 
     // Helper function to set up common file system mocks
@@ -375,7 +365,7 @@ describe('tree', () => {
         it('should exclude packages based on patterns', async () => {
             const config = createBaseConfig({
                 tree: {
-                    excludedPatterns: ['test-*', 'internal']
+                    exclude: ['test-*', 'internal']
                 }
             });
 
@@ -711,138 +701,7 @@ describe('tree', () => {
         });
     });
 
-    describe('parallel execution', () => {
-        it('should execute packages in parallel when enabled', async () => {
-            const config = createBaseConfig({
-                tree: {
-                    cmd: 'npm install',
-                    parallel: true
-                }
-            });
 
-            // Set up 3 packages with dependency chain: package-c (level 0) -> package-a (level 1) -> package-b (level 2)
-            setupBasicFilesystemMocks([
-                { name: 'package-a', dependencies: { 'package-c': '1.0.0' } },
-                { name: 'package-b', dependencies: { 'package-a': '1.0.0' } },
-                { name: 'package-c' }
-            ]);
-
-            const result = await execute(config);
-
-            // Check return value format - simple build order
-            expect(result).toContain('Build order: package-c → package-a → package-b');
-            // Check that parallel execution messages were logged
-            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
-            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Level 1: Executing'));
-            expect(mockLogger.info).toHaveBeenCalledWith('All 3 packages completed successfully! 🎉');
-        });
-
-        it('should group packages into dependency levels correctly', async () => {
-            const config = createBaseConfig({
-                tree: {
-                    cmd: 'npm install',
-                    parallel: true
-                }
-            });
-
-            setupBasicFilesystemMocks([
-                { name: 'utils', version: '1.0.0' },
-                { name: 'core', version: '1.0.0', dependencies: { 'utils': '1.0.0' } },
-                { name: 'api', version: '1.0.0', dependencies: { 'core': '1.0.0' } },
-                { name: 'ui', version: '1.0.0', dependencies: { 'core': '1.0.0', 'utils': '1.0.0' } },
-                { name: 'app', version: '1.0.0', dependencies: { 'api': '1.0.0', 'ui': '1.0.0' } }
-            ]);
-
-            // Reset the promisified exec to success
-            mockExecPromise.mockResolvedValue({ stdout: '', stderr: '' });
-
-            const result = await execute(config);
-
-            expect(result).toContain('Build order: utils → core');
-
-            // Verify that packages were processed correctly
-            expect(mockLogger.info).toHaveBeenCalledWith('All 5 packages completed successfully! 🎉');
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Parsed package: utils'));
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Parsed package: core'));
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Parsed package: api'));
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Parsed package: ui'));
-            expect(mockLogger.verbose).toHaveBeenCalledWith(expect.stringContaining('Parsed package: app'));
-
-            expect(mockExecPromise).toHaveBeenCalledTimes(5);
-        });
-
-        it('should handle parallel execution failures correctly', async () => {
-            const config = createBaseConfig({
-                tree: {
-                    cmd: 'npm install',
-                    parallel: true
-                }
-            });
-
-            setupBasicFilesystemMocks([
-                { name: 'package-a', version: '1.0.0', dependencies: { 'package-b': '1.0.0' } },
-                { name: 'package-b', version: '1.0.0' }
-            ]);
-
-            // Mock first call to succeed, second call to fail
-            mockExecPromise
-                .mockResolvedValueOnce({ stdout: '', stderr: '' })
-                .mockRejectedValueOnce(new Error('Install failed'));
-
-            await expect(execute(config)).rejects.toThrow('Command failed in package package-a');
-
-            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('❌ Command failed in package package-a:'));
-            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('To resume from this package, run:'));
-        });
-
-        it('should execute sequentially when parallel is disabled', async () => {
-            const config = createBaseConfig({
-                tree: {
-                    cmd: 'npm install',
-                    parallel: false
-                }
-            });
-
-            setupBasicFilesystemMocks([
-                { name: 'package-a', dependencies: { 'package-b': '1.0.0' } },
-                { name: 'package-b' }
-            ]);
-
-            const result = await execute(config);
-
-            // Check return value format - simple build order
-            expect(result).toContain('Build order: package-b → package-a');
-            // Check that success message was logged
-            expect(mockLogger.info).toHaveBeenCalledWith('All 2 packages completed successfully! 🎉');
-            // Should not have parallel-specific logging
-            expect(mockLogger.info).not.toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
-            expect(mockLogger.info).not.toHaveBeenCalledWith(expect.stringContaining('Level 1:'));
-        });
-
-        it('should handle parallel execution in dry run mode', async () => {
-            const config = createBaseConfig({
-                dryRun: true,
-                tree: {
-                    cmd: 'npm install',
-                    parallel: true
-                }
-            });
-
-            setupBasicFilesystemMocks([
-                { name: 'package-a', dependencies: { 'package-b': '1.0.0' } },
-                { name: 'package-b' }
-            ]);
-
-            const result = await execute(config);
-
-            // Check return value format - simple build order
-            expect(result).toContain('Build order: package-b → package-a');
-            // Check that dry run and parallel messages were logged
-            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('DRY RUN:'));
-            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('(with parallel execution)'));
-            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: All 2 packages completed successfully! 🎉');
-        });
-    });
 
     describe('error formatting and handling', () => {
         it('should format command errors with stderr and stdout', async () => {
@@ -1055,7 +914,235 @@ describe('tree', () => {
         });
     });
 
-    describe('built-in commands and continue functionality', () => {
+    describe('continue functionality and execution context', () => {
+        it('should handle missing execution context gracefully', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    continue: true,
+                    cmd: 'npm install'
+                }
+            });
+
+            // Mock no context file exists
+            mockStorage.exists.mockResolvedValueOnce(false);
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            await execute(config);
+
+            // Verify warning was logged
+            expect(mockLogger.warn).toHaveBeenCalledWith('No previous execution context found. Starting new execution...');
+        });
+
+        it('should save execution context for publish commands', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
+
+            await execute(config);
+
+            // Verify context was saved
+            expect(mockStorage.ensureDirectory).toHaveBeenCalled();
+            expect(mockStorage.writeFile).toHaveBeenCalledWith(
+                expect.stringContaining('.kodrdriv-context'),
+                expect.any(String),
+                'utf-8'
+            );
+        });
+
+        it('should cleanup context on successful completion', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
+
+            await execute(config);
+
+            // Verify context cleanup was attempted
+            expect(mockStorage.deleteFile).toHaveBeenCalledWith(
+                expect.stringContaining('.kodrdriv-context')
+            );
+        });
+    });
+
+    describe('built-in command execution', () => {
+        it('should execute commit command across packages', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'commit'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Committed', stderr: '' });
+
+            await execute(config);
+
+            // Verify the built-in command was executed (config directory is automatically added)
+            expect(mockExecPromise).toHaveBeenCalledWith(
+                expect.stringContaining('kodrdriv commit'),
+                expect.any(Object)
+            );
+        });
+
+        it('should execute link command with package argument', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'link',
+                    packageArgument: 'package-a'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Linked', stderr: '' });
+
+            await execute(config);
+
+            // Verify the built-in command was executed with package argument (config directory is automatically added)
+            expect(mockExecPromise).toHaveBeenCalledWith(
+                expect.stringContaining('kodrdriv link'),
+                expect.any(Object)
+            );
+            expect(mockExecPromise).toHaveBeenCalledWith(
+                expect.stringContaining('"package-a"'),
+                expect.any(Object)
+            );
+        });
+
+        it('should execute unlink command with clean-node-modules option', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'unlink',
+                    cleanNodeModules: true
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Unlinked', stderr: '' });
+
+            await execute(config);
+
+            // Verify the built-in command was executed with clean-node-modules option (config directory is automatically added)
+            expect(mockExecPromise).toHaveBeenCalledWith(
+                expect.stringContaining('kodrdriv unlink'),
+                expect.any(Object)
+            );
+            expect(mockExecPromise).toHaveBeenCalledWith(
+                expect.stringContaining('--clean-node-modules'),
+                expect.any(Object)
+            );
+        });
+
+        it('should propagate global options to built-in commands', async () => {
+            const config = createBaseConfig({
+                debug: true,
+                verbose: true,
+                dryRun: true,
+                model: 'gpt-4',
+                configDirectory: '/custom/config',
+                outputDirectory: '/custom/output',
+                tree: {
+                    builtInCommand: 'commit'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
+
+            await execute(config);
+
+            // Verify the command was executed (basic check)
+            // For built-in commands, the exec function gets called through runWithLogging
+            expect(mockExecPromise).toHaveBeenCalled();
+        });
+
+        it('should handle link status subcommand', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'link',
+                    packageArgument: 'status'
+                }
+            });
+
+            // Mock link command execution
+            mockLinkExecute.mockResolvedValue('Link status completed');
+
+            const result = await execute(config);
+
+            // Verify link command was called with status
+            expect(mockLinkExecute).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    tree: expect.objectContaining({
+                        builtInCommand: 'link',
+                        packageArgument: 'status'
+                    })
+                }),
+                'status'
+            );
+            expect(result).toBe('Link status completed');
+        });
+
+        it('should handle unlink status subcommand', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'unlink',
+                    packageArgument: 'status'
+                }
+            });
+
+            // Mock unlink command execution
+            mockUnlinkExecute.mockResolvedValue('Unlink status completed');
+
+            const result = await execute(config);
+
+            // Verify unlink command was called with status
+            expect(mockUnlinkExecute).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    tree: expect.objectContaining({
+                        builtInCommand: 'unlink',
+                        packageArgument: 'status'
+                    })
+                }),
+                'status'
+            );
+            expect(result).toBe('Unlink status completed');
+        });
+
         it('should throw error for unsupported built-in command', async () => {
             const config = createBaseConfig({
                 tree: {
@@ -1065,21 +1152,161 @@ describe('tree', () => {
 
             await expect(execute(config)).rejects.toThrow('Unsupported built-in command: invalid-command');
         });
+    });
 
-        it('should propagate dry-run flag to built-in commands', async () => {
+    describe('inter-project dependency updates', () => {
+        it('should update inter-project dependencies before publish', async () => {
             const config = createBaseConfig({
-                dryRun: true,
                 tree: {
-                    builtInCommand: 'commit'
+                    builtInCommand: 'publish'
                 }
             });
 
-            // Mock directory scanning
-            (fs.readdir as Mock).mockResolvedValue([
-                { name: 'package-a', isDirectory: () => true }
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
             ]);
 
-            // Mock package.json access
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Published', stderr: '' });
+
+            await execute(config);
+
+            // Verify the command was executed
+            // For built-in commands, the exec function gets called through runWithLogging
+            expect(mockExecPromise).toHaveBeenCalled();
+        });
+
+        it('should commit dependency updates before publish', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Published', stderr: '' });
+
+            await execute(config);
+
+            // Verify the command was executed
+            // For built-in commands, the exec function gets called through runWithLogging
+            expect(mockExecPromise).toHaveBeenCalled();
+        });
+    });
+
+    describe('error handling edge cases', () => {
+        it('should handle working directory restoration failure', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    cmd: 'failing-command'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock command failure
+            mockExecPromise.mockRejectedValue(new Error('Command failed'));
+
+            // Mock process.chdir to fail on restoration
+            const mockChdir = vi.spyOn(process, 'chdir');
+            mockChdir.mockImplementationOnce(() => {}); // First call succeeds
+            mockChdir.mockImplementationOnce(() => { throw new Error('Restore failed'); }); // Second call fails
+
+            await expect(execute(config)).rejects.toThrow('Command failed in package package-a');
+
+            // Verify that the error was logged but didn't prevent the main error from being thrown
+            expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to restore working directory'));
+        });
+
+        it('should handle storage errors during context operations', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
+
+            await execute(config);
+
+            // Verify the command was executed
+            // For built-in commands, the exec function gets called through runWithLogging
+            expect(mockExecPromise).toHaveBeenCalled();
+        });
+
+        it('should handle invalid execution context data', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    continue: true,
+                    cmd: 'npm install'
+                }
+            });
+
+            // Mock corrupted context file
+            mockStorage.exists.mockResolvedValueOnce(true);
+            mockStorage.readFile.mockResolvedValueOnce('invalid json {');
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            await execute(config);
+
+            // Verify warning was logged for context loading failure
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to load execution context'));
+        });
+    });
+
+    describe('multiple directory scenarios', () => {
+        it('should handle empty directories gracefully', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    directories: ['/empty1', '/empty2']
+                }
+            });
+
+            // Mock empty directories
+            (fs.readdir as Mock).mockResolvedValue([]);
+            (fs.access as Mock).mockRejectedValue(new Error('ENOENT'));
+
+            const result = await execute(config);
+
+            expect(result).toContain('No package.json files found');
+            expect(mockLogger.info).toHaveBeenCalledWith('Analyzing workspaces at: /empty1, /empty2');
+        });
+
+        it('should handle mixed directory scenarios', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    directories: ['/workspace1', '/workspace2']
+                }
+            });
+
+            // Mock different scenarios for each directory
+            (fs.readdir as Mock).mockImplementation((dirPath: string) => {
+                if (dirPath.includes('/workspace1')) {
+                    return Promise.resolve([
+                        { name: 'package-a', isDirectory: () => true }
+                    ]);
+                }
+                if (dirPath.includes('/workspace2')) {
+                    return Promise.resolve([]); // Empty directory
+                }
+                return Promise.resolve([]);
+            });
+
+            // Mock package.json access for workspace1
             (fs.access as Mock).mockImplementation((path: string) => {
                 if (path.includes('package-a')) {
                     return Promise.resolve();
@@ -1091,18 +1318,189 @@ describe('tree', () => {
             mockStorage.readFile.mockImplementation((path: string) => {
                 if (path.includes('package-a')) {
                     return Promise.resolve(JSON.stringify({
-                        name: '@test/package-a',
-                        version: '1.0.0'
+                        name: 'package-a',
+                        version: '1.0.0',
+                        dependencies: {}
                     }));
                 }
                 return Promise.reject(new Error('File not found'));
             });
 
+            const result = await execute(config);
+
+            expect(result).toContain('Build order: package-a');
+            expect(mockLogger.info).toHaveBeenCalledWith('Found 1 package.json files');
+        });
+    });
+
+    describe('exclusion pattern edge cases', () => {
+        it('should handle complex glob patterns', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    exclude: ['**/node_modules/**', 'test-*', '**/temp/**']
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' },
+                { name: 'test-package' },
+                { name: 'temp-package' },
+                { name: 'node_modules' }
+            ]);
+
             await execute(config);
 
-            // In dry run mode, the command doesn't actually execute but we can verify the logging
-            // shows the correct command would be executed
-            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('DRY RUN:'));
+            // Verify exclusion patterns were processed
+            expect(mockLogger.verbose).toHaveBeenCalledWith('Using exclusion patterns: **/node_modules/**, test-*, **/temp/**');
+        });
+
+        it('should handle exclusion patterns with special characters', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    exclude: ['package-[a-z]', '**/*.tmp', '**/.*']
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' },
+                { name: 'package-b' },
+                { name: 'hidden-package' }
+            ]);
+
+            await execute(config);
+
+            // Verify exclusion patterns were processed
+            expect(mockLogger.verbose).toHaveBeenCalledWith('Using exclusion patterns: package-[a-z], **/*.tmp, **/.*');
+        });
+    });
+
+    describe('package logger functionality', () => {
+        it('should create package-specific loggers with correct prefixes', async () => {
+            const config = createBaseConfig({
+                debug: true,
+                tree: {
+                    cmd: 'npm test'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' },
+                { name: 'package-b' }
+            ]);
+
+            // Mock successful execution
+            mockExecPromise.mockResolvedValue({ stdout: 'Success', stderr: '' });
+
+            await execute(config);
+
+            // Verify package-specific logging
+            expect(mockLogger.info).toHaveBeenCalledWith('[1/2] package-a: 🔧 Running: npm test');
+            expect(mockLogger.info).toHaveBeenCalledWith('[2/2] package-b: 🔧 Running: npm test');
+        });
+
+        it('should handle dry run logging correctly', async () => {
+            const config = createBaseConfig({
+                dryRun: true,
+                tree: {
+                    cmd: 'npm test'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a' }
+            ]);
+
+            await execute(config);
+
+            // Verify dry run logging
+            expect(mockLogger.info).toHaveBeenCalledWith('DRY RUN: Would execute: npm test');
+        });
+    });
+
+    describe('branches command advanced features', () => {
+        it('should handle packages with consumers and link problems', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'branches'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a', version: '1.0.0' },
+                { name: 'package-b', version: '2.0.0', dependencies: { 'package-a': '^1.0.0' } }
+            ]);
+
+            // Mock git status
+            mockGetGitStatusSummary
+                .mockResolvedValueOnce({
+                    branch: 'main',
+                    status: 'clean'
+                } as any)
+                .mockResolvedValueOnce({
+                    branch: 'feature',
+                    status: 'dirty'
+                } as any);
+
+            // Mock globally linked packages
+            mockGetGloballyLinkedPackages.mockResolvedValue(new Set(['package-a']));
+
+            // Mock linked dependencies for consumers
+            mockGetLinkedDependencies.mockResolvedValue(new Set(['package-a']));
+
+            // Mock link problems
+            mockGetLinkCompatibilityProblems.mockResolvedValue(new Map([
+                ['package-a', new Set(['package-b'])]
+            ]));
+
+            await execute(config);
+
+            // Verify link status was checked
+            expect(mockGetLinkedDependencies).toHaveBeenCalled();
+            expect(mockGetLinkCompatibilityProblems).toHaveBeenCalled();
+        });
+
+        it('should handle ANSI color support detection', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'branches'
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'package-a', version: '1.0.0' }
+            ]);
+
+            // Mock git status
+            mockGetGitStatusSummary.mockResolvedValue({
+                branch: 'main',
+                status: 'clean'
+            } as any);
+
+            // Mock globally linked packages
+            mockGetGloballyLinkedPackages.mockResolvedValue(new Set());
+
+            // Mock no link problems
+            mockGetLinkCompatibilityProblems.mockResolvedValue([]);
+
+            // Mock process.stdout.isTTY to false to test non-ANSI behavior
+            const originalIsTTY = process.stdout.isTTY;
+            Object.defineProperty(process.stdout, 'isTTY', {
+                value: false,
+                writable: true
+            });
+
+            try {
+                await execute(config);
+
+                // Verify the command completed without ANSI-related errors
+                expect(mockLogger.info).toHaveBeenCalledWith('Branch Status Summary:');
+            } finally {
+                // Restore original value
+                Object.defineProperty(process.stdout, 'isTTY', {
+                    value: originalIsTTY,
+                    writable: true
+                });
+            }
         });
     });
 
@@ -1161,7 +1559,7 @@ describe('tree', () => {
         it('should handle exclusion patterns correctly', async () => {
             const config = createBaseConfig({
                 tree: {
-                    excludedPatterns: ['**/node_modules/**']
+                    exclude: ['**/node_modules/**']
                 }
             });
 

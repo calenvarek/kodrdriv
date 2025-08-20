@@ -18,14 +18,13 @@ The link command can be executed across multiple packages using the tree command
 # Execute link across all packages in workspace
 kodrdriv tree link
 
-# Execute with parallel processing
-kodrdriv tree link --parallel
+
 
 # Link specific directories only
 kodrdriv tree link --directories ./apps ./packages
 
 # Exclude certain packages from linking
-kodrdriv tree link --excluded-patterns "build-*" "test-*"
+kodrdriv tree link --exclude "build-*" "test-*"
 ```
 
 ### Tree Mode Benefits
@@ -33,7 +32,7 @@ kodrdriv tree link --excluded-patterns "build-*" "test-*"
 - **Configuration Isolation**: Each package uses its own scope roots and linking configuration
 - **Workspace-wide Linking**: Automatically discovers and links all workspace dependencies
 - **Consistent Development Environment**: Ensures all packages are linked uniformly
-- **Parallel Execution**: Independent packages can be linked simultaneously
+
 - **Selective Linking**: Can target specific directories or exclude certain packages
 
 ### Tree Mode vs Single Package
@@ -77,9 +76,31 @@ For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in
 
 ## Command Options
 
-- `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories for package discovery (required)
+- `--scope-roots <scopeRoots>`: JSON mapping of scopes to root directories for package discovery
   - **Format**: `'{"@scope": "path", "@another": "path"}'`
   - **Example**: `'{"@company": "../", "@myorg": "../../packages/"}'`
+
+- `--externals [externals...]`: Patterns to match external dependencies for linking
+  - **Format**: Array of package name patterns
+  - **Example**: `--externals "@somelib" "lodash" "@external/*"`
+  - **Behavior**: Links dependencies that match these patterns if they're globally linked
+
+## Configuration File
+
+You can also configure these options in your `.kodrdriv/config.yaml` file:
+
+```yaml
+link:
+  scopeRoots:
+    "@company": "../"
+    "@myorg": "../../packages/"
+  externalLinkPatterns:
+    - "@somelib"
+    - "lodash"
+    - "@external/*"
+```
+
+Configuration file options can be overridden by command-line arguments.
 
 ## Examples
 
@@ -87,8 +108,11 @@ For detailed tree mode documentation, see [Tree Built-in Commands](tree-built-in
 # Link packages from sibling directories
 kodrdriv link --scope-roots '{"@mycompany": "../", "@utils": "../../shared/"}'
 
-# Link with custom workspace file
-kodrdriv link --scope-roots '{"@myorg": "../"}'
+# Link external dependencies that match patterns
+kodrdriv link --externals "@somelib" "lodash"
+
+# Link both same-scope and external dependencies
+kodrdriv link --scope-roots '{"@myorg": "../"}' --externals "@external/lib"
 
 # Link packages from multiple scope directories
 kodrdriv link --scope-roots '{"@frontend": "../ui/", "@backend": "../api/", "@shared": "../common/"}'
