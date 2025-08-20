@@ -55,6 +55,7 @@ vi.mock('../../src/util/github', () => ({
     mergePullRequest: vi.fn(),
     createRelease: vi.fn(),
     waitForReleaseWorkflows: vi.fn(),
+    getWorkflowsTriggeredByRelease: vi.fn(),
     closeMilestoneForVersion: vi.fn(),
     ensureMilestoneForVersion: vi.fn(),
     findMilestoneByTitle: vi.fn(),
@@ -170,6 +171,9 @@ describe('publish command', () => {
         Git.localBranchExists.mockResolvedValue(true);
         Git.isBranchInSyncWithRemote.mockResolvedValue({ inSync: true, localExists: true, remoteExists: true });
         Git.safeSyncBranchWithRemote.mockResolvedValue({ success: true });
+
+        // Default to valid git ref validation for tag names
+        Child.validateGitRef.mockReturnValue(true);
     });
 
     afterEach(() => {
@@ -432,7 +436,7 @@ cache=\${CACHE_DIR}/npm
             delete process.env.MISSING_VAR1;
             delete process.env.MISSING_VAR2;
 
-            await expect(Publish.execute(mockConfig)).rejects.toThrow('Missing required environment variables: MISSING_VAR1, MISSING_VAR2');
+            await expect(Publish.execute(mockConfig)).rejects.toThrow(/Missing required environment variables: MISSING_VAR1, MISSING_VAR2/);
         });
 
         it('should pass when all required environment variables are set', async () => {
@@ -1687,6 +1691,81 @@ cache=\${CACHE_DIR}/npm
             // Assert - Verify fallback to update all dependencies when empty array
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
         });
+
+        it('should re-check tag existence after interactive version confirmation and error if confirmed tag exists', async () => {
+            const interactiveConfig = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                publish: {
+                    interactive: true,
+                    targetVersion: 'minor'
+                }
+            } as any;
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                if (command === 'git log -1 --pretty=%B') return Promise.resolve({ stdout: 'feat: something' });
+                if (command === 'npm run prepublishOnly') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            GitHub.getCurrentBranchName.mockResolvedValue('release/0.0.4');
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+
+            mockStorage.exists.mockImplementation((p: string) => Promise.resolve(p.includes('package.json')));
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: 'pkg', version: '0.0.4', scripts: { prepublishOnly: 'npm test' } }));
+                }
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# Notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('Title');
+                return Promise.resolve('');
+            });
+
+            General.calculateTargetVersion.mockReturnValue('0.1.0');
+            General.checkIfTagExists.mockImplementation(async (tag: string) => tag === 'v0.2.0');
+            General.confirmVersionInteractively.mockResolvedValue('0.2.0');
+
+            await expect(Publish.execute(interactiveConfig)).rejects.toThrow(/Tag v0.2.0 already exists/);
+        });
+
+        it('should pass publish.from and interactive flags through to release generation', async () => {
+            setupPrecheckMocks();
+
+            const configWithFrom = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                publish: {
+                    from: 'v0.0.1',
+                    interactive: true
+                }
+            } as any;
+
+            GitHub.getCurrentBranchName.mockResolvedValue('release/0.0.4');
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+            GitHub.createPullRequest.mockResolvedValue({ number: 5, html_url: 'https://x/pr/5' });
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({ name: 'pkg', version: '0.0.4', scripts: { prepublishOnly: 'npm run prepublishOnly' } }));
+                }
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# Notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('Title');
+                return Promise.resolve('');
+            });
+
+            General.incrementPatchVersion.mockReturnValue('0.0.5');
+
+            await Publish.execute(configWithFrom);
+
+            expect(Release.execute).toHaveBeenCalled();
+            const releaseArg = (Release.execute as unknown as Mock).mock.calls[0][0];
+            expect(releaseArg.release.from).toBe('v0.0.1');
+            expect(releaseArg.release.interactive).toBe(true);
+        });
     });
 
     describe('GitHub release retry logic', () => {
@@ -1855,6 +1934,26 @@ cache=\${CACHE_DIR}/npm
             expect(GitHub.createRelease).toHaveBeenCalledTimes(1);
 
         });
+
+        it('should close milestone by default after successful release', async () => {
+            setupRetryTestMocks();
+
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            await Publish.execute(mockConfig);
+
+            expect(GitHub.closeMilestoneForVersion).toHaveBeenCalledWith('1.0.0');
+        });
+
+        it('should skip milestone closure when --no-milestones is set', async () => {
+            setupRetryTestMocks();
+            const cfg = { ...mockConfig, publish: { noMilestones: true } } as any;
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            await Publish.execute(cfg);
+
+            expect(GitHub.closeMilestoneForVersion).not.toHaveBeenCalled();
+        });
     });
 
     describe('dry run mode', () => {
@@ -1989,6 +2088,257 @@ cache=\${CACHE_DIR}/npm
 
             // Should not throw in dry run mode, just warn
             await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+        });
+    });
+
+    describe('workflow waiting behavior', () => {
+        it('should auto-detect workflow names when not configured and pass them to waitForReleaseWorkflows', async () => {
+            const mockConfig = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config'
+            } as any;
+
+            const mockBranchName = 'release/1.0.0';
+            const mockPR = { number: 321, html_url: 'https://x/pr/321' };
+
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            GitHub.getWorkflowsTriggeredByRelease.mockResolvedValue(['build', 'deploy']);
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) return Promise.resolve(JSON.stringify({ name: 'pkg', version: '1.0.0', scripts: { prepublishOnly: 'npm test' } }));
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('title');
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key.startsWith('tag -l')) return { stdout: '' } as any;
+                if (key.startsWith('tag ')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            await Publish.execute(mockConfig);
+
+            expect(GitHub.waitForReleaseWorkflows).toHaveBeenCalledWith('v1.0.0', expect.objectContaining({
+                workflowNames: ['build', 'deploy']
+            }));
+        });
+
+        it('should fall back to all workflows when auto-detection fails', async () => {
+            const mockConfig = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config'
+            } as any;
+
+            const mockBranchName = 'release/1.0.0';
+            const mockPR = { number: 322, html_url: 'https://x/pr/322' };
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            GitHub.getWorkflowsTriggeredByRelease.mockRejectedValue(new Error('API error'));
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) return Promise.resolve(JSON.stringify({ name: 'pkg', version: '1.0.0', scripts: { prepublishOnly: 'npm test' } }));
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('title');
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key.startsWith('tag -l')) return { stdout: '' } as any;
+                if (key.startsWith('tag ')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            await Publish.execute(mockConfig);
+
+            expect(GitHub.waitForReleaseWorkflows).toHaveBeenCalledWith('v1.0.0', expect.objectContaining({
+                workflowNames: undefined
+            }));
+        });
+
+        it('should skip waiting for workflows when disabled', async () => {
+            const mockConfig = {
+                model: 'gpt-4o-mini',
+                configDirectory: '/test/config',
+                publish: { waitForReleaseWorkflows: false }
+            } as any;
+
+            const mockBranchName = 'release/1.0.0';
+            const mockPR = { number: 323, html_url: 'https://x/pr/323' };
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) return Promise.resolve(JSON.stringify({ name: 'pkg', version: '1.0.0', scripts: { prepublishOnly: 'npm test' } }));
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('title');
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key.startsWith('tag -l')) return { stdout: '' } as any;
+                if (key.startsWith('tag ')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            await Publish.execute(mockConfig);
+
+            expect(GitHub.waitForReleaseWorkflows).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('tag creation edge cases', () => {
+        it('should create tag even if local tag check fails', async () => {
+            const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
+
+            const mockBranchName = 'release/1.0.0';
+            const mockPR = { number: 111, html_url: 'https://x/pr/111' };
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+            GitHub.createRelease.mockResolvedValue(undefined);
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) return Promise.resolve(JSON.stringify({ name: 'pkg', version: '1.0.0', scripts: { prepublishOnly: 'npm test' } }));
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('title');
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key.startsWith('tag -l')) throw new Error('tag list failed');
+                if (key.startsWith('tag ')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            await Publish.execute(mockConfig);
+
+            const tagCreateCall = (Child.runSecure as unknown as Mock).mock.calls.find(([, a]) => a.join(' ').startsWith('tag v1.0.0'));
+            expect(tagCreateCall).toBeTruthy();
+        });
+
+        it('should proceed via fallback when tag name validation fails', async () => {
+            const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
+
+            const mockBranchName = 'release/0.0.9';
+            const mockPR = { number: 222, html_url: 'https://x/pr/222' };
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) return Promise.resolve(JSON.stringify({ name: 'pkg', version: 'bad tag', scripts: { prepublishOnly: 'npm test' } }));
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('title');
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            Child.validateGitRef.mockReturnValue(false);
+
+            await expect(Publish.execute(mockConfig)).resolves.not.toThrow();
+            // Fallback path should have attempted to create the tag anyway
+            const tagCreateCall = (Child.runSecure as unknown as Mock).mock.calls.find(([, a]) => a.join(' ') === 'tag vbad tag');
+            expect(tagCreateCall).toBeTruthy();
+        });
+    });
+
+    describe('merge conflict handling', () => {
+        it('should surface a helpful error when PR has merge conflicts', async () => {
+            const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
+
+            const mockBranchName = 'release/1.2.3';
+            const mockPR = { number: 999, html_url: 'https://x/pr/999' };
+            GitHub.getCurrentBranchName.mockResolvedValue(mockBranchName);
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(mockPR);
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) return Promise.resolve(JSON.stringify({ name: 'pkg', version: '1.2.3', scripts: { prepublishOnly: 'npm test' } }));
+                if (filename === 'RELEASE_NOTES.md') return Promise.resolve('# notes');
+                if (filename === 'RELEASE_TITLE.md') return Promise.resolve('title');
+                return Promise.resolve('');
+            });
+
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key.startsWith('tag -l')) return { stdout: 'notfound' } as any;
+                if (key.startsWith('tag v1.2.3')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockRejectedValue(new Error('merge conflict occurred'));
+
+            await expect(Publish.execute(mockConfig)).rejects.toThrow(/Merge conflicts detected/);
         });
     });
 

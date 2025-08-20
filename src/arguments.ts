@@ -570,6 +570,7 @@ export async function getCliConfig(
         .option('--sendit', 'Commit with the message generated. No review.')
         .option('--interactive', 'Present commit message for interactive review and editing')
         .option('--amend', 'Amend the last commit with the generated message')
+        .option('--push [remote]', 'push to remote after committing (default: origin)')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
         .option('--skip-file-check', 'skip check for file: dependencies before committing')
         .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)');
@@ -592,6 +593,7 @@ export async function getCliConfig(
                 ['--sendit', 'Commit with the message generated. No review.'],
                 ['--interactive', 'Present commit message for interactive review and editing'],
                 ['--amend', 'Amend the last commit with the generated message'],
+                ['--push [remote]', 'push to remote after committing (default: origin)'],
                 ['--message-limit <messageLimit>', 'limit the number of messages to generate']
             ];
 
@@ -674,13 +676,13 @@ export async function getCliConfig(
     addSharedOptions(treeCommand);
 
     const linkCommand = program
-        .command('link')
+        .command('link [packageArgument]')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
         .description('Create npm file: dependencies for local development');
     addSharedOptions(linkCommand);
 
     const unlinkCommand = program
-        .command('unlink')
+        .command('unlink [packageArgument]')
         .option('--scope-roots <scopeRoots>', 'JSON mapping of scopes to root directories (e.g., \'{"@company": "../"}\')')
         .option('--clean-node-modules', 'remove node_modules and package-lock.json, then reinstall dependencies')
         .description('Restore original dependencies and rebuild node_modules');

@@ -469,13 +469,13 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             ? `Self-linked ${currentPackageJson.name} and linked ${linkedDependencies.length} dependencies: ${linkedDependencies.join(', ')}`
             : `Self-linked ${currentPackageJson.name}, no dependencies were available to link`;
 
-        // Step 5: Run npm install to regenerate package-lock.json
+        // Step 5: Regenerate package-lock.json without modifying node_modules
         try {
             if (isDryRun) {
-                logger.info(`DRY RUN: Would run 'npm install' to regenerate package-lock.json`);
+                logger.info(`DRY RUN: Would run 'npm install --package-lock-only --no-audit --no-fund' to regenerate package-lock.json`);
             } else {
-                logger.verbose(`Running 'npm install' to regenerate package-lock.json...`);
-                await run('npm install');
+                logger.verbose(`Running 'npm install --package-lock-only --no-audit --no-fund' to regenerate package-lock.json without touching node_modules...`);
+                await run('npm install --package-lock-only --no-audit --no-fund');
                 logger.info(`✅ Regenerated package-lock.json`);
             }
         } catch (error: any) {
@@ -572,9 +572,9 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 
     const summary = `Successfully linked ${linkedPackages.length} package(s): ${linkedPackages.join(', ')}`;
 
-    // Final step: Run npm install in all consuming packages to regenerate package-lock.json files
+    // Final step: Regenerate package-lock.json files in all affected packages without modifying node_modules
     if (!isDryRun) {
-        logger.info(`🔄 Regenerating package-lock.json files in all packages...`);
+        logger.info(`🔄 Regenerating package-lock.json files in all packages (lockfile-only)...`);
 
         // Get all unique consuming packages
         const allConsumingPackages = new Set<string>();
@@ -586,15 +586,15 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
         // Also include the source packages
         packagesToLink.forEach(pkg => allConsumingPackages.add(pkg.path));
 
-        // Run npm install in each package
+        // Run lockfile-only install in each package
         for (const packagePath of allConsumingPackages) {
             try {
                 const originalCwd = process.cwd();
                 process.chdir(packagePath);
 
                 try {
-                    logger.verbose(`Running 'npm install' in: ${packagePath}`);
-                    await run('npm install');
+                    logger.verbose(`Running 'npm install --package-lock-only --no-audit --no-fund' in: ${packagePath}`);
+                    await run('npm install --package-lock-only --no-audit --no-fund');
                     logger.verbose(`✅ Regenerated package-lock.json in: ${packagePath}`);
                 } finally {
                     process.chdir(originalCwd);
@@ -606,7 +606,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 
         logger.info(`✅ Regenerated package-lock.json files in ${allConsumingPackages.size} packages`);
     } else {
-        logger.info(`DRY RUN: Would run 'npm install' to regenerate package-lock.json files in all packages`);
+        logger.info(`DRY RUN: Would run 'npm install --package-lock-only --no-audit --no-fund' to regenerate package-lock.json files in all packages`);
     }
 
     logger.info(summary);
