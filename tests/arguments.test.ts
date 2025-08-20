@@ -707,6 +707,82 @@ describe('Argument Parsing and Configuration', () => {
             const transformed = transformCliArgs(cliArgs, 'tree');
             expect(transformed).toEqual(expectedConfig);
         });
+
+        it('should handle excludedPaths as alias for excludedPatterns (non-tree)', () => {
+            const cliArgs: Input = {
+                excludedPaths: ['*.bak', 'cache/**'],
+            } as any;
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed.excludedPatterns).toEqual(['*.bak', 'cache/**']);
+            expect((transformed as any).tree).toBeUndefined();
+        });
+
+        it('should handle excludedPaths as alias for excludedPatterns (tree command)', () => {
+            const cliArgs: Input = {
+                excludedPaths: ['**/build/**', '**/.cache/**'],
+                directory: '/workspace',
+            } as any;
+
+            const transformed = transformCliArgs(cliArgs, 'tree');
+            expect(transformed.excludedPatterns).toEqual(['**/build/**', '**/.cache/**']);
+            expect(transformed.tree?.exclude).toEqual(['**/build/**', '**/.cache/**']);
+            expect(transformed.tree?.directories).toEqual(['/workspace']);
+        });
+
+        it('should map editorTimeout into review config when provided', () => {
+            const cliArgs: Input = {
+                editorTimeout: 5000,
+                includeCommitHistory: true,
+            } as any;
+
+            const transformed = transformCliArgs(cliArgs, 'review');
+            expect(transformed.review?.editorTimeout).toBe(5000);
+            expect(transformed.review?.includeCommitHistory).toBe(true);
+        });
+
+        it('should propagate OpenAI options into commit when command is commit', () => {
+            const cliArgs: Input = {
+                add: true,
+                openaiReasoning: 'high',
+                openaiMaxOutputTokens: 2048,
+            } as any;
+
+            const transformed = transformCliArgs(cliArgs, 'commit');
+            expect(transformed.commit?.add).toBe(true);
+            expect(transformed.commit?.openaiReasoning).toBe('high');
+            expect(transformed.commit?.openaiMaxOutputTokens).toBe(2048);
+        });
+
+        it('should propagate OpenAI options into audioCommit when audio inputs provided', () => {
+            const cliArgs: Input = {
+                file: '/audio.wav',
+                keepTemp: true,
+                openaiReasoning: 'medium',
+                openaiMaxOutputTokens: 1234,
+            } as any;
+
+            const transformed = transformCliArgs(cliArgs);
+            expect(transformed.audioCommit?.file).toBe('/audio.wav');
+            expect(transformed.audioCommit?.keepTemp).toBe(true);
+            expect(transformed.audioCommit?.openaiReasoning).toBe('medium');
+            expect(transformed.audioCommit?.openaiMaxOutputTokens).toBe(1234);
+        });
+
+        it('should propagate OpenAI options into release when release-related args present', () => {
+            const cliArgs: Input = {
+                from: 'main',
+                to: 'develop',
+                openaiReasoning: 'low',
+                openaiMaxOutputTokens: 4096,
+            } as any;
+
+            const transformed = transformCliArgs(cliArgs, 'release');
+            expect(transformed.release?.from).toBe('main');
+            expect(transformed.release?.to).toBe('develop');
+            expect(transformed.release?.openaiReasoning).toBe('low');
+            expect(transformed.release?.openaiMaxOutputTokens).toBe(4096);
+        });
     });
 
     // Add more describe blocks for other functions like configure, getCliConfig, etc.
@@ -1676,6 +1752,26 @@ describe('Argument Parsing and Configuration', () => {
             const result = InputSchema.parse(configInput);
             expect(result).toEqual(configInput);
         });
+
+        it('should validate editorTimeout and parallel fields', () => {
+            const input = {
+                editorTimeout: 10000,
+                parallel: true,
+            } as any;
+
+            const result = InputSchema.parse(input);
+            expect(result.editorTimeout).toBe(10000);
+            expect(result.parallel).toBe(true);
+        });
+
+        it('should reject invalid types for editorTimeout and parallel', () => {
+            const bad = {
+                editorTimeout: 'not-a-number',
+                parallel: 'yes',
+            } as any;
+
+            expect(() => InputSchema.parse(bad)).toThrow(ZodError);
+        });
     });
 
 
@@ -1981,10 +2077,10 @@ describe('Argument Parsing and Configuration', () => {
                     return mockCommands[cmdName] || mockCommands.commit;
                 }),
                 option: vi.fn().mockReturnThis(),
-                description: vi.fn().mockReturnThis(),
+                configureHelp: vi.fn().mockReturnThis(),
                 parse: vi.fn(),
                 opts: vi.fn().mockReturnValue({}),
-                args: [],
+                args: ['commit'], // Default to commit command
             } as unknown as Command;
         });
 
@@ -3094,6 +3190,19 @@ describe('Argument Parsing and Configuration', () => {
             expect(result.publish?.mergeMethod).toBe(KODRDRIV_DEFAULTS.publish.mergeMethod);
             expect(result.link?.scopeRoots).toEqual(KODRDRIV_DEFAULTS.link.scopeRoots);
             expect(result.tree?.directories).toEqual(KODRDRIV_DEFAULTS.tree.directories);
+        });
+
+        it('should preserve review.editorTimeout and ignore unknown root properties like parallel', async () => {
+            const options: Partial<Config> = {
+                review: {
+                    editorTimeout: 7500,
+                } as any,
+                parallel: true as any,
+            } as any;
+
+            const result = await validateAndProcessOptions(options);
+            expect(result.review?.editorTimeout).toBe(7500);
+            expect((result as any).parallel).toBeUndefined();
         });
     });
 
@@ -4800,6 +4909,135 @@ describe('Argument Parsing and Configuration', () => {
             expect(commandConfig.commandName).toBe('tree');
             expect((cliArgs as any).builtInCommand).toBeUndefined();
             expect((cliArgs as any).packageArgument).toBeUndefined();
+        });
+    });
+
+    describe('help text generation (custom formatters)', () => {
+        it('should execute commit command custom help formatter', async () => {
+            // Build a minimal mock Command API with capture for configureHelp
+            const makeMockCmd = () => {
+                const cmd: any = {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn(function (this: any, cfg: any) {
+                        this.__helpCfg = cfg; // capture
+                        return this;
+                    }),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                };
+                return cmd;
+            };
+
+            const mockCommands: any = {
+                commit: makeMockCmd(),
+                review: makeMockCmd(),
+                release: makeMockCmd(),
+                publish: makeMockCmd(),
+                link: makeMockCmd(),
+                unlink: makeMockCmd(),
+                tree: makeMockCmd(),
+                'audio-commit': makeMockCmd(),
+                'audio-review': makeMockCmd(),
+                clean: makeMockCmd(),
+                development: makeMockCmd(),
+                versions: makeMockCmd(),
+                'select-audio': makeMockCmd(),
+            };
+
+            const mockProgram: any = {
+                command: vi.fn().mockImplementation((name: string) => mockCommands[name] || makeMockCmd()),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['commit'],
+            };
+
+            // Invoke getCliConfig to register commands and help formatters
+            await getCliConfig(mockProgram as unknown as Command);
+
+            // Now execute the captured formatter directly
+            const cfg = mockCommands.commit.__helpCfg;
+            expect(cfg && typeof cfg.formatHelp).toBe('function');
+
+            const helper = {
+                commandUsage: () => 'kodrdriv commit [direction] [options]',
+                commandDescription: () => 'Generate commit notes',
+            } as any;
+            const out = cfg.formatHelp(mockCommands.commit, helper);
+            expect(out).toContain('Commit Message Options');
+            expect(out).toContain('--context <context>');
+            expect(out).toContain('Global Options');
+            expect(out).toContain('OPENAI_API_KEY');
+        });
+
+        it('should execute review command custom help formatter', async () => {
+            const makeMockCmd = () => {
+                const cmd: any = {
+                    option: vi.fn().mockReturnThis(),
+                    description: vi.fn().mockReturnThis(),
+                    argument: vi.fn().mockReturnThis(),
+                    configureHelp: vi.fn(function (this: any, cfg: any) {
+                        this.__helpCfg = cfg; // capture
+                        return this;
+                    }),
+                    opts: vi.fn().mockReturnValue({}),
+                    args: [],
+                };
+                return cmd;
+            };
+
+            const mockCommands: any = {
+                commit: makeMockCmd(),
+                review: makeMockCmd(),
+                release: makeMockCmd(),
+                publish: makeMockCmd(),
+                link: makeMockCmd(),
+                unlink: makeMockCmd(),
+                tree: makeMockCmd(),
+                'audio-commit': makeMockCmd(),
+                'audio-review': makeMockCmd(),
+                clean: makeMockCmd(),
+                development: makeMockCmd(),
+                versions: makeMockCmd(),
+                'select-audio': makeMockCmd(),
+            };
+
+            const mockProgram: any = {
+                command: vi.fn().mockImplementation((name: string) => mockCommands[name] || makeMockCmd()),
+                option: vi.fn().mockReturnThis(),
+                description: vi.fn().mockReturnThis(),
+                parse: vi.fn(),
+                opts: vi.fn().mockReturnValue({}),
+                args: ['review'],
+            };
+
+            await getCliConfig(mockProgram as unknown as Command);
+
+            const cfg = mockCommands.review.__helpCfg;
+            expect(cfg && typeof cfg.formatHelp).toBe('function');
+
+            const helper = {
+                commandUsage: () => 'kodrdriv review [note] [options]',
+                commandDescription: () => 'Analyze review note for project issues using AI',
+            } as any;
+            const out = cfg.formatHelp(mockCommands.review, helper);
+            expect(out).toContain('Arguments:');
+            expect(out).toContain('Git Context Parameters');
+            expect(out).toContain('Global Options');
+            expect(out).toContain('OPENAI_API_KEY');
+        });
+    });
+
+    describe('unlink transformCliArgs error handling', () => {
+        it('should throw error for invalid JSON in unlink scopeRoots', () => {
+            const cliArgs: Input = {
+                scopeRoots: '{invalid}',
+                cleanNodeModules: true,
+            };
+            expect(() => transformCliArgs(cliArgs, 'unlink')).toThrow('Invalid JSON for scope-roots: {invalid}');
         });
     });
 });

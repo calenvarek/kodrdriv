@@ -52,7 +52,12 @@ vi.mock('../../src/logging', () => ({
 }));
 
 vi.mock('../../src/util/validation', () => ({
-    validateReleaseSummary: vi.fn().mockImplementation((data) => data)
+    validateReleaseSummary: vi.fn().mockImplementation((data) => data),
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text))
+}));
+
+vi.mock('../../src/util/github', () => ({
+    getMilestoneIssuesForRelease: vi.fn().mockResolvedValue('')
 }));
 
 vi.mock('../../src/util/general', () => ({
@@ -120,6 +125,7 @@ describe('release command', () => {
     let mockLog: any;
     let mockDiff: any;
     let mockReleasePrompt: any;
+    let mockGithub: any;
 
     beforeAll(async () => {
         Release = await import('../../src/commands/release');
@@ -132,6 +138,7 @@ describe('release command', () => {
         mockLog = await import('../../src/content/log');
         mockDiff = await import('../../src/content/diff');
         mockReleasePrompt = await import('../../src/prompt/release');
+        mockGithub = await import('../../src/util/github');
     });
 
     beforeEach(async () => {
@@ -289,8 +296,43 @@ describe('release command', () => {
     });
 
     describe('Interactive Release Functionality', () => {
+        it('should run the LLM improvement pipeline and apply improved content', async () => {
+            // Seed initial release generation
+            mockOpenai.createCompletionWithRetry.mockResolvedValueOnce({
+                title: 'Base title',
+                body: 'Base body'
+            });
+
+            // Feedback then improved content
+            mockInteractive.getUserChoice
+                .mockResolvedValueOnce('i') // choose improve
+                .mockResolvedValueOnce('c'); // then confirm
+
+            mockInteractive.getLLMFeedbackInEditor.mockResolvedValue('Tighten wording');
+
+            // LLM improvement call returns improved notes
+            mockOpenai.createCompletionWithRetry.mockResolvedValueOnce({
+                title: 'Improved title',
+                body: 'Improved body content'
+            });
+
+            const runConfig = {
+                model: 'gpt-4',
+                release: { interactive: true }
+            };
+
+            const result = await Release.execute(runConfig);
+
+            expect(result).toEqual({ title: 'Improved title', body: 'Improved body content' });
+        });
         it('should handle interactive mode with confirm action', async () => {
             mockInteractive.getUserChoice.mockResolvedValue('c'); // Confirm
+            // Ensure base completion returns baseline content for this test and clear any prior once-queues
+            mockOpenai.createCompletionWithRetry.mockReset();
+            mockOpenai.createCompletionWithRetry.mockResolvedValue({
+                title: 'mock title',
+                body: 'mock body'
+            });
 
             const runConfig = {
                 model: 'gpt-4',
@@ -663,10 +705,98 @@ describe('release command', () => {
 
             await Release.execute(runConfig);
 
-            // Should call truncateDiffByFiles at least once during retries
-            // First retry: 5000 chars > 2048 bytes, so truncation happens
-            // Second retry: 'increasingly truncated diff' (29 chars) < 1024 bytes, so no truncation needed
+            // Should call truncateDiffByFiles at least once during retries.
+            // The retry callback is invoked once within the mocked call, so a single truncation is expected.
             expect(mockDiff.truncateDiffByFiles).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('Milestones Integration', () => {
+        it('should incorporate milestone issues and include versions from package.json and publish target', async () => {
+            // Make storage provide a package.json with a dev version
+            const mockStorageInstance = {
+                ensureDirectory: vi.fn().mockResolvedValue(undefined),
+                writeFile: vi.fn().mockResolvedValue(undefined),
+                readFile: vi.fn().mockResolvedValue('{"name":"pkg","version":"1.2.4-dev.0"}')
+            };
+            mockStorage.create.mockReturnValue(mockStorageInstance);
+
+            // Return milestone content
+            mockGithub.getMilestoneIssuesForRelease.mockResolvedValue('milestone content');
+
+            const runConfig = {
+                model: 'gpt-4',
+                publish: { targetVersion: '1.2.5' }
+            };
+
+            await Release.execute(runConfig);
+
+            expect(mockGithub.getMilestoneIssuesForRelease).toHaveBeenCalledWith(
+                expect.arrayContaining(['1.2.5']),
+                50000
+            );
+
+            // Ensure milestone content flows into prompt
+            expect(mockReleasePrompt.createPrompt).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ milestoneIssues: 'milestone content' }),
+                expect.anything()
+            );
+        });
+
+        it('should skip milestone lookup when disabled', async () => {
+            mockGithub.getMilestoneIssuesForRelease.mockClear();
+
+            const runConfig = {
+                model: 'gpt-4',
+                release: { noMilestones: true }
+            };
+
+            await Release.execute(runConfig);
+
+            expect(mockGithub.getMilestoneIssuesForRelease).not.toHaveBeenCalled();
+        });
+
+        it('should include current non-dev version when present in package.json', async () => {
+            const mockStorageInstance = {
+                ensureDirectory: vi.fn().mockResolvedValue(undefined),
+                writeFile: vi.fn().mockResolvedValue(undefined),
+                readFile: vi.fn().mockResolvedValue('{"name":"pkg","version":"2.0.0"}')
+            };
+            mockStorage.create.mockReturnValue(mockStorageInstance);
+
+            mockGithub.getMilestoneIssuesForRelease.mockResolvedValue('milestone content');
+
+            const runConfig = { model: 'gpt-4' };
+            await Release.execute(runConfig);
+
+            expect(mockGithub.getMilestoneIssuesForRelease).toHaveBeenCalledWith(
+                expect.arrayContaining(['2.0.0']),
+                50000
+            );
+        });
+
+        it('should handle when no milestone issues are found', async () => {
+            const mockStorageInstance = {
+                ensureDirectory: vi.fn().mockResolvedValue(undefined),
+                writeFile: vi.fn().mockResolvedValue(undefined),
+                readFile: vi.fn().mockResolvedValue('{"name":"pkg","version":"1.0.0"}')
+            };
+            mockStorage.create.mockReturnValue(mockStorageInstance);
+
+            // Return empty content to trigger the debug path
+            mockGithub.getMilestoneIssuesForRelease.mockResolvedValue('');
+
+            const runConfig = { model: 'gpt-4' };
+            await Release.execute(runConfig);
+
+            expect(mockGithub.getMilestoneIssuesForRelease).toHaveBeenCalled();
+            // Also ensure prompt still receives structure with empty milestone issues
+            expect(mockReleasePrompt.createPrompt).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ milestoneIssues: '' }),
+                expect.anything()
+            );
         });
     });
 
