@@ -171,6 +171,12 @@ const updateInterProjectDependencies = async (
         for (const publishedVersion of publishedVersions) {
             const { packageName, version } = publishedVersion;
 
+            // Do not propagate prerelease versions to consumers (often not available on registry)
+            if (typeof version === 'string' && version.includes('-')) {
+                packageLogger.verbose(`Skipping prerelease version for ${packageName}: ${version}`);
+                continue;
+            }
+
             // Only update if this is an inter-project dependency (exists in our build tree)
             if (!allPackageNames.has(packageName)) {
                 continue;
