@@ -153,12 +153,12 @@ Before starting any release work, the command performs several critical validati
 1. **Existing Pull Request Check**: Checks if there's already an open pull request for the current release branch. If found, skips directly to waiting for checks.
 
 2. **Release Preparation** (if no existing PR):
-   - **Dependency Updates**: Runs `npm update` to ensure dependencies are up to date
+   - **No changes before checks**: The command performs no writes until it has confirmed a release is necessary
+   - **Dependency Updates (pre-flight)**: Runs `npm update` first, before any version bump
    - You can configure specific dependency patterns to update using the `dependencyUpdatePatterns` configuration option
-   - Stages changes to `package.json` and `package-lock.json`
-   - Runs the `prepublishOnly` script (your pre-flight checks like clean, lint, build, test)
-   - Creates a commit for dependency updates (only if there are staged changes)
-   - **Version Bump**: Manually increments the patch version in package.json and creates a separate commit
+   - Stages and commits dependency updates to `package.json` and `package-lock.json` if present
+   - **Prepublish Checks**: Runs the `prepublishOnly` script (clean, lint, build, test). If this fails, no version change has occurred
+   - **Version Bump (separate commit)**: After checks pass, increments the version in `package.json` and commits it separately
    - **Release Notes**: Generates release notes and saves them to `RELEASE_NOTES.md` and `RELEASE_TITLE.md` in the output directory
 
 3. **Pull Request Creation**:
@@ -181,7 +181,7 @@ Before starting any release work, the command performs several critical validati
 
 This command is designed for repositories that follow a pull-request-based release workflow with or without status checks. It automatically handles repositories that have no CI/CD configured and streamlines the process, reducing manual steps and potential for error.
 
-## Release Necessity Check
+## Release Necessity Check and Skips
 
 Before performing any heavy operations, `kodrdriv publish` evaluates whether a release is necessary by comparing the current branch to the configured `targetBranch` (default: `main`).
 
@@ -190,6 +190,8 @@ Before performing any heavy operations, `kodrdriv publish` evaluates whether a r
 - **Conservative defaults**: If the tool cannot conclusively compare changes, it proceeds with publish to avoid missing a required release.
 
 This allows pre-release version bumps without forcing a full publish when there are no substantive changes.
+
+When a release is skipped, the command emits a machine-readable line `KODRDRIV_PUBLISH_SKIPPED` on stdout. In tree mode, this prevents propagating a version for the skipped package to dependents.
 
 ## Workflow and Status Check Management
 

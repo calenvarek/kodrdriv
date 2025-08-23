@@ -750,6 +750,7 @@ const executePackage = async (
 
                 // For built-in commands, shell out to a separate kodrdriv process
                 // This preserves individual project configurations
+                let publishWasSkipped: boolean | undefined;
                 if (isBuiltInCommand) {
                     // Extract the command name from "kodrdriv <command>"
                     const builtInCommandName = commandToRun.replace('kodrdriv ', '');
@@ -761,7 +762,12 @@ const executePackage = async (
                         ? `${commandToRun} --dry-run`
                         : commandToRun;
                     // Use runWithLogging for built-in commands to capture all output
-                    await runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
+                    const { stdout } = await runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
+                    // Detect explicit skip marker from publish to avoid propagating versions
+                    if (builtInCommandName === 'publish' && stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) {
+                        packageLogger.info('Publish skipped for this package; will not record or propagate a version.');
+                        publishWasSkipped = true;
+                    }
                 } else {
                     // For custom commands, use the existing logic
                     await runWithLogging(commandToRun, packageLogger, {}, showOutput);
@@ -769,21 +775,27 @@ const executePackage = async (
 
                 // Track published version after successful publish (skip during dry run)
                 if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish')) {
-                    const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
-                    if (publishedVersion) {
-                        let mutexLocked = false;
-                        try {
-                            await globalStateMutex.lock();
-                            mutexLocked = true;
-                            publishedVersions.push(publishedVersion);
-                            packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
-                            globalStateMutex.unlock();
-                            mutexLocked = false;
-                        } catch (error) {
-                            if (mutexLocked) {
+                    // If publish was skipped, do not record a version
+                    if (publishWasSkipped) {
+                        packageLogger.verbose('Skipping version tracking due to earlier skip.');
+                    } else {
+                        // Only record a published version if a new tag exists (avoid recording for skipped publishes)
+                        const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
+                        if (publishedVersion) {
+                            let mutexLocked = false;
+                            try {
+                                await globalStateMutex.lock();
+                                mutexLocked = true;
+                                publishedVersions.push(publishedVersion);
+                                packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
                                 globalStateMutex.unlock();
+                                mutexLocked = false;
+                            } catch (error) {
+                                if (mutexLocked) {
+                                    globalStateMutex.unlock();
+                                }
+                                throw error;
                             }
-                            throw error;
                         }
                     }
                 }
