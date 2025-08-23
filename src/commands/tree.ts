@@ -973,14 +973,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
         if (startFrom) {
             logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Looking for start package: ${startFrom}`);
 
-            // Find the package that matches the startFrom directory name
-            const startIndex = buildOrder.findIndex(packageName => {
-                const packageInfo = dependencyGraph.packages.get(packageName)!;
-                const dirName = path.basename(packageInfo.path);
-                return dirName === startFrom || packageName === startFrom;
-            });
+            // Resolve the actual package name (can be package name or directory name)
+            let startPackageName: string | null = null;
+            for (const [pkgName, pkgInfo] of dependencyGraph.packages) {
+                const dirName = path.basename(pkgInfo.path);
+                if (dirName === startFrom || pkgName === startFrom) {
+                    startPackageName = pkgName;
+                    break;
+                }
+            }
 
-            if (startIndex === -1) {
+            if (!startPackageName) {
                 // Check if the package exists but was excluded across all directories
                 let allPackageJsonPathsForCheck: string[] = [];
                 for (const targetDirectory of directories) {
@@ -1020,12 +1023,62 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            const skippedCount = startIndex;
-            buildOrder = buildOrder.slice(startIndex);
-
-            if (skippedCount > 0) {
-                logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Resuming from '${startFrom}' - skipping ${skippedCount} package${skippedCount === 1 ? '' : 's'}`);
+            // Build reverse dependency map (who depends on whom)
+            const reverseEdges = new Map<string, Set<string>>();
+            for (const [pkg, deps] of dependencyGraph.edges) {
+                for (const dep of deps) {
+                    if (!reverseEdges.has(dep)) reverseEdges.set(dep, new Set<string>());
+                    reverseEdges.get(dep)!.add(pkg);
+                }
+                if (!reverseEdges.has(pkg)) reverseEdges.set(pkg, new Set<string>());
             }
+
+            // Step 1: collect the start package and all its transitive dependents (consumers)
+            const dependentsClosure = new Set<string>();
+            const queueDependents: string[] = [startPackageName!];
+            while (queueDependents.length > 0) {
+                const current = queueDependents.shift()!;
+                if (dependentsClosure.has(current)) continue;
+                dependentsClosure.add(current);
+                const consumers = reverseEdges.get(current) || new Set<string>();
+                for (const consumer of consumers) {
+                    if (!dependentsClosure.has(consumer)) queueDependents.push(consumer);
+                }
+            }
+
+            // Step 2: expand to include all forward dependencies required to build those packages
+            const relevantPackages = new Set<string>(dependentsClosure);
+            const queueDependencies: string[] = Array.from(relevantPackages);
+            while (queueDependencies.length > 0) {
+                const current = queueDependencies.shift()!;
+                const deps = dependencyGraph.edges.get(current) || new Set<string>();
+                for (const dep of deps) {
+                    if (!relevantPackages.has(dep)) {
+                        relevantPackages.add(dep);
+                        queueDependencies.push(dep);
+                    }
+                }
+            }
+
+            // Filter graph to only relevant packages
+            const filteredGraph: DependencyGraph = {
+                packages: new Map<string, PackageInfo>(),
+                edges: new Map<string, Set<string>>()
+            };
+            for (const pkgName of relevantPackages) {
+                const info = dependencyGraph.packages.get(pkgName)!;
+                filteredGraph.packages.set(pkgName, info);
+                const deps = dependencyGraph.edges.get(pkgName) || new Set<string>();
+                const filteredDeps = new Set<string>();
+                for (const dep of deps) {
+                    if (relevantPackages.has(dep)) filteredDeps.add(dep);
+                }
+                filteredGraph.edges.set(pkgName, filteredDeps);
+            }
+
+            // Recompute build order for the filtered subgraph
+            buildOrder = topologicalSort(filteredGraph);
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Limiting scope to '${startFrom}' and its dependencies (${buildOrder.length} package${buildOrder.length === 1 ? '' : 's'}).`);
         }
 
         // Handle stop-at functionality if specified

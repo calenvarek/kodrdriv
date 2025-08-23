@@ -181,6 +181,16 @@ Before starting any release work, the command performs several critical validati
 
 This command is designed for repositories that follow a pull-request-based release workflow with or without status checks. It automatically handles repositories that have no CI/CD configured and streamlines the process, reducing manual steps and potential for error.
 
+## Release Necessity Check
+
+Before performing any heavy operations, `kodrdriv publish` evaluates whether a release is necessary by comparing the current branch to the configured `targetBranch` (default: `main`).
+
+- **Skip rule**: If the only detected change is the `version` field in `package.json` (with optional `package-lock.json` updates), the publish process is skipped.
+- **Proceed rule**: Any other file changes, or any other `package.json` changes beyond `version`, will proceed with the publish workflow.
+- **Conservative defaults**: If the tool cannot conclusively compare changes, it proceeds with publish to avoid missing a required release.
+
+This allows pre-release version bumps without forcing a full publish when there are no substantive changes.
+
 ## Workflow and Status Check Management
 
 The publish command intelligently manages GitHub Actions workflows and status checks throughout the release process:
