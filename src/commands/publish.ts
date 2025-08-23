@@ -210,6 +210,72 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     logger.info('All prechecks passed.');
 };
 
+// Helper: deep-sort object keys for stable comparison
+const sortObjectKeys = (value: any): any => {
+    if (Array.isArray(value)) {
+        return value.map(sortObjectKeys);
+    }
+    if (value && typeof value === 'object') {
+        const sorted: any = {};
+        Object.keys(value).sort().forEach((key) => {
+            sorted[key] = sortObjectKeys(value[key]);
+        });
+        return sorted;
+    }
+    return value;
+};
+
+// Determine if there are substantive changes compared to the target branch (beyond just version bump)
+const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun: boolean): Promise<{ necessary: boolean; reason: string }> => {
+    const logger = getDryRunLogger(isDryRun);
+
+    // We compare current HEAD branch to the provided target branch
+    const currentBranch = await GitHub.getCurrentBranchName();
+
+    // If branches are identical, nothing to release
+    const { stdout: namesStdout } = await runSecure('git', ['diff', '--name-only', `${targetBranch}..${currentBranch}`]);
+    const changedFiles = namesStdout.split('\n').map(s => s.trim()).filter(Boolean);
+
+    if (changedFiles.length === 0) {
+        // No definitive signal; proceed with publish rather than skipping
+        return { necessary: true, reason: 'No detectable changes via diff; proceeding conservatively' };
+    }
+
+    // If any files changed other than package.json or package-lock.json, a release is necessary
+    const nonVersionFiles = changedFiles.filter(f => f !== 'package.json' && f !== 'package-lock.json');
+    if (nonVersionFiles.length > 0) {
+        return { necessary: true, reason: `Changed files beyond version bump: ${nonVersionFiles.join(', ')}` };
+    }
+
+    // Only package.json and/or package-lock.json changed. Verify package.json change is only the version field
+    try {
+        // Read package.json content from both branches
+        const { stdout: basePkgStdout } = await runSecure('git', ['show', `${targetBranch}:package.json`]);
+        const { stdout: headPkgStdout } = await runSecure('git', ['show', `${currentBranch}:package.json`]);
+
+        const basePkg = validatePackageJson(safeJsonParse(basePkgStdout, `${targetBranch}:package.json`), `${targetBranch}:package.json`);
+        const headPkg = validatePackageJson(safeJsonParse(headPkgStdout, `${currentBranch}:package.json`), `${currentBranch}:package.json`);
+
+        const { version: _baseVersion, ...baseWithoutVersion } = basePkg;
+        const { version: _headVersion, ...headWithoutVersion } = headPkg;
+
+        const baseSorted = sortObjectKeys(baseWithoutVersion);
+        const headSorted = sortObjectKeys(headWithoutVersion);
+
+        const equalExceptVersion = JSON.stringify(baseSorted) === JSON.stringify(headSorted);
+        if (equalExceptVersion) {
+            return { necessary: false, reason: 'Only version changed in package.json (plus lockfile)' };
+        }
+
+        // Other fields changed inside package.json
+        return { necessary: true, reason: 'package.json changes beyond version field' };
+    } catch (error: any) {
+        // Conservative: if we cannot prove it is only a version change, proceed with release
+        logger.verbose(`Could not conclusively compare package.json changes: ${error.message}`);
+        return { necessary: true, reason: 'Could not compare package.json safely' };
+    }
+};
+
 const handleTargetBranchSyncRecovery = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
@@ -257,6 +323,22 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     // Run prechecks before starting any work
     await runPrechecks(runConfig);
+
+    // Early check: determine if a release is necessary compared to target branch
+    logger.info('Evaluating if a release is necessary compared to target branch...');
+    try {
+        const necessity = await isReleaseNecessaryComparedToTarget(targetBranch, isDryRun);
+        if (!necessity.necessary) {
+            logger.info(`Skipping publish: ${necessity.reason}.`);
+            // Exit early – at tree level this will be treated as success and current version will be recorded
+            return;
+        } else {
+            logger.verbose(`Proceeding with publish: ${necessity.reason}.`);
+        }
+    } catch (error: any) {
+        // On unexpected errors, proceed with publish to avoid false negatives blocking releases
+        logger.verbose(`Release necessity check encountered an issue (${error.message}). Proceeding with publish.`);
+    }
 
     logger.info('Starting release process...');
 
