@@ -69,7 +69,10 @@ For detailed documentation of built-in commands, see [Tree Built-in Commands](tr
 
 - `[command]`: Built-in kodrdriv command to execute (`commit`, `publish`, `link`, `unlink`, `branches`)
 - `--directories [directories...]`: Target directories containing multiple packages (defaults to current directory). Multiple directories can be specified to analyze dependencies across separate directory trees. This option replaces the previous `--directory` option and enables analysis across multiple directory structures.
-- `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
+- `--start-from <startFrom>`: Scope execution to the specified package and its related subgraph.
+  - Includes the specified package and all transitive dependents (packages that consume it, and their consumers, etc.)
+  - Also includes all transitive dependencies required to build those packages
+  - Prevents rebuilding unrelated packages when focusing on a subset
 - `--stop-at <stopAt>`: Stop execution before this package directory name (the specified package will not be executed)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
 
@@ -205,12 +208,21 @@ kodrdriv tree --cmd "npm test"
 
 
 
-### Resume from Failed Package
+### Scoped Builds and Resume
 
 If a command fails, resume from the failed package:
 
 ```bash
-# Resume built-in commands
+# Scoped builds with start-from
+# Example: a depends on b, b depends on c, d is independent
+
+# Build only the subgraph related to b (c → b → a)
+kodrdriv tree --start-from b --cmd "npm run build"
+
+# Combine with stop-at to cut before a (executes c → b only)
+kodrdriv tree --start-from b --stop-at a --cmd "npm run build"
+
+# Resume built-in commands from a failed package within the scoped subgraph
 kodrdriv tree commit --start-from my-package
 kodrdriv tree publish --start-from my-package
 

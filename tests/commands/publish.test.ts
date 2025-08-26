@@ -2229,6 +2229,62 @@ cache=\${CACHE_DIR}/npm
         });
     });
 
+    describe('release necessity detection', () => {
+        it('should skip publish when only package.json version changed compared to target branch', async () => {
+            const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
+
+            const targetBranch = 'main';
+            const currentBranch = 'release/1.0.1';
+
+            // Branch name
+            GitHub.getCurrentBranchName.mockResolvedValue(currentBranch);
+
+            // Prechecks
+            mockStorage.exists.mockImplementation((p: string) => p.includes('package.json') ? Promise.resolve(true) : Promise.resolve(false));
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
+                        version: '1.0.1',
+                        scripts: { prepublishOnly: 'npm test' }
+                    }));
+                }
+                return Promise.resolve('');
+            });
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            // Diff shows only package.json changed
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key === `diff --name-only ${targetBranch}..${currentBranch}`) {
+                    return { stdout: 'package.json\n' } as any;
+                }
+                if (key === `show ${targetBranch}:package.json`) {
+                    return { stdout: JSON.stringify({ name: 'test-package', version: '1.0.0', scripts: { prepublishOnly: 'npm test' } }) } as any;
+                }
+                if (key === `show ${currentBranch}:package.json`) {
+                    return { stdout: JSON.stringify({ name: 'test-package', version: '1.0.1', scripts: { prepublishOnly: 'npm test' } }) } as any;
+                }
+                return { stdout: '' } as any;
+            });
+
+            // Act
+            await Publish.execute(mockConfig);
+
+            // Assert: should have returned early and not attempt publish steps
+            expect(Commit.execute).not.toHaveBeenCalled();
+            expect(Release.execute).not.toHaveBeenCalled();
+            expect(GitHub.createPullRequest).not.toHaveBeenCalled();
+            expect(GitHub.waitForPullRequestChecks).not.toHaveBeenCalled();
+            expect(GitHub.mergePullRequest).not.toHaveBeenCalled();
+            expect(GitHub.createRelease).not.toHaveBeenCalled();
+        });
+    });
+
     describe('tag creation edge cases', () => {
         it('should create tag even if local tag check fails', async () => {
             const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
