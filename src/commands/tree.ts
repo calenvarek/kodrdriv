@@ -171,6 +171,12 @@ const updateInterProjectDependencies = async (
         for (const publishedVersion of publishedVersions) {
             const { packageName, version } = publishedVersion;
 
+            // Do not propagate prerelease versions to consumers (often not available on registry)
+            if (typeof version === 'string' && version.includes('-')) {
+                packageLogger.verbose(`Skipping prerelease version for ${packageName}: ${version}`);
+                continue;
+            }
+
             // Only update if this is an inter-project dependency (exists in our build tree)
             if (!allPackageNames.has(packageName)) {
                 continue;
@@ -750,6 +756,7 @@ const executePackage = async (
 
                 // For built-in commands, shell out to a separate kodrdriv process
                 // This preserves individual project configurations
+                let publishWasSkipped: boolean | undefined;
                 if (isBuiltInCommand) {
                     // Extract the command name from "kodrdriv <command>"
                     const builtInCommandName = commandToRun.replace('kodrdriv ', '');
@@ -761,7 +768,12 @@ const executePackage = async (
                         ? `${commandToRun} --dry-run`
                         : commandToRun;
                     // Use runWithLogging for built-in commands to capture all output
-                    await runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
+                    const { stdout } = await runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
+                    // Detect explicit skip marker from publish to avoid propagating versions
+                    if (builtInCommandName === 'publish' && stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) {
+                        packageLogger.info('Publish skipped for this package; will not record or propagate a version.');
+                        publishWasSkipped = true;
+                    }
                 } else {
                     // For custom commands, use the existing logic
                     await runWithLogging(commandToRun, packageLogger, {}, showOutput);
@@ -769,21 +781,27 @@ const executePackage = async (
 
                 // Track published version after successful publish (skip during dry run)
                 if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish')) {
-                    const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
-                    if (publishedVersion) {
-                        let mutexLocked = false;
-                        try {
-                            await globalStateMutex.lock();
-                            mutexLocked = true;
-                            publishedVersions.push(publishedVersion);
-                            packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
-                            globalStateMutex.unlock();
-                            mutexLocked = false;
-                        } catch (error) {
-                            if (mutexLocked) {
+                    // If publish was skipped, do not record a version
+                    if (publishWasSkipped) {
+                        packageLogger.verbose('Skipping version tracking due to earlier skip.');
+                    } else {
+                        // Only record a published version if a new tag exists (avoid recording for skipped publishes)
+                        const publishedVersion = await extractPublishedVersion(packageDir, packageLogger);
+                        if (publishedVersion) {
+                            let mutexLocked = false;
+                            try {
+                                await globalStateMutex.lock();
+                                mutexLocked = true;
+                                publishedVersions.push(publishedVersion);
+                                packageLogger.info(`Tracked published version: ${publishedVersion.packageName}@${publishedVersion.version}`);
                                 globalStateMutex.unlock();
+                                mutexLocked = false;
+                            } catch (error) {
+                                if (mutexLocked) {
+                                    globalStateMutex.unlock();
+                                }
+                                throw error;
                             }
-                            throw error;
                         }
                     }
                 }
@@ -973,14 +991,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
         if (startFrom) {
             logger.verbose(`${isDryRun ? 'DRY RUN: ' : ''}Looking for start package: ${startFrom}`);
 
-            // Find the package that matches the startFrom directory name
-            const startIndex = buildOrder.findIndex(packageName => {
-                const packageInfo = dependencyGraph.packages.get(packageName)!;
-                const dirName = path.basename(packageInfo.path);
-                return dirName === startFrom || packageName === startFrom;
-            });
+            // Resolve the actual package name (can be package name or directory name)
+            let startPackageName: string | null = null;
+            for (const [pkgName, pkgInfo] of dependencyGraph.packages) {
+                const dirName = path.basename(pkgInfo.path);
+                if (dirName === startFrom || pkgName === startFrom) {
+                    startPackageName = pkgName;
+                    break;
+                }
+            }
 
-            if (startIndex === -1) {
+            if (!startPackageName) {
                 // Check if the package exists but was excluded across all directories
                 let allPackageJsonPathsForCheck: string[] = [];
                 for (const targetDirectory of directories) {
@@ -1020,12 +1041,62 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            const skippedCount = startIndex;
-            buildOrder = buildOrder.slice(startIndex);
-
-            if (skippedCount > 0) {
-                logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Resuming from '${startFrom}' - skipping ${skippedCount} package${skippedCount === 1 ? '' : 's'}`);
+            // Build reverse dependency map (who depends on whom)
+            const reverseEdges = new Map<string, Set<string>>();
+            for (const [pkg, deps] of dependencyGraph.edges) {
+                for (const dep of deps) {
+                    if (!reverseEdges.has(dep)) reverseEdges.set(dep, new Set<string>());
+                    reverseEdges.get(dep)!.add(pkg);
+                }
+                if (!reverseEdges.has(pkg)) reverseEdges.set(pkg, new Set<string>());
             }
+
+            // Step 1: collect the start package and all its transitive dependents (consumers)
+            const dependentsClosure = new Set<string>();
+            const queueDependents: string[] = [startPackageName!];
+            while (queueDependents.length > 0) {
+                const current = queueDependents.shift()!;
+                if (dependentsClosure.has(current)) continue;
+                dependentsClosure.add(current);
+                const consumers = reverseEdges.get(current) || new Set<string>();
+                for (const consumer of consumers) {
+                    if (!dependentsClosure.has(consumer)) queueDependents.push(consumer);
+                }
+            }
+
+            // Step 2: expand to include all forward dependencies required to build those packages
+            const relevantPackages = new Set<string>(dependentsClosure);
+            const queueDependencies: string[] = Array.from(relevantPackages);
+            while (queueDependencies.length > 0) {
+                const current = queueDependencies.shift()!;
+                const deps = dependencyGraph.edges.get(current) || new Set<string>();
+                for (const dep of deps) {
+                    if (!relevantPackages.has(dep)) {
+                        relevantPackages.add(dep);
+                        queueDependencies.push(dep);
+                    }
+                }
+            }
+
+            // Filter graph to only relevant packages
+            const filteredGraph: DependencyGraph = {
+                packages: new Map<string, PackageInfo>(),
+                edges: new Map<string, Set<string>>()
+            };
+            for (const pkgName of relevantPackages) {
+                const info = dependencyGraph.packages.get(pkgName)!;
+                filteredGraph.packages.set(pkgName, info);
+                const deps = dependencyGraph.edges.get(pkgName) || new Set<string>();
+                const filteredDeps = new Set<string>();
+                for (const dep of deps) {
+                    if (relevantPackages.has(dep)) filteredDeps.add(dep);
+                }
+                filteredGraph.edges.set(pkgName, filteredDeps);
+            }
+
+            // Recompute build order for the filtered subgraph
+            buildOrder = topologicalSort(filteredGraph);
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Limiting scope to '${startFrom}' and its dependencies (${buildOrder.length} package${buildOrder.length === 1 ? '' : 's'}).`);
         }
 
         // Handle stop-at functionality if specified

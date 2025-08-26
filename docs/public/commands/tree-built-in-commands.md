@@ -79,6 +79,7 @@ Executes publish operations across all packages in dependency order.
 - Runs `kodrdriv publish` in each package directory
 - Ensures dependencies are published before dependents
 - Uses each package's individual publish configuration
+ - Skips a package if only the `package.json` version changed compared to the target branch; in that case the package is still marked successful and its current version is recorded for inter-project dependency updates
 
 **Usage:**
 ```bash

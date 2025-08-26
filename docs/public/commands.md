@@ -651,7 +651,10 @@ The `tree` command is designed for workspace environments where you have multipl
 ### Tree Command Options
 
 - `--directory <directory>`: Target directory containing multiple packages (defaults to current directory)
-- `--start-from <startFrom>`: Resume execution from this package directory name (useful for restarting failed operations)
+- `--start-from <startFrom>`: Scope execution to the specified package and its related subgraph. When provided, tree limits execution to:
+  - The specified package and all of its transitive dependents (packages that consume it, and those packages' consumers, etc.)
+  - Plus all transitive dependencies required to build those packages.
+  This prevents rebuilding unrelated packages when you only need to work on a subset.
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
 - `--exclude [excludedPatterns...]`: Patterns to exclude packages from processing (e.g., `"**/node_modules/**"`, `"dist/*"`)
 
@@ -716,6 +719,18 @@ You can configure tree behavior in your `.kodrdriv/config.json` file:
 
   }
 }
+```
+
+**Scoped builds with --start-from:**
+```bash
+# Given: a depends on b, b depends on c, and d is independent
+
+# Build only the subgraph related to b (c → b → a), skipping d
+kodrdriv tree --start-from b --cmd "npm run build"
+
+# Combine with --stop-at to cut before a
+kodrdriv tree --start-from b --stop-at a --cmd "npm run build"
+# Executes: c → b
 ```
 
 **Configuration Options:**

@@ -210,6 +210,72 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
     logger.info('All prechecks passed.');
 };
 
+// Helper: deep-sort object keys for stable comparison
+const sortObjectKeys = (value: any): any => {
+    if (Array.isArray(value)) {
+        return value.map(sortObjectKeys);
+    }
+    if (value && typeof value === 'object') {
+        const sorted: any = {};
+        Object.keys(value).sort().forEach((key) => {
+            sorted[key] = sortObjectKeys(value[key]);
+        });
+        return sorted;
+    }
+    return value;
+};
+
+// Determine if there are substantive changes compared to the target branch (beyond just version bump)
+const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun: boolean): Promise<{ necessary: boolean; reason: string }> => {
+    const logger = getDryRunLogger(isDryRun);
+
+    // We compare current HEAD branch to the provided target branch
+    const currentBranch = await GitHub.getCurrentBranchName();
+
+    // If branches are identical, nothing to release
+    const { stdout: namesStdout } = await runSecure('git', ['diff', '--name-only', `${targetBranch}..${currentBranch}`]);
+    const changedFiles = namesStdout.split('\n').map(s => s.trim()).filter(Boolean);
+
+    if (changedFiles.length === 0) {
+        // No definitive signal; proceed with publish rather than skipping
+        return { necessary: true, reason: 'No detectable changes via diff; proceeding conservatively' };
+    }
+
+    // If any files changed other than package.json or package-lock.json, a release is necessary
+    const nonVersionFiles = changedFiles.filter(f => f !== 'package.json' && f !== 'package-lock.json');
+    if (nonVersionFiles.length > 0) {
+        return { necessary: true, reason: `Changed files beyond version bump: ${nonVersionFiles.join(', ')}` };
+    }
+
+    // Only package.json and/or package-lock.json changed. Verify package.json change is only the version field
+    try {
+        // Read package.json content from both branches
+        const { stdout: basePkgStdout } = await runSecure('git', ['show', `${targetBranch}:package.json`]);
+        const { stdout: headPkgStdout } = await runSecure('git', ['show', `${currentBranch}:package.json`]);
+
+        const basePkg = validatePackageJson(safeJsonParse(basePkgStdout, `${targetBranch}:package.json`), `${targetBranch}:package.json`);
+        const headPkg = validatePackageJson(safeJsonParse(headPkgStdout, `${currentBranch}:package.json`), `${currentBranch}:package.json`);
+
+        const { version: _baseVersion, ...baseWithoutVersion } = basePkg;
+        const { version: _headVersion, ...headWithoutVersion } = headPkg;
+
+        const baseSorted = sortObjectKeys(baseWithoutVersion);
+        const headSorted = sortObjectKeys(headWithoutVersion);
+
+        const equalExceptVersion = JSON.stringify(baseSorted) === JSON.stringify(headSorted);
+        if (equalExceptVersion) {
+            return { necessary: false, reason: 'Only version changed in package.json (plus lockfile)' };
+        }
+
+        // Other fields changed inside package.json
+        return { necessary: true, reason: 'package.json changes beyond version field' };
+    } catch (error: any) {
+        // Conservative: if we cannot prove it is only a version change, proceed with release
+        logger.verbose(`Could not conclusively compare package.json changes: ${error.message}`);
+        return { necessary: true, reason: 'Could not compare package.json safely' };
+    }
+};
+
 const handleTargetBranchSyncRecovery = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
@@ -258,6 +324,23 @@ export const execute = async (runConfig: Config): Promise<void> => {
     // Run prechecks before starting any work
     await runPrechecks(runConfig);
 
+    // Early check: determine if a release is necessary compared to target branch
+    logger.info('Evaluating if a release is necessary compared to target branch...');
+    try {
+        const necessity = await isReleaseNecessaryComparedToTarget(targetBranch, isDryRun);
+        if (!necessity.necessary) {
+            logger.info(`Skipping publish: ${necessity.reason}.`);
+            // Emit a machine-readable marker so tree mode can detect skip and avoid propagating versions
+            logger.info('KODRDRIV_PUBLISH_SKIPPED');
+            return;
+        } else {
+            logger.verbose(`Proceeding with publish: ${necessity.reason}.`);
+        }
+    } catch (error: any) {
+        // On unexpected errors, proceed with publish to avoid false negatives blocking releases
+        logger.verbose(`Release necessity check encountered an issue (${error.message}). Proceeding with publish.`);
+    }
+
     logger.info('Starting release process...');
 
 
@@ -276,53 +359,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
     } else {
         logger.info('No open pull request found, starting new release publishing process...');
 
-        // STEP 1: Determine and set target version FIRST (before any commits)
-        logger.info('Determining target version...');
-        let newVersion: string;
-
-        if (isDryRun) {
-            logger.info('Would determine target version and update package.json');
-            newVersion = '1.0.0'; // Mock version for dry run
-        } else {
-            const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-            const parsed = safeJsonParse(packageJsonContents, 'package.json');
-            const packageJson = validatePackageJson(parsed, 'package.json');
-            const currentVersion = packageJson.version;
-
-            // Determine target version based on --targetVersion option
-            const targetVersionInput = runConfig.publish?.targetVersion || 'patch';
-            const proposedVersion = calculateTargetVersion(currentVersion, targetVersionInput);
-
-            // Check if target tag already exists
-            const targetTagName = `v${proposedVersion}`;
-            const tagExists = await checkIfTagExists(targetTagName);
-            if (tagExists) {
-                throw new Error(`Tag ${targetTagName} already exists. Please choose a different version or delete the existing tag.`);
-            }
-
-            // Interactive confirmation if --interactive flag is set
-            if (runConfig.publish?.interactive) {
-                newVersion = await confirmVersionInteractively(currentVersion, proposedVersion, targetVersionInput);
-
-                // Re-check if the confirmed version's tag exists (in case user entered custom version)
-                const confirmedTagName = `v${newVersion}`;
-                const confirmedTagExists = await checkIfTagExists(confirmedTagName);
-                if (confirmedTagExists) {
-                    throw new Error(`Tag ${confirmedTagName} already exists. Please choose a different version or delete the existing tag.`);
-                }
-            } else {
-                newVersion = proposedVersion;
-            }
-
-            logger.info(`Bumping version from ${currentVersion} to ${newVersion}`);
-
-            // Update package.json with the new version BEFORE any other operations
-            packageJson.version = newVersion;
-            await storage.writeFile('package.json', JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
-            logger.info(`Version updated in package.json: ${newVersion}`);
-        }
-
-        // STEP 2: Prepare for release (with correct version now in package.json)
+        // STEP 1: Prepare for release (update dependencies and run prepublish checks) with NO version bump yet
         logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
 
         logger.verbose('Updating dependencies to latest versions from registry');
@@ -339,21 +376,73 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info('Running prepublishOnly script...');
         await runWithDryRunSupport('npm run prepublishOnly', isDryRun, {}, true); // Use inherited stdio
 
-        // STEP 3: Stage all changes (version bump + dependencies + any build artifacts)
-        logger.verbose('Staging all changes for release commit');
+        // STEP 2: Commit dependency updates if any (still no version bump)
+        logger.verbose('Staging dependency updates for commit');
         await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
 
-        logger.verbose('Checking for staged changes...');
+        logger.verbose('Checking for staged dependency updates...');
         if (isDryRun) {
-            logger.verbose('Assuming staged changes exist for demo purposes');
-            logger.verbose('Would create commit...');
-            await Commit.execute(runConfig);
+            logger.verbose('Would create dependency update commit if changes are staged');
         } else {
             if (await Diff.hasStagedChanges()) {
-                logger.verbose('Staged changes found, creating commit...');
+                logger.verbose('Staged dependency changes found, creating commit...');
                 await Commit.execute(runConfig);
             } else {
-                logger.verbose('No changes to commit, skipping commit.');
+                logger.verbose('No dependency changes to commit, skipping commit.');
+            }
+        }
+
+        // STEP 3: Determine and set target version AFTER checks and dependency commit
+        logger.info('Determining target version...');
+        let newVersion: string;
+
+        if (isDryRun) {
+            logger.info('Would determine target version and update package.json');
+            newVersion = '1.0.0'; // Mock version for dry run
+        } else {
+            const packageJsonContents = await storage.readFile('package.json', 'utf-8');
+            const parsed = safeJsonParse(packageJsonContents, 'package.json');
+            const packageJson = validatePackageJson(parsed, 'package.json');
+            const currentVersion = packageJson.version;
+
+            const targetVersionInput = runConfig.publish?.targetVersion || 'patch';
+            const proposedVersion = calculateTargetVersion(currentVersion, targetVersionInput);
+
+            const targetTagName = `v${proposedVersion}`;
+            const tagExists = await checkIfTagExists(targetTagName);
+            if (tagExists) {
+                throw new Error(`Tag ${targetTagName} already exists. Please choose a different version or delete the existing tag.`);
+            }
+
+            if (runConfig.publish?.interactive) {
+                newVersion = await confirmVersionInteractively(currentVersion, proposedVersion, targetVersionInput);
+                const confirmedTagName = `v${newVersion}`;
+                const confirmedTagExists = await checkIfTagExists(confirmedTagName);
+                if (confirmedTagExists) {
+                    throw new Error(`Tag ${confirmedTagName} already exists. Please choose a different version or delete the existing tag.`);
+                }
+            } else {
+                newVersion = proposedVersion;
+            }
+
+            logger.info(`Bumping version from ${currentVersion} to ${newVersion}`);
+            packageJson.version = newVersion;
+            await storage.writeFile('package.json', JSON.stringify(packageJson, null, 2) + '\n', 'utf-8');
+            logger.info(`Version updated in package.json: ${newVersion}`);
+        }
+
+        // STEP 4: Commit version bump as a separate commit
+        logger.verbose('Staging version bump for commit');
+        await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
+
+        if (isDryRun) {
+            logger.verbose('Would create version bump commit');
+        } else {
+            if (await Diff.hasStagedChanges()) {
+                logger.verbose('Creating version bump commit...');
+                await Commit.execute(runConfig);
+            } else {
+                logger.verbose('No version changes to commit.');
             }
         }
 

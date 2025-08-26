@@ -495,11 +495,12 @@ describe('tree', () => {
             const result = await execute(config);
 
             // Build order would be: package-c, package-b, package-a, package-d
-            // Starting from package-b: package-b, package-a, package-d
-            // Stopping before package-a: package-b
+            // With new scoped start-from behavior: limit to packages related to package-b
+            // Related set = dependents of b (a, b) plus their transitive dependencies (c)
+            // Stopping before package-a excludes a, leaving c and b
             expect(result).toContain('package-b');
+            expect(result).toContain('package-c');
             expect(result).not.toContain('package-a');
-            expect(result).not.toContain('package-c');
             expect(result).not.toContain('package-d');
         });
 
