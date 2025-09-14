@@ -54,6 +54,7 @@ export const InputSchema = z.object({
     publish: z.boolean().optional(),
     parallel: z.boolean().optional(),
     continue: z.boolean().optional(),
+    status: z.boolean().optional(),
     includeCommitHistory: z.boolean().optional(),
     includeRecentDiffs: z.boolean().optional(),
     editorTimeout: z.number().optional(),
@@ -293,6 +294,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             // Note: parallel property is not part of the tree config type
             if (builtInCommand !== undefined) transformedCliArgs.tree.builtInCommand = builtInCommand;
             if (finalCliArgs.continue !== undefined) transformedCliArgs.tree.continue = finalCliArgs.continue;
+            if (finalCliArgs.status !== undefined) transformedCliArgs.tree.status = finalCliArgs.status;
             if (packageArgument !== undefined) transformedCliArgs.tree.packageArgument = packageArgument;
             if (finalCliArgs.cleanNodeModules !== undefined) transformedCliArgs.tree.cleanNodeModules = finalCliArgs.cleanNodeModules;
             if (finalCliArgs.externals !== undefined) transformedCliArgs.tree.externals = finalCliArgs.externals;
@@ -673,6 +675,7 @@ export async function getCliConfig(
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .option('--continue', 'continue from previous tree publish execution')
+        .option('--status', 'check status of running tree publish processes')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
         .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run');
