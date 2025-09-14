@@ -33,6 +33,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import child_process, { exec } from 'child_process';
+import { runSecure } from '../util/child';
 import util from 'util';
 import { getLogger } from '../logging';
 import { Config } from '../types';
@@ -829,13 +830,41 @@ const executePackage = async (
                     if (hasUpdates) {
                         // Commit the dependency updates using kodrdriv commit
                         packageLogger.info('Committing inter-project dependency updates...');
+                        packageLogger.info('⏱️  This step may take a few minutes as it generates a commit message using AI...');
+
+                        // Add timeout wrapper around commit execution
+                        const commitTimeoutMs = 300000; // 5 minutes
+                        const commitPromise = Commit.execute({...runConfig, dryRun: false});
+                        const timeoutPromise = new Promise<never>((_, reject) => {
+                            setTimeout(() => reject(new Error(`Commit operation timed out after ${commitTimeoutMs/1000} seconds`)), commitTimeoutMs);
+                        });
+
+                        // Add progress indicator
+                        let progressInterval: NodeJS.Timeout | null = null;
                         try {
-                            await Commit.execute({...runConfig, dryRun: false});
-                            packageLogger.info('Inter-project dependency updates committed successfully');
+                            // Start progress indicator
+                            progressInterval = setInterval(() => {
+                                packageLogger.info('⏳ Still generating commit message... (this can take 1-3 minutes)');
+                            }, 30000); // Every 30 seconds
+
+                            await Promise.race([commitPromise, timeoutPromise]);
+                            packageLogger.info('✅ Inter-project dependency updates committed successfully');
                         } catch (commitError: any) {
-                            packageLogger.warn(`Failed to commit inter-project dependency updates: ${commitError.message}`);
+                            if (commitError.message.includes('timed out')) {
+                                packageLogger.error(`❌ Commit operation timed out after ${commitTimeoutMs/1000} seconds`);
+                                packageLogger.error('This usually indicates an issue with the AI service or very large changes');
+                                packageLogger.error('You may need to manually commit the dependency updates');
+                            } else {
+                                packageLogger.warn(`Failed to commit inter-project dependency updates: ${commitError.message}`);
+                            }
                             // Continue with publish anyway - the updates are still in place
+                        } finally {
+                            if (progressInterval) {
+                                clearInterval(progressInterval);
+                            }
                         }
+                    } else {
+                        packageLogger.info('No inter-project dependency updates needed');
                     }
                 }
 
@@ -856,16 +885,43 @@ const executePackage = async (
                     if (runConfig.debug) {
                         packageLogger.debug(`Shelling out to separate kodrdriv process for ${builtInCommandName} command`);
                     }
+
+                    // Add progress indication for publish commands
+                    if (builtInCommandName === 'publish') {
+                        packageLogger.info('🚀 Starting publish process...');
+                        packageLogger.info('⏱️  This may take several minutes (AI processing, PR creation, etc.)');
+                    }
+
                     // Ensure dry-run propagates to subprocess even during overall dry-run mode
                     const effectiveCommand = runConfig.dryRun && !commandToRun.includes('--dry-run')
                         ? `${commandToRun} --dry-run`
                         : commandToRun;
-                    // Use runWithLogging for built-in commands to capture all output
-                    const { stdout } = await runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
-                    // Detect explicit skip marker from publish to avoid propagating versions
-                    if (builtInCommandName === 'publish' && stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) {
-                        packageLogger.info('Publish skipped for this package; will not record or propagate a version.');
-                        publishWasSkipped = true;
+
+                    // Add timeout wrapper for publish commands
+                    const commandTimeoutMs = 1800000; // 30 minutes for publish commands
+                    if (builtInCommandName === 'publish') {
+                        packageLogger.info(`⏰ Setting timeout of ${commandTimeoutMs/60000} minutes for publish command`);
+                    }
+
+                    const commandPromise = runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
+                    const commandTimeoutPromise = new Promise<never>((_, reject) => {
+                        setTimeout(() => reject(new Error(`Command timed out after ${commandTimeoutMs/60000} minutes`)), commandTimeoutMs);
+                    });
+
+                    try {
+                        const { stdout } = await Promise.race([commandPromise, commandTimeoutPromise]);
+                        // Detect explicit skip marker from publish to avoid propagating versions
+                        if (builtInCommandName === 'publish' && stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) {
+                            packageLogger.info('Publish skipped for this package; will not record or propagate a version.');
+                            publishWasSkipped = true;
+                        }
+                    } catch (error: any) {
+                        if (error.message.includes('timed out')) {
+                            packageLogger.error(`❌ ${builtInCommandName} command timed out after ${commandTimeoutMs/60000} minutes`);
+                            packageLogger.error('This usually indicates the command is stuck waiting for user input or an external service');
+                            throw error;
+                        }
+                        throw error;
                     }
                 } else {
                     // For custom commands, use the existing logic
@@ -946,11 +1002,52 @@ const executePackage = async (
     }
 };
 
+// Add a simple status check function
+const checkTreePublishStatus = async (): Promise<void> => {
+    const logger = getLogger();
+    try {
+        // Check for running kodrdriv processes
+        const { stdout } = await runSecure('ps', ['aux'], {});
+        const kodrdrivProcesses = stdout.split('\n').filter((line: string) =>
+            line.includes('kodrdriv') &&
+            !line.includes('grep') &&
+            !line.includes('ps aux') &&
+            !line.includes('tree --status') // Exclude the current status command
+        );
+
+        if (kodrdrivProcesses.length > 0) {
+            logger.info('🔍 Found running kodrdriv processes:');
+            kodrdrivProcesses.forEach((process: string) => {
+                const parts = process.trim().split(/\s+/);
+                const pid = parts[1];
+                const command = parts.slice(10).join(' ');
+                logger.info(`  PID ${pid}: ${command}`);
+            });
+        } else {
+            logger.info('No kodrdriv processes currently running');
+        }
+    } catch (error) {
+        logger.warn('Could not check process status:', error);
+    }
+};
+
 export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
     const isContinue = runConfig.tree?.continue || false;
     const promotePackage = runConfig.tree?.promote;
+
+    // Debug logging
+    logger.debug('Tree config:', JSON.stringify(runConfig.tree, null, 2));
+    logger.debug('Status flag:', (runConfig.tree as any)?.status);
+    logger.debug('Full runConfig:', JSON.stringify(runConfig, null, 2));
+
+    // Handle status check
+    if ((runConfig.tree as any)?.status) {
+        logger.info('🔍 Checking for running kodrdriv processes...');
+        await checkTreePublishStatus();
+        return 'Status check completed';
+    }
 
     // Handle promote mode
     if (promotePackage) {
