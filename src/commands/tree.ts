@@ -296,6 +296,97 @@ const cleanupContext = async (outputDirectory?: string): Promise<void> => {
     }
 };
 
+// Helper function to promote a package to completed status in the context
+const promotePackageToCompleted = async (
+    packageName: string,
+    outputDirectory?: string
+): Promise<void> => {
+    const storage = createStorage({ log: () => {} });
+    const contextFilePath = getContextFilePath(outputDirectory);
+
+    try {
+        if (!await storage.exists(contextFilePath)) {
+            return;
+        }
+
+        const contextContent = await storage.readFile(contextFilePath, 'utf-8');
+        const contextData = safeJsonParse(contextContent, contextFilePath);
+
+        // Restore dates from ISO strings
+        const context: TreeExecutionContext = {
+            ...contextData,
+            startTime: new Date(contextData.startTime),
+            lastUpdateTime: new Date(contextData.lastUpdateTime),
+            publishedVersions: contextData.publishedVersions.map((v: any) => ({
+                ...v,
+                publishTime: new Date(v.publishTime)
+            }))
+        };
+
+        // Add package to completed list if not already there
+        if (!context.completedPackages.includes(packageName)) {
+            context.completedPackages.push(packageName);
+            context.lastUpdateTime = new Date();
+            await saveExecutionContext(context, outputDirectory);
+        }
+    } catch (error: any) {
+        const logger = getLogger();
+        logger.warn(`Warning: Failed to promote package to completed: ${error.message}`);
+    }
+};
+
+// Helper function to validate that all packages have the required scripts
+const validateScripts = async (
+    packages: Map<string, PackageInfo>,
+    scripts: string[]
+): Promise<{ valid: boolean; missingScripts: Map<string, string[]> }> => {
+    const logger = getLogger();
+    const missingScripts = new Map<string, string[]>();
+    const storage = createStorage({ log: () => {} });
+
+    logger.debug(`Validating scripts: ${scripts.join(', ')}`);
+
+    for (const [packageName, packageInfo] of packages) {
+        const packageJsonPath = path.join(packageInfo.path, 'package.json');
+        const missingForPackage: string[] = [];
+
+        try {
+            const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+            const packageJson = safeJsonParse(packageJsonContent, packageJsonPath);
+            const validated = validatePackageJson(packageJson, packageJsonPath);
+
+            // Check if each required script exists
+            for (const script of scripts) {
+                if (!validated.scripts || !validated.scripts[script]) {
+                    missingForPackage.push(script);
+                }
+            }
+
+            if (missingForPackage.length > 0) {
+                missingScripts.set(packageName, missingForPackage);
+                logger.debug(`Package ${packageName} missing scripts: ${missingForPackage.join(', ')}`);
+            }
+        } catch (error: any) {
+            logger.debug(`Error reading package.json for ${packageName}: ${error.message}`);
+            // If we can't read the package.json, assume all scripts are missing
+            missingScripts.set(packageName, scripts);
+        }
+    }
+
+    const valid = missingScripts.size === 0;
+
+    if (valid) {
+        logger.info(`✅ All packages have the required scripts: ${scripts.join(', ')}`);
+    } else {
+        logger.error(`❌ Script validation failed. Missing scripts:`);
+        for (const [packageName, missing] of missingScripts) {
+            logger.error(`  ${packageName}: ${missing.join(', ')}`);
+        }
+    }
+
+    return { valid, missingScripts };
+};
+
 // Extract published version from package.json after successful publish
 const extractPublishedVersion = async (
     packageDir: string,
@@ -403,7 +494,7 @@ const createPackageLogger = (packageName: string, sequenceNumber: number, totalC
 };
 
 // Helper function to format subproject error output
-const formatSubprojectError = (packageName: string, error: any): string => {
+const formatSubprojectError = (packageName: string, error: any, _packageInfo?: PackageInfo, _position?: number, _total?: number): string => {
     const lines: string[] = [];
 
     lines.push(`❌ Command failed in package ${packageName}:`);
@@ -439,8 +530,10 @@ const formatSubprojectError = (packageName: string, error: any): string => {
         lines.push(indentedStdout);
     }
 
+
     return lines.join('\n');
 };
+
 
 const matchesPattern = (filePath: string, pattern: string): boolean => {
     // Convert simple glob patterns to regex
@@ -658,7 +751,7 @@ const executePackage = async (
     total: number,
     allPackageNames: Set<string>,
     isBuiltInCommand: boolean = false
-): Promise<{ success: boolean; error?: any }> => {
+): Promise<{ success: boolean; error?: any; isTimeoutError?: boolean }> => {
     const packageLogger = createPackageLogger(packageName, index + 1, total, isDryRun);
     const packageDir = packageInfo.path;
     const logger = getLogger();
@@ -837,7 +930,19 @@ const executePackage = async (
         } else {
             logger.error(`[${index + 1}/${total}] ${packageName}: ❌ Failed - ${error.message}`);
         }
-        return { success: false, error };
+
+        // Check if this is a timeout error
+        const errorMessage = error.message?.toLowerCase() || '';
+        const isTimeoutError = errorMessage && (
+            errorMessage.includes('timeout waiting for pr') ||
+            errorMessage.includes('timeout waiting for release workflows') ||
+            errorMessage.includes('timeout reached') ||
+            errorMessage.includes('timeout') ||
+            errorMessage.includes('timed out') ||
+            errorMessage.includes('timed_out')
+        );
+
+        return { success: false, error, isTimeoutError };
     }
 };
 
@@ -845,6 +950,16 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
     const isContinue = runConfig.tree?.continue || false;
+    const promotePackage = runConfig.tree?.promote;
+
+    // Handle promote mode
+    if (promotePackage) {
+        logger.info(`Promoting package '${promotePackage}' to completed status...`);
+        await promotePackageToCompleted(promotePackage, runConfig.outputDirectory);
+        logger.info(`✅ Package '${promotePackage}' has been marked as completed.`);
+        logger.info('You can now run the tree command with --continue to resume from the next package.');
+        return `Package '${promotePackage}' promoted to completed status.`;
+    }
 
     // Handle continue mode
     if (isContinue) {
@@ -888,10 +1003,42 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Check if we're in built-in command mode (tree command with second argument)
     const builtInCommand = runConfig.tree?.builtInCommand;
-    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches'];
+    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches', 'run'];
 
     if (builtInCommand && !supportedBuiltInCommands.includes(builtInCommand)) {
         throw new Error(`Unsupported built-in command: ${builtInCommand}. Supported commands: ${supportedBuiltInCommands.join(', ')}`);
+    }
+
+    // Handle run subcommand - convert space-separated scripts to npm run commands
+    if (builtInCommand === 'run') {
+        const packageArgument = runConfig.tree?.packageArgument;
+        if (!packageArgument) {
+            throw new Error('run subcommand requires script names. Usage: kodrdriv tree run "clean build test"');
+        }
+
+        // Split the package argument by spaces to get individual script names
+        const scripts = packageArgument.trim().split(/\s+/).filter(script => script.length > 0);
+
+        if (scripts.length === 0) {
+            throw new Error('run subcommand requires at least one script name. Usage: kodrdriv tree run "clean build test"');
+        }
+
+        // Convert to npm run commands joined with &&
+        const npmCommands = scripts.map(script => `npm run ${script}`).join(' && ');
+
+        // Set this as the custom command to run
+        runConfig.tree = {
+            ...runConfig.tree,
+            cmd: npmCommands
+        };
+
+        // Clear the built-in command since we're now using custom command mode
+        runConfig.tree.builtInCommand = undefined;
+
+        logger.info(`Converting run subcommand to: ${npmCommands}`);
+
+        // Store scripts for later validation
+        (runConfig as any).__scriptsToValidate = scripts;
     }
 
     // Determine the target directories - either specified or current working directory
@@ -1041,62 +1188,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            // Build reverse dependency map (who depends on whom)
-            const reverseEdges = new Map<string, Set<string>>();
-            for (const [pkg, deps] of dependencyGraph.edges) {
-                for (const dep of deps) {
-                    if (!reverseEdges.has(dep)) reverseEdges.set(dep, new Set<string>());
-                    reverseEdges.get(dep)!.add(pkg);
-                }
-                if (!reverseEdges.has(pkg)) reverseEdges.set(pkg, new Set<string>());
+            // Find the start package in the build order and start execution from there
+            const startIndex = buildOrder.findIndex(pkgName => pkgName === startPackageName);
+            if (startIndex === -1) {
+                throw new Error(`Package '${startFrom}' not found in build order. This should not happen.`);
             }
 
-            // Step 1: collect the start package and all its transitive dependents (consumers)
-            const dependentsClosure = new Set<string>();
-            const queueDependents: string[] = [startPackageName!];
-            while (queueDependents.length > 0) {
-                const current = queueDependents.shift()!;
-                if (dependentsClosure.has(current)) continue;
-                dependentsClosure.add(current);
-                const consumers = reverseEdges.get(current) || new Set<string>();
-                for (const consumer of consumers) {
-                    if (!dependentsClosure.has(consumer)) queueDependents.push(consumer);
-                }
-            }
+            // Filter build order to start from the specified package
+            const originalLength = buildOrder.length;
+            buildOrder = buildOrder.slice(startIndex);
 
-            // Step 2: expand to include all forward dependencies required to build those packages
-            const relevantPackages = new Set<string>(dependentsClosure);
-            const queueDependencies: string[] = Array.from(relevantPackages);
-            while (queueDependencies.length > 0) {
-                const current = queueDependencies.shift()!;
-                const deps = dependencyGraph.edges.get(current) || new Set<string>();
-                for (const dep of deps) {
-                    if (!relevantPackages.has(dep)) {
-                        relevantPackages.add(dep);
-                        queueDependencies.push(dep);
-                    }
-                }
-            }
-
-            // Filter graph to only relevant packages
-            const filteredGraph: DependencyGraph = {
-                packages: new Map<string, PackageInfo>(),
-                edges: new Map<string, Set<string>>()
-            };
-            for (const pkgName of relevantPackages) {
-                const info = dependencyGraph.packages.get(pkgName)!;
-                filteredGraph.packages.set(pkgName, info);
-                const deps = dependencyGraph.edges.get(pkgName) || new Set<string>();
-                const filteredDeps = new Set<string>();
-                for (const dep of deps) {
-                    if (relevantPackages.has(dep)) filteredDeps.add(dep);
-                }
-                filteredGraph.edges.set(pkgName, filteredDeps);
-            }
-
-            // Recompute build order for the filtered subgraph
-            buildOrder = topologicalSort(filteredGraph);
-            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Limiting scope to '${startFrom}' and its dependencies (${buildOrder.length} package${buildOrder.length === 1 ? '' : 's'}).`);
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Starting execution from package '${startFrom}' (${buildOrder.length} of ${originalLength} packages remaining).`);
         }
 
         // Handle stop-at functionality if specified
@@ -1602,6 +1704,25 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }
 
         if (commandToRun) {
+            // Validate scripts for run command before execution
+            const scriptsToValidate = (runConfig as any).__scriptsToValidate;
+            if (scriptsToValidate && scriptsToValidate.length > 0) {
+                logger.info(`🔍 Validating scripts before execution: ${scriptsToValidate.join(', ')}`);
+                const validation = await validateScripts(dependencyGraph.packages, scriptsToValidate);
+
+                if (!validation.valid) {
+                    logger.error('');
+                    logger.error('❌ Script validation failed. Cannot proceed with execution.');
+                    logger.error('');
+                    logger.error('💡 To fix this:');
+                    logger.error('   1. Add the missing scripts to the package.json files');
+                    logger.error('   2. Or exclude packages that don\'t need these scripts using --exclude');
+                    logger.error('   3. Or run individual packages that have the required scripts');
+                    logger.error('');
+                    throw new Error('Script validation failed. See details above.');
+                }
+            }
+
             // Create set of all package names for inter-project dependency detection
             const allPackageNames = new Set(Array.from(dependencyGraph.packages.keys()));
 
@@ -1617,8 +1738,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     lastUpdateTime: new Date()
                 };
 
-                // Save initial context
-                if (isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                // Save initial context for commands that support continuation
+                if (isBuiltInCommand && (builtInCommand === 'publish' || builtInCommand === 'run') && !isDryRun) {
                     await saveExecutionContext(executionContext, runConfig.outputDirectory);
                 }
             }
@@ -1668,7 +1789,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     successCount++;
 
                     // Update context
-                    if (executionContext && isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                    if (executionContext && isBuiltInCommand && (builtInCommand === 'publish' || builtInCommand === 'run') && !isDryRun) {
                         executionContext.completedPackages.push(packageName);
                         executionContext.publishedVersions = publishedVersions;
                         executionContext.lastUpdateTime = new Date();
@@ -1682,12 +1803,44 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     }
                 } else {
                     failedPackage = packageName;
-                    const formattedError = formatSubprojectError(packageName, result.error);
+                    const formattedError = formatSubprojectError(packageName, result.error, packageInfo, i + 1, buildOrder.length);
 
                     if (!isDryRun) {
                         packageLogger.error(`Execution failed`);
                         logger.error(formattedError);
                         logger.error(`Failed after ${successCount} successful packages.`);
+
+                        // Special handling for timeout errors
+                        if (result.isTimeoutError) {
+                            logger.error('');
+                            logger.error('⏰ TIMEOUT DETECTED: This appears to be a timeout error.');
+                            logger.error('   This commonly happens when PR checks take longer than expected.');
+                            logger.error('   The execution context has been saved for recovery.');
+                            logger.error('');
+
+                            // Save context even on timeout for recovery
+                            if (executionContext && isBuiltInCommand && (builtInCommand === 'publish' || builtInCommand === 'run')) {
+                                executionContext.completedPackages.push(packageName);
+                                executionContext.publishedVersions = publishedVersions;
+                                executionContext.lastUpdateTime = new Date();
+                                await saveExecutionContext(executionContext, runConfig.outputDirectory);
+                                logger.info('💾 Execution context saved for recovery.');
+                            }
+
+                            // For publish commands, provide specific guidance about CI/CD setup
+                            if (builtInCommand === 'publish') {
+                                logger.error('');
+                                logger.error('💡 PUBLISH TIMEOUT TROUBLESHOOTING:');
+                                logger.error('   This project may not have CI/CD workflows configured.');
+                                logger.error('   Common solutions:');
+                                logger.error('   1. Set up GitHub Actions workflows for this repository');
+                                logger.error('   2. Use --sendit flag to skip user confirmation:');
+                                logger.error(`      kodrdriv tree publish --sendit`);
+                                logger.error('   3. Or manually promote this package:');
+                                logger.error(`      kodrdriv tree publish --promote ${packageName}`);
+                                logger.error('');
+                            }
+                        }
 
                         logger.error(`To resume from this point, run:`);
                         if (isBuiltInCommand) {
@@ -1695,6 +1848,37 @@ export const execute = async (runConfig: Config): Promise<string> => {
                         } else {
                             logger.error(`    kodrdriv tree --continue --cmd "${commandToRun}"`);
                         }
+
+                        // For timeout errors, provide additional recovery instructions
+                        if (result.isTimeoutError) {
+                            logger.error('');
+                            logger.error('🔧 RECOVERY OPTIONS:');
+                            if (builtInCommand === 'publish') {
+                                logger.error('   1. Wait for the PR checks to complete, then run:');
+                                logger.error(`      cd ${packageInfo.path}`);
+                                logger.error(`      kodrdriv publish`);
+                                logger.error('   2. After the individual publish completes, run:');
+                                logger.error(`      kodrdriv tree ${builtInCommand} --continue`);
+                            } else {
+                                logger.error('   1. Fix any issues in the package, then run:');
+                                logger.error(`      cd ${packageInfo.path}`);
+                                logger.error(`      ${commandToRun}`);
+                                logger.error('   2. After the command completes successfully, run:');
+                                logger.error(`      kodrdriv tree ${builtInCommand} --continue`);
+                            }
+                            logger.error('   3. Or promote this package to completed status:');
+                            logger.error(`      kodrdriv tree ${builtInCommand} --promote ${packageName}`);
+                            logger.error('   4. Or manually edit .kodrdriv-context to mark this package as completed');
+                        }
+
+                        // Add clear error summary at the very end
+                        logger.error('');
+                        logger.error('📋 ERROR SUMMARY:');
+                        logger.error(`   Project that failed: ${packageName}`);
+                        logger.error(`   Location: ${packageInfo.path}`);
+                        logger.error(`   Position in tree: ${i + 1} of ${buildOrder.length} packages`);
+                        logger.error(`   What failed: ${result.error?.message || 'Unknown error'}`);
+                        logger.error('');
 
                         throw new Error(`Command failed in package ${packageName}`);
                     }
@@ -1707,7 +1891,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 logger.info(summary);
 
                 // Clean up context on successful completion
-                if (isBuiltInCommand && builtInCommand === 'publish' && !isDryRun) {
+                if (isBuiltInCommand && (builtInCommand === 'publish' || builtInCommand === 'run') && !isDryRun) {
                     await cleanupContext(runConfig.outputDirectory);
                 }
 

@@ -13,6 +13,7 @@ kodrdriv tree link        # Link workspace packages across packages
 kodrdriv tree unlink      # Unlink workspace packages across packages
 kodrdriv tree development # Set up development environments across packages
 kodrdriv tree branches    # Display branch and status information across packages
+kodrdriv tree run         # Run npm scripts across packages with space-separated script names
 ```
 
 ## Key Features
@@ -29,11 +30,12 @@ Commands execute in topological dependency order:
 
 - Proper error handling and recovery points
 
-### Unified Error Handling
-Consistent error reporting and recovery:
-- Shows which packages completed successfully
-- Provides restart commands for failed operations
-- Maintains execution context across package boundaries
+### Enhanced Error Handling
+Comprehensive error reporting and recovery:
+- **Error Summary**: Clear summary showing what failed, where, and position in build order
+- **Timeout Detection**: Automatic detection and handling of timeout errors (especially for publish operations)
+- **Recovery Commands**: Provides exact commands to resume from failed packages
+- **Execution Context**: Maintains context across package boundaries for resume operations
 
 ## Supported Commands
 
@@ -274,6 +276,85 @@ kodrdriv tree branches | grep -v "main.*clean" && echo "Some packages not ready 
 # Use in CI/CD to verify branch consistency
 kodrdriv tree branches --directories ./packages | grep -v "main" && exit 1
 ```
+
+### `kodrdriv tree run`
+
+Executes npm scripts across all packages in dependency order with convenient space-separated syntax.
+
+**What it does:**
+- Validates that all packages have the required scripts before execution
+- Converts space-separated script names to `npm run` commands
+- Executes scripts in dependency order across all packages
+- Maintains execution context for recovery and continuation
+- Provides the same error handling and recovery as other built-in commands
+
+**Usage:**
+```bash
+# Run clean, build, and test scripts across all packages
+kodrdriv tree run "clean build test"
+
+# This is equivalent to:
+kodrdriv tree --cmd "npm run clean && npm run build && npm run test"
+
+# Run multiple scripts with different names
+kodrdriv tree run "lint test coverage"
+
+# Resume from a failed package
+kodrdriv tree run "clean build test" --continue
+
+# Start from a specific package
+kodrdriv tree run "build test" --start-from my-package
+```
+
+**Key Benefits:**
+- **Pre-flight Validation**: Checks that all packages have required scripts before starting
+- **Convenient Syntax**: `"clean build test"` instead of `"npm run clean && npm run build && npm run test"`
+- **Context Preservation**: Supports `--continue` for recovery after failures
+- **Dependency Awareness**: Scripts run in proper dependency order
+- **Error Recovery**: Same robust error handling as other built-in commands
+
+**Script Validation:**
+The command validates that all packages have the required scripts before execution starts. If any package is missing a script, it will:
+- Show exactly which packages are missing which scripts
+- Provide clear guidance on how to fix the issue
+- Prevent execution to avoid partial failures
+
+**Common Use Cases:**
+```bash
+# Pre-publish validation
+kodrdriv tree run "clean build test"
+
+# Development setup
+kodrdriv tree run "install build"
+
+# Quality checks
+kodrdriv tree run "lint test coverage"
+
+# Single script (like precommit)
+kodrdriv tree run "precommit"
+
+# Full CI pipeline
+kodrdriv tree run "clean install build test coverage"
+```
+
+**Example Error Output:**
+```bash
+$ kodrdriv tree run "clean build test"
+🔍 Validating scripts before execution: clean, build, test
+❌ Script validation failed. Missing scripts:
+  package-a: clean, test
+  package-b: build
+
+❌ Script validation failed. Cannot proceed with execution.
+
+💡 To fix this:
+   1. Add the missing scripts to the package.json files
+   2. Or exclude packages that don't need these scripts using --exclude
+   3. Or run individual packages that have the required scripts
+```
+
+**Configuration:**
+No special configuration required - uses each package's `package.json` scripts.
 
 ## Execution Order and Dependencies
 

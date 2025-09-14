@@ -847,7 +847,7 @@ cache=\${CACHE_DIR}/npm
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/0.0.4', false);
             expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
-                timeout: 300000,
+                timeout: 3600000,
                 skipUserConfirmation: false
             });
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash', false);
@@ -902,7 +902,7 @@ cache=\${CACHE_DIR}/npm
             expect(Commit.execute).not.toHaveBeenCalled(); // Should skip commit
             expect(GitHub.createPullRequest).not.toHaveBeenCalled(); // Should skip PR creation
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(456, {
-                timeout: 300000,
+                timeout: 3600000,
                 skipUserConfirmation: false
             });
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(456, 'squash', false);
@@ -1226,7 +1226,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify default options are used
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
-                timeout: 300000, // 5 minutes default
+                timeout: 3600000, // 1 hour default
                 skipUserConfirmation: false
             });
 
@@ -1277,7 +1277,7 @@ cache=\${CACHE_DIR}/npm
 
             // Assert - Verify sendit overrides skipUserConfirmation
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
-                timeout: 300000, // 5 minutes default
+                timeout: 3600000, // 1 hour default
                 skipUserConfirmation: true // Should be true because sendit=true overrides skipUserConfirmation=false
             });
 

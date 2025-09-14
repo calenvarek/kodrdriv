@@ -10,7 +10,7 @@ import { run, runWithDryRunSupport, runSecure, validateGitRef } from '../util/ch
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively } from '../util/general';
-import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
+import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '../util/git';
 
@@ -447,20 +447,24 @@ export const execute = async (runConfig: Config): Promise<void> => {
         }
 
         logger.info('Generating release notes...');
-        // Create a modified config for release notes generation that includes the publish --from and --interactive options
+        // Create a modified config for release notes generation that includes the publish --from, --interactive, and --from-main options
         const releaseConfig = { ...runConfig };
-        if (runConfig.publish?.from || runConfig.publish?.interactive) {
-            // Pass the publish --from and --interactive options to the release config
+        if (runConfig.publish?.from || runConfig.publish?.interactive || runConfig.publish?.fromMain) {
+            // Pass the publish options to the release config
             releaseConfig.release = {
                 ...runConfig.release,
                 ...(runConfig.publish.from && { from: runConfig.publish.from }),
-                ...(runConfig.publish.interactive && { interactive: runConfig.publish.interactive })
+                ...(runConfig.publish.interactive && { interactive: runConfig.publish.interactive }),
+                ...(runConfig.publish.fromMain && { fromMain: runConfig.publish.fromMain })
             };
             if (runConfig.publish.from) {
                 logger.verbose(`Using custom 'from' reference for release notes: ${runConfig.publish.from}`);
             }
             if (runConfig.publish.interactive) {
                 logger.verbose('Interactive mode enabled for release notes generation');
+            }
+            if (runConfig.publish.fromMain) {
+                logger.verbose('Forcing comparison against main branch for release notes');
             }
         }
         const releaseSummary = await Release.execute(releaseConfig);
@@ -501,10 +505,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
     logger.info(`Waiting for PR #${pr!.number} checks to complete...`);
     if (!isDryRun) {
         // Configure timeout and user confirmation behavior
-        const timeout = runConfig.publish?.checksTimeout || 300000; // 5 minutes default
+        const timeout = runConfig.publish?.checksTimeout || KODRDRIV_DEFAULTS.publish.checksTimeout;
         const senditMode = runConfig.publish?.sendit || false;
         // sendit flag overrides skipUserConfirmation - if sendit is true, skip confirmation
         const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
+
 
         await GitHub.waitForPullRequestChecks(pr!.number, {
             timeout,
@@ -701,7 +706,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
         if (isDryRun) {
             logger.info('Would monitor GitHub Actions workflows triggered by release');
         } else {
-            const workflowTimeout = runConfig.publish?.releaseWorkflowsTimeout || 600000; // 10 minutes default
+            const workflowTimeout = runConfig.publish?.releaseWorkflowsTimeout || KODRDRIV_DEFAULTS.publish.releaseWorkflowsTimeout;
             const senditMode = runConfig.publish?.sendit || false;
             const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
 
