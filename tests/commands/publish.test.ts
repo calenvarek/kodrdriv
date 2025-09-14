@@ -174,6 +174,19 @@ describe('publish command', () => {
 
         // Default to valid git ref validation for tag names
         Child.validateGitRef.mockReturnValue(true);
+
+        // Default mock for runSecure to handle git status --porcelain and other commands
+        Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+            const key = args.join(' ');
+            if (key === 'status --porcelain') return { stdout: '' } as any;
+            if (key.startsWith('tag -l')) return { stdout: '' } as any;
+            if (key.startsWith('tag ')) return { stdout: '' } as any;
+            if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+            if (key.startsWith('push origin')) return { stdout: '' } as any;
+            if (key.startsWith('stash push')) return { stdout: '' } as any;
+            if (key.startsWith('stash pop')) return { stdout: '' } as any;
+            return { stdout: '' } as any;
+        });
     });
 
     afterEach(() => {
@@ -2848,6 +2861,139 @@ cache=\${CACHE_DIR}/npm
                     return filename;
                 });
             }
+        });
+    });
+
+    describe('uncommitted changes handling', () => {
+        it('should stash uncommitted changes before checkout and restore them after', async () => {
+            const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
+
+            // Mock successful prechecks
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            // Mock runSecure to simulate uncommitted changes before checkout
+            let stashCalled = false;
+            let popCalled = false;
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key === 'status --porcelain') {
+                    // First call returns uncommitted changes (package-lock.json)
+                    return { stdout: 'M package-lock.json\n' } as any;
+                }
+                if (key === 'stash push -m kodrdriv: stash before checkout target branch') {
+                    stashCalled = true;
+                    return { stdout: '' } as any;
+                }
+                if (key === 'stash pop') {
+                    popCalled = true;
+                    return { stdout: '' } as any;
+                }
+                if (key.startsWith('tag -l')) return { stdout: '' } as any;
+                if (key.startsWith('tag ')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            // Mock other dependencies
+            GitHub.getCurrentBranchName.mockResolvedValue('working');
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+            GitHub.createPullRequest.mockResolvedValue({ number: 123, html_url: 'https://github.com/test/repo/pull/123' });
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+            GitHub.createRelease.mockResolvedValue({ html_url: 'https://github.com/test/repo/releases/tag/v1.0.0' });
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
+                        version: '1.0.0',
+                        scripts: { prepublishOnly: 'npm test' }
+                    }));
+                }
+                return Promise.resolve('');
+            });
+
+            General.incrementPatchVersion.mockReturnValue('1.0.1');
+            General.getOutputPath.mockReturnValue('output/kodrdriv/RELEASE_NOTES.md');
+
+            // Mock the commit and release commands
+            Commit.execute.mockResolvedValue('Commit successful!');
+            Release.execute.mockResolvedValue('Release notes generated');
+
+            await Publish.execute(mockConfig);
+
+            // Verify that stash was called before checkout
+            expect(stashCalled).toBe(true);
+            // Verify that stash pop was called after checkout
+            expect(popCalled).toBe(true);
+        });
+
+        it('should not stash when there are no uncommitted changes', async () => {
+            const mockConfig = { model: 'gpt-4o-mini', configDirectory: '/test/config' } as any;
+
+            // Mock successful prechecks
+            Child.run.mockImplementation((command: string) => {
+                if (command === 'git rev-parse --git-dir') return Promise.resolve({ stdout: '.git' });
+                if (command === 'git status --porcelain') return Promise.resolve({ stdout: '' });
+                return Promise.resolve({ stdout: '' });
+            });
+
+            // Mock runSecure to simulate no uncommitted changes
+            let stashCalled = false;
+            Child.runSecure.mockImplementation(async (_cmd: string, args: string[]) => {
+                const key = args.join(' ');
+                if (key === 'status --porcelain') {
+                    // Return empty status (no uncommitted changes)
+                    return { stdout: '' } as any;
+                }
+                if (key === 'stash push -m kodrdriv: stash before checkout target branch') {
+                    stashCalled = true;
+                    return { stdout: '' } as any;
+                }
+                if (key.startsWith('tag -l')) return { stdout: '' } as any;
+                if (key.startsWith('tag ')) return { stdout: '' } as any;
+                if (key.startsWith('ls-remote')) return { stdout: '' } as any;
+                if (key.startsWith('push origin')) return { stdout: '' } as any;
+                return { stdout: '' } as any;
+            });
+
+            // Mock other dependencies
+            GitHub.getCurrentBranchName.mockResolvedValue('working');
+            GitHub.findOpenPullRequestByHeadRef.mockResolvedValue(null);
+            GitHub.createPullRequest.mockResolvedValue({ number: 123, html_url: 'https://github.com/test/repo/pull/123' });
+            GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
+            GitHub.mergePullRequest.mockResolvedValue(undefined);
+            GitHub.createRelease.mockResolvedValue({ html_url: 'https://github.com/test/repo/releases/tag/v1.0.0' });
+
+            mockStorage.exists.mockResolvedValue(true);
+            mockStorage.readFile.mockImplementation((filename: string) => {
+                if (filename && filename.includes('package.json')) {
+                    return Promise.resolve(JSON.stringify({
+                        name: 'test-package',
+                        version: '1.0.0',
+                        scripts: { prepublishOnly: 'npm test' }
+                    }));
+                }
+                return Promise.resolve('');
+            });
+
+            General.incrementPatchVersion.mockReturnValue('1.0.1');
+            General.getOutputPath.mockReturnValue('output/kodrdriv/RELEASE_NOTES.md');
+
+            // Mock the commit and release commands
+            Commit.execute.mockResolvedValue('Commit successful!');
+            Release.execute.mockResolvedValue('Release notes generated');
+
+            await Publish.execute(mockConfig);
+
+            // Verify that stash was NOT called when there are no uncommitted changes
+            expect(stashCalled).toBe(false);
         });
     });
 

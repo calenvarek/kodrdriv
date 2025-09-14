@@ -936,7 +936,7 @@ export async function getCliConfig(
                 const firstTruthyArg = args.find((arg: any) => arg);
                 if (firstTruthyArg) {
                     (commandOptions as any).builtInCommand = firstTruthyArg;
-                    if ((firstTruthyArg === 'link' || firstTruthyArg === 'unlink') && args.length > 1) {
+                    if ((firstTruthyArg === 'link' || firstTruthyArg === 'unlink' || firstTruthyArg === 'run') && args.length > 1) {
                         const secondTruthyArg = args.slice(1).find((arg: any) => arg);
                         if (secondTruthyArg) {
                             (commandOptions as any).packageArgument = secondTruthyArg;

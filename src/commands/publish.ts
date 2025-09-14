@@ -549,6 +549,18 @@ export const execute = async (runConfig: Config): Promise<void> => {
     // Switch to target branch and pull latest changes
     logger.info(`Checking out target branch: ${targetBranch}...`);
 
+    // Check for uncommitted changes and stash them if necessary
+    let hasStashedChanges = false;
+    if (!isDryRun) {
+        const { stdout: statusOutput } = await runSecure('git', ['status', '--porcelain']);
+        if (statusOutput.trim()) {
+            logger.info('📦 Stashing uncommitted changes before checkout...');
+            await runSecure('git', ['stash', 'push', '-m', 'kodrdriv: stash before checkout target branch']);
+            hasStashedChanges = true;
+            logger.info('✅ Successfully stashed uncommitted changes');
+        }
+    }
+
     try {
         await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
         await runWithDryRunSupport(`git pull origin ${targetBranch}`, isDryRun);
@@ -575,6 +587,18 @@ export const execute = async (runConfig: Config): Promise<void> => {
         } else {
             // Re-throw other errors
             throw error;
+        }
+    }
+
+    // Restore stashed changes if we stashed them
+    if (hasStashedChanges) {
+        logger.info('📦 Restoring previously stashed changes...');
+        try {
+            await runSecure('git', ['stash', 'pop']);
+            logger.info('✅ Successfully restored stashed changes');
+        } catch (stashError: any) {
+            logger.warn(`⚠️  Warning: Could not restore stashed changes: ${stashError.message}`);
+            logger.warn('   Your changes are still available in the git stash. Run "git stash list" to see them.');
         }
     }
 
