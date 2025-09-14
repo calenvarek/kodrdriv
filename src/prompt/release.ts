@@ -33,11 +33,11 @@ export type ReleasePromptResult = {
  * Analyzes release content to determine if it's a large release
  * and calculates appropriate token limits
  */
-const analyzeReleaseSize = (logContent: string, diffContent: string, milestoneIssues?: string): { isLarge: boolean; maxTokens: number } => {
+const analyzeReleaseSize = (logContent: string, diffContent?: string, milestoneIssues?: string): { isLarge: boolean; maxTokens: number } => {
     const logLines = logContent.split('\n').length;
-    const diffLines = diffContent.split('\n').length;
+    const diffLines = diffContent ? diffContent.split('\n').length : 0;
     const milestoneLines = milestoneIssues ? milestoneIssues.split('\n').length : 0;
-    const totalContentLength = logContent.length + diffContent.length + (milestoneIssues?.length || 0);
+    const totalContentLength = logContent.length + (diffContent?.length || 0) + (milestoneIssues?.length || 0);
 
     // Consider it a large release if:
     // - More than 20 commits (log lines typically ~3-5 per commit)

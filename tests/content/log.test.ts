@@ -273,4 +273,246 @@ describe('log', () => {
             await expect(log.get()).rejects.toThrow('Error occurred during gather change phase');
         });
     });
+
+    describe('empty repository handling', () => {
+        it('should return empty string for "does not have any commits yet" error', async () => {
+            const mockError = new Error('fatal: your current branch \'main\' does not have any commits yet');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ from: 'main', to: 'HEAD' });
+            const result = await log.get();
+
+            expect(result).toBe('');
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+            expect(getLogger.getLogger().verbose).toHaveBeenCalledWith('No git history available, returning empty log context');
+        });
+
+        it('should return empty string for "bad default revision" error', async () => {
+            const mockError = new Error('fatal: bad default revision \'HEAD\'');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ currentBranchOnly: true });
+            const result = await log.get();
+
+            expect(result).toBe('');
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+            expect(getLogger.getLogger().verbose).toHaveBeenCalledWith('No git history available, returning empty log context');
+        });
+
+        it('should return empty string for "unknown revision or path" error', async () => {
+            const mockError = new Error('fatal: unknown revision or path not in the working tree');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ from: 'nonexistent-branch' });
+            const result = await log.get();
+
+            expect(result).toBe('');
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+            expect(getLogger.getLogger().verbose).toHaveBeenCalledWith('No git history available, returning empty log context');
+        });
+
+        it('should return empty string for "ambiguous argument HEAD" error', async () => {
+            const mockError = new Error('fatal: ambiguous argument \'HEAD\': unknown revision or path not in the working tree');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ to: 'HEAD' });
+            const result = await log.get();
+
+            expect(result).toBe('');
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+            expect(getLogger.getLogger().verbose).toHaveBeenCalledWith('No git history available, returning empty log context');
+        });
+
+        it('should have consistent empty repo detection logic in both catch blocks', async () => {
+            // This test verifies that the empty repository detection logic is implemented
+            // consistently between the inner and outer try-catch blocks
+            const mockError = new Error('fatal: your current branch \'main\' does not have any commits yet');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ from: 'main' });
+            const result = await log.get();
+
+            expect(result).toBe('');
+            // Verify the empty repo detection works (this tests the inner catch primarily)
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+            expect(getLogger.getLogger().verbose).toHaveBeenCalledWith('No git history available, returning empty log context');
+        });
+
+        it('should handle multiple empty repo error patterns in a single message', async () => {
+            const mockError = new Error('fatal: bad default revision \'HEAD\': unknown revision or path not in the working tree');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({});
+            const result = await log.get();
+
+            expect(result).toBe('');
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+        });
+
+        it('should handle empty repo errors with different options combinations', async () => {
+            const mockError = new Error('fatal: your current branch \'develop\' does not have any commits yet');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({
+                currentBranchOnly: true,
+                to: 'develop',
+                limit: 5
+            });
+            const result = await log.get();
+
+            expect(result).toBe('');
+            expect(getLogger.getLogger().debug).toHaveBeenCalledWith(
+                'Empty repository detected (no commits): %s',
+                mockError.message
+            );
+            // Verify the correct git command was attempted before the error
+            expect(run.run).toHaveBeenCalledWith('git log develop..HEAD -n 5', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
+        });
+
+        it('should not treat regular git errors as empty repo', async () => {
+            const mockError = new Error('fatal: not a git repository');
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ from: 'main' });
+
+            await expect(log.get()).rejects.toThrow(ExitError);
+            // Should not call the empty repo debug messages
+            expect(getLogger.getLogger().debug).not.toHaveBeenCalledWith(
+                expect.stringContaining('Empty repository detected')
+            );
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', mockError.message);
+        });
+
+        it('should handle error with undefined message', async () => {
+            const mockError = new Error();
+            mockError.message = undefined as any;
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ from: 'main' });
+
+            await expect(log.get()).rejects.toThrow(ExitError);
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', undefined);
+        });
+
+        it('should handle error with null message', async () => {
+            const mockError = new Error();
+            (mockError as any).message = null;
+            run.run.mockRejectedValue(mockError);
+
+            const log = await Log.create({ from: 'main' });
+
+            await expect(log.get()).rejects.toThrow(ExitError);
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', null);
+        });
+    });
+
+    describe('comprehensive option combinations', () => {
+        it('should handle all options together (non-currentBranchOnly)', async () => {
+            const mockLog = 'comprehensive log output';
+            run.run.mockResolvedValue({ stdout: mockLog, stderr: '' });
+
+            const log = await Log.create({
+                from: 'feature-branch',
+                to: 'main',
+                limit: 25,
+                currentBranchOnly: false
+            });
+            const result = await log.get();
+
+            expect(run.run).toHaveBeenCalledWith('git log feature-branch..main -n 25', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
+            expect(result).toBe(mockLog);
+        });
+
+        it('should handle edge case with limit of 1', async () => {
+            const mockLog = 'single commit log';
+            run.run.mockResolvedValue({ stdout: mockLog, stderr: '' });
+
+            const log = await Log.create({ limit: 1 });
+            const result = await log.get();
+
+            expect(run.run).toHaveBeenCalledWith('git log -n 1', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
+            expect(result).toBe(mockLog);
+        });
+
+        it('should handle very large limit', async () => {
+            const mockLog = 'large log output';
+            run.run.mockResolvedValue({ stdout: mockLog, stderr: '' });
+
+            const log = await Log.create({
+                from: 'start',
+                to: 'end',
+                limit: 9999
+            });
+            const result = await log.get();
+
+            expect(run.run).toHaveBeenCalledWith('git log start..end -n 9999', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
+            expect(result).toBe(mockLog);
+        });
+
+        it('should handle special characters in branch names', async () => {
+            const mockLog = 'special branch log';
+            run.run.mockResolvedValue({ stdout: mockLog, stderr: '' });
+
+            const log = await Log.create({
+                from: 'feature/special-chars_123',
+                to: 'release/v1.0.0'
+            });
+            const result = await log.get();
+
+            expect(run.run).toHaveBeenCalledWith('git log feature/special-chars_123..release/v1.0.0', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
+            expect(result).toBe(mockLog);
+        });
+    });
+
+    describe('return value validation', () => {
+        it('should return exact stdout content including whitespace', async () => {
+            const mockLogWithWhitespace = '  commit abc123  \n\n  Author: Test User  \n';
+            run.run.mockResolvedValue({ stdout: mockLogWithWhitespace, stderr: '' });
+
+            const log = await Log.create({});
+            const result = await log.get();
+
+            expect(result).toBe(mockLogWithWhitespace);
+            expect(result).toEqual(expect.stringContaining('  commit abc123  \n\n  Author: Test User  \n'));
+        });
+
+        it('should return empty string when git log returns empty stdout', async () => {
+            run.run.mockResolvedValue({ stdout: '', stderr: '' });
+
+            const log = await Log.create({ from: 'branch1', to: 'branch2' });
+            const result = await log.get();
+
+            expect(result).toBe('');
+        });
+
+        it('should handle multiline stderr while returning stdout', async () => {
+            const mockLog = 'log content';
+            const mockStderr = 'warning line 1\nwarning line 2\ninfo line 3';
+            run.run.mockResolvedValue({ stdout: mockLog, stderr: mockStderr });
+
+            const log = await Log.create({ from: 'main' });
+            const result = await log.get();
+
+            expect(result).toBe(mockLog);
+            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git log produced stderr: %s', mockStderr);
+        });
+    });
 });

@@ -233,6 +233,8 @@ export const KODRDRIV_DEFAULTS = {
         sendit: DEFAULT_SENDIT_MODE,
         targetBranch: 'main',
         noMilestones: false,
+        checksTimeout: 3600000, // 1 hour default for PR checks
+        releaseWorkflowsTimeout: 1800000, // 30 minutes default for release workflows
     },
     link: {
         scopeRoots: {},

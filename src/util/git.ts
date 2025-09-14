@@ -44,19 +44,185 @@ export const isValidGitRef = async (ref: string): Promise<boolean> => {
 };
 
 /**
+ * Finds the previous release tag based on the current version using semantic versioning.
+ * Returns the highest version tag that is less than the current version.
+ *
+ * @param currentVersion The current version (e.g., "1.2.3", "2.0.0")
+ * @returns The previous release tag or null if none found
+ */
+export const findPreviousReleaseTag = async (currentVersion: string): Promise<string | null> => {
+    const logger = getLogger();
+
+    try {
+        // Parse current version first to validate it
+        const currentSemver = semver.parse(currentVersion);
+        if (!currentSemver) {
+            logger.debug(`Invalid version format: ${currentVersion}`);
+            return null;
+        }
+
+        logger.debug(`Looking for previous release tag for version ${currentVersion}`);
+
+        // Get all tags - try sorted first, fallback to unsorted
+        let tags: string[];
+        try {
+            const { stdout } = await runSecure('git', ['tag', '--sort=-version:refname']);
+            tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
+        } catch (sortError: any) {
+            // Fallback for older git versions that don't support --sort
+            logger.debug('Git tag --sort failed, falling back to manual sorting');
+            const { stdout } = await runSecure('git', ['tag']);
+            tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
+
+            // Manual semantic version sorting
+            tags.sort((a, b) => {
+                const aClean = a.startsWith('v') ? a.substring(1) : a;
+                const bClean = b.startsWith('v') ? b.substring(1) : b;
+                const aSemver = semver.parse(aClean);
+                const bSemver = semver.parse(bClean);
+
+                if (!aSemver && !bSemver) return 0;
+                if (!aSemver) return 1;
+                if (!bSemver) return -1;
+
+                // Sort in descending order (newest first)
+                return semver.compare(bSemver, aSemver);
+            });
+        }
+
+        if (tags.length === 0) {
+            logger.debug('No tags found in repository');
+            return null;
+        }
+
+        logger.debug(`Found ${tags.length} tags in repository`);
+
+        // Find the highest version that is less than the current version
+        let previousTag: string | null = null;
+        let previousVersion: semver.SemVer | null = null;
+        let validTags = 0;
+        let skippedTags = 0;
+
+        for (const tag of tags) {
+            // Remove 'v' prefix if present for parsing
+            const cleanTag = tag.startsWith('v') ? tag.substring(1) : tag;
+            const tagSemver = semver.parse(cleanTag);
+
+            if (tagSemver) {
+                validTags++;
+
+                // Check if this tag version is less than current version
+                if (semver.lt(tagSemver, currentSemver)) {
+                    // If we don't have a previous version yet, or this one is higher than our current previous
+                    if (!previousVersion || semver.gt(tagSemver, previousVersion)) {
+                        previousVersion = tagSemver;
+                        previousTag = tag; // Keep the original tag format (with or without 'v')
+                        logger.debug(`Found candidate previous tag: ${tag} (${tagSemver.version})`);
+                    }
+                } else {
+                    skippedTags++;
+                }
+            }
+        }
+
+        logger.debug(`Processed ${validTags} valid semantic version tags, skipped ${skippedTags} tags >= current version`);
+
+        if (previousTag) {
+            logger.info(`Found previous release tag: ${previousTag} (version: ${previousVersion?.version})`);
+        } else {
+            logger.debug(`No previous release tag found for version ${currentVersion}`);
+            if (validTags > 0) {
+                logger.debug('All existing tags are greater than or equal to current version (likely first release)');
+            }
+        }
+
+        return previousTag;
+    } catch (error: any) {
+        logger.debug(`Error finding previous release tag: ${error.message}`);
+        return null;
+    }
+};
+
+/**
+ * Gets the current version from package.json
+ *
+ * @returns The current version string or null if not found
+ */
+export const getCurrentVersion = async (): Promise<string | null> => {
+    const logger = getLogger();
+
+    try {
+        // First try to get from committed version in HEAD
+        const { stdout } = await runSecure('git', ['show', 'HEAD:package.json']);
+        const packageJson = safeJsonParse(stdout, 'package.json');
+        const validated = validatePackageJson(packageJson, 'package.json');
+
+        if (validated.version) {
+            logger.debug(`Current version from HEAD:package.json: ${validated.version}`);
+            return validated.version;
+        }
+
+        return null;
+    } catch (error: any) {
+        logger.debug(`Could not read version from HEAD:package.json: ${error.message}`);
+
+        // Fallback to reading from working directory
+        try {
+            const packageJsonPath = path.join(process.cwd(), 'package.json');
+            const content = await fs.readFile(packageJsonPath, 'utf-8');
+            const packageJson = safeJsonParse(content, 'package.json');
+            const validated = validatePackageJson(packageJson, 'package.json');
+
+            if (validated.version) {
+                logger.debug(`Current version from working directory package.json: ${validated.version}`);
+                return validated.version;
+            }
+
+            return null;
+        } catch (fallbackError: any) {
+            logger.debug(`Error reading current version from filesystem: ${fallbackError.message}`);
+            return null;
+        }
+    }
+};
+
+/**
  * Gets a reliable default for the --from parameter by trying multiple fallbacks
  *
  * Tries in order:
- * 1. main (local main branch - typical release comparison base)
- * 2. master (local master branch - legacy default)
- * 3. origin/main (remote main branch fallback)
- * 4. origin/master (remote master branch fallback)
+ * 1. Previous release tag (if current version can be determined)
+ * 2. main (local main branch - typical release comparison base)
+ * 3. master (local master branch - legacy default)
+ * 4. origin/main (remote main branch fallback)
+ * 5. origin/master (remote master branch fallback)
  *
+ * @param forceMainBranch If true, skip tag detection and use main branch
  * @returns A valid git reference to use as the default from parameter
  * @throws Error if no valid reference can be found
  */
-export const getDefaultFromRef = async (): Promise<string> => {
+export const getDefaultFromRef = async (forceMainBranch: boolean = false): Promise<string> => {
     const logger = getLogger();
+
+    // If forced to use main branch, skip tag detection
+    if (forceMainBranch) {
+        logger.debug('Forced to use main branch, skipping tag detection');
+    } else {
+        // First, try to find the previous release tag
+        try {
+            const currentVersion = await getCurrentVersion();
+            if (currentVersion) {
+                const previousTag = await findPreviousReleaseTag(currentVersion);
+                if (previousTag && await isValidGitRef(previousTag)) {
+                    logger.info(`Using previous release tag '${previousTag}' as default --from reference`);
+                    return previousTag;
+                }
+            }
+        } catch (error: any) {
+            logger.debug(`Could not determine previous release tag: ${error.message}`);
+        }
+    }
+
+    // Fallback to branch-based references
     const candidates = [
         'main',
         'master',
@@ -67,7 +233,11 @@ export const getDefaultFromRef = async (): Promise<string> => {
     for (const candidate of candidates) {
         logger.debug(`Testing git reference candidate: ${candidate}`);
         if (await isValidGitRef(candidate)) {
-            logger.info(`Using '${candidate}' as default --from reference`);
+            if (forceMainBranch) {
+                logger.info(`Using '${candidate}' as forced main branch reference`);
+            } else {
+                logger.info(`Using '${candidate}' as fallback --from reference (no previous release tag found)`);
+            }
             return candidate;
         }
     }
@@ -76,7 +246,7 @@ export const getDefaultFromRef = async (): Promise<string> => {
     throw new Error(
         'Could not find a valid default git reference for --from parameter. ' +
         'Please specify --from explicitly or check your git repository configuration. ' +
-        `Tried: ${candidates.join(', ')}`
+        `Tried: ${forceMainBranch ? 'main branch only' : 'previous release tag'}, ${candidates.join(', ')}`
     );
 };
 
