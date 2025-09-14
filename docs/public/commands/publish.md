@@ -201,7 +201,7 @@ The publish command intelligently manages GitHub Actions workflows and status ch
 
 **When PR is created on release branch:**
 1. **Automatic Check Detection**: Scans for GitHub Actions workflows and status checks on the PR
-2. **Intelligent Waiting**: Waits up to 5 minutes (configurable) for all checks to complete
+2. **Intelligent Waiting**: Waits up to 1 hour (configurable via `checksTimeout`) for all checks to complete
 3. **Progress Monitoring**: Reports check completion status every 10 seconds
 4. **Failure Handling**: Stops the process if any checks fail
 

@@ -49,6 +49,7 @@ export const ConfigSchema = z.object({
         openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
         openaiMaxOutputTokens: z.number().optional(),
         noMilestones: z.boolean().optional(),
+        fromMain: z.boolean().optional(),
     }).optional(),
     review: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -108,6 +109,7 @@ export const ConfigSchema = z.object({
         releaseWorkflowNames: z.array(z.string()).optional(),
         targetBranch: z.string().optional(),
         noMilestones: z.boolean().optional(),
+        fromMain: z.boolean().optional(),
     }).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
@@ -131,6 +133,7 @@ export const ConfigSchema = z.object({
         cmd: z.string().optional(),
         builtInCommand: z.string().optional(),
         continue: z.boolean().optional(),
+        promote: z.string().optional(),
         packageArgument: z.string().optional(),
         cleanNodeModules: z.boolean().optional(),
         externals: z.array(z.string()).optional(),
@@ -294,6 +297,7 @@ export type TreeConfig = {
 
     builtInCommand?: string;
     continue?: boolean; // Continue from previous tree publish execution
+    promote?: string; // Mark a package as completed in the execution context
     packageArgument?: string; // Package argument for link/unlink commands (e.g., "@fjell" or "@fjell/core")
     cleanNodeModules?: boolean; // For unlink command: remove node_modules and package-lock.json, then reinstall dependencies
     externalLinkPatterns?: string[];

@@ -39,7 +39,7 @@ kodrdriv tree link --exclude "test-*"
 kodrdriv tree unlink --dry-run
 ```
 
-**Supported Built-in Commands**: `commit`, `publish`, `link`, `unlink`, `branches`
+**Supported Built-in Commands**: `commit`, `publish`, `link`, `unlink`, `branches`, `run`
 
 > [!IMPORTANT]
 > ### Configuration Isolation in Built-in Command Mode
@@ -69,10 +69,10 @@ For detailed documentation of built-in commands, see [Tree Built-in Commands](tr
 
 - `[command]`: Built-in kodrdriv command to execute (`commit`, `publish`, `link`, `unlink`, `branches`)
 - `--directories [directories...]`: Target directories containing multiple packages (defaults to current directory). Multiple directories can be specified to analyze dependencies across separate directory trees. This option replaces the previous `--directory` option and enables analysis across multiple directory structures.
-- `--start-from <startFrom>`: Scope execution to the specified package and its related subgraph.
-  - Includes the specified package and all transitive dependents (packages that consume it, and their consumers, etc.)
-  - Also includes all transitive dependencies required to build those packages
-  - Prevents rebuilding unrelated packages when focusing on a subset
+- `--start-from <startFrom>`: Start execution from the specified package onwards in the dependency order.
+  - Skips all packages that come before the specified package in the build order
+  - Executes the specified package and all packages that follow it
+  - Useful for resuming builds or starting from a specific point in the dependency chain
 - `--stop-at <stopAt>`: Stop execution before this package directory name (the specified package will not be executed)
 - `--cmd <cmd>`: Shell command to execute in each package directory (e.g., `"npm install"`, `"git status"`)
 
@@ -216,10 +216,10 @@ If a command fails, resume from the failed package:
 # Scoped builds with start-from
 # Example: a depends on b, b depends on c, d is independent
 
-# Build only the subgraph related to b (c → b → a)
+# Start execution from package b onwards (b → a → d in dependency order)
 kodrdriv tree --start-from b --cmd "npm run build"
 
-# Combine with stop-at to cut before a (executes c → b only)
+# Combine with stop-at to execute only package b
 kodrdriv tree --start-from b --stop-at a --cmd "npm run build"
 
 # Resume built-in commands from a failed package within the scoped subgraph
@@ -356,21 +356,39 @@ kodrdriv tree --cmd "npm run build"
 
 ## Error Handling and Recovery
 
-If a command fails in any package:
+When a command fails in any package, kodrdriv provides comprehensive error information and recovery options:
 
+### Error Summary
+At the end of any failure, you'll see a clear error summary:
+```
+📋 ERROR SUMMARY:
+   Project that failed: package-name
+   Location: /path/to/package-name
+   Position in tree: 3 of 8 packages
+   What failed: Command failed: npm run build
+```
+
+### Complete Error Information
 1. **Error Details**: Shows the full error message including stderr and stdout
-2. **Recovery Command**: Provides the exact command to resume from the failed package
-3. **Context**: Shows which packages completed successfully before the failure
+2. **Error Summary**: Clear summary showing what failed, where, and position in build order
+3. **Recovery Command**: Provides the exact command to resume from the failed package
+4. **Context**: Shows which packages completed successfully before the failure
 
-Example recovery workflow:
+### Recovery Workflow
 ```bash
 # Command fails at package-b
 kodrdriv tree --cmd "npm run build"
-# Error: Command failed in package package-b
+# Shows error details and summary
 
 # Resume from the failed package
 kodrdriv tree --cmd "npm run build" --start-from package-b
 ```
+
+### Timeout Handling
+For publish commands that timeout waiting for PR checks:
+- Automatic timeout detection with helpful guidance
+- Suggestions for CI/CD setup or using `--sendit` flag
+- Recovery options including manual promotion
 
 ## Exclusion Patterns
 

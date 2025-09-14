@@ -166,7 +166,7 @@ export const waitForPullRequestChecks = async (prNumber: number, options: { time
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
     const logger = getLogger();
-    const timeout = options.timeout || 300000; // 5 minutes default timeout
+    const timeout = options.timeout || 3600000; // 1 hour default timeout
     const skipUserConfirmation = options.skipUserConfirmation || false;
 
     const startTime = Date.now();
@@ -698,7 +698,7 @@ export const waitForReleaseWorkflows = async (
     } = {}
 ): Promise<void> => {
     const logger = getLogger();
-    const timeout = options.timeout || 600000; // 10 minutes default
+    const timeout = options.timeout || 1800000; // 30 minutes default
     const skipUserConfirmation = options.skipUserConfirmation || false;
 
     logger.info(`Waiting for workflows triggered by release ${tagName}...`);
