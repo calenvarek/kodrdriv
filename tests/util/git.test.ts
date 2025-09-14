@@ -102,7 +102,8 @@ describe('Git Utilities', () => {
             });
 
             // Set up parse to return proper semver objects
-            mockSemver.parse.mockImplementation((version: string) => {
+            mockSemver.parse.mockImplementation((version: string | semver.SemVer | null | undefined) => {
+                if (!version || typeof version !== 'string') return null;
                 const clean = version.startsWith('v') ? version.substring(1) : version;
                 const versions: any = {
                     '2.1.0': { major: 2, minor: 1, patch: 0, version: '2.1.0' },
@@ -237,8 +238,9 @@ describe('Git Utilities', () => {
 
             // Track parse calls
             let parseCount = 0;
-            mockSemver.parse.mockImplementation((version: string) => {
+            mockSemver.parse.mockImplementation((version: string | semver.SemVer | null | undefined) => {
                 parseCount++;
+                if (!version || typeof version !== 'string') return null;
                 const clean = version.startsWith('v') ? version.substring(1) : version;
                 const versions: any = {
                     '1.8.0': { major: 1, minor: 8, patch: 0, version: '1.8.0' },
@@ -288,7 +290,8 @@ describe('Git Utilities', () => {
             });
 
             // Set up parse to return proper semver objects
-            mockSemver.parse.mockImplementation((version: string) => {
+            mockSemver.parse.mockImplementation((version: string | semver.SemVer | null | undefined) => {
+                if (!version || typeof version !== 'string') return null;
                 const clean = version.startsWith('v') ? version.substring(1) : version;
                 const versions: any = {
                     '2.2.5': { major: 2, minor: 2, patch: 5, version: '2.2.5' },
@@ -449,7 +452,8 @@ describe('Git Utilities', () => {
             mockValidatePackageJson.mockReturnValue({ version: '2.1.0' });
 
             // Set up parse to return proper semver objects
-            mockSemver.parse.mockImplementation((version: string) => {
+            mockSemver.parse.mockImplementation((version: string | semver.SemVer | null | undefined) => {
+                if (!version || typeof version !== 'string') return null;
                 const clean = version.startsWith('v') ? version.substring(1) : version;
                 const versions: any = {
                     '2.1.0': { major: 2, minor: 1, patch: 0, version: '2.1.0' },

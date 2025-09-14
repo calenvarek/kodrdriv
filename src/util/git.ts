@@ -68,7 +68,7 @@ export const findPreviousReleaseTag = async (currentVersion: string): Promise<st
         try {
             const { stdout } = await runSecure('git', ['tag', '--sort=-version:refname']);
             tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
-        } catch (sortError: any) {
+        } catch {
             // Fallback for older git versions that don't support --sort
             logger.debug('Git tag --sort failed, falling back to manual sorting');
             const { stdout } = await runSecure('git', ['tag']);
