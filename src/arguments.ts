@@ -646,18 +646,20 @@ export async function getCliConfig(
         .option('--interactive', 'Present release notes for interactive review and editing')
         .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
         .option('--no-milestones', 'disable GitHub milestone integration')
+        .option('--from-main', 'force comparison against main branch instead of previous release tag')
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
     const publishCommand = program
         .command('publish')
         .option('--merge-method <method>', 'method to merge PR (merge, squash, rebase)', 'squash')
-        .option('--from <from>', 'branch/tag to generate release notes from (default: main)')
+        .option('--from <from>', 'branch/tag to generate release notes from (default: previous release tag)')
         .option('--target-version <targetVersion>', 'target version for release (explicit version like "4.30.0" or semantic bump: "patch", "minor", "major")')
         .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .option('--sync-target', 'attempt to automatically sync target branch with remote before publishing')
         .option('--no-milestones', 'disable GitHub milestone integration')
+        .option('--from-main', 'force comparison against main branch instead of previous release tag')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
@@ -671,8 +673,9 @@ export async function getCliConfig(
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .option('--continue', 'continue from previous tree publish execution')
+        .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
-        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches');
+        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run');
     addSharedOptions(treeCommand);
 
     const linkCommand = program

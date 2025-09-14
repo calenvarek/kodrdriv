@@ -31,6 +31,7 @@ kodrdriv tree publish
 kodrdriv tree link
 kodrdriv tree unlink
 kodrdriv tree development
+kodrdriv tree run "clean build test"
 ```
 
 The tree command provides two execution modes:

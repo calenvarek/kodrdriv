@@ -191,7 +191,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const logger = getDryRunLogger(isDryRun);
 
     // Resolve the from reference with fallback logic if not explicitly provided
-    const fromRef = runConfig.release?.from ?? await getDefaultFromRef();
+    const fromRef = runConfig.release?.from ?? await getDefaultFromRef(runConfig.release?.fromMain || false);
     const toRef = runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS;
 
     logger.debug(`Using git references: from=${fromRef}, to=${toRef}`);

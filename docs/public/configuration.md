@@ -510,6 +510,7 @@ publish:
   from: main                    # Default branch/tag to generate release notes from
   targetVersion: patch          # Default version bump strategy ("patch", "minor", "major", or explicit version)
   interactive: false            # Whether to enable interactive release notes editing by default
+  checksTimeout: 3600000        # Timeout in milliseconds for waiting for PR checks (default: 1 hour)
   dependencyUpdatePatterns:
     - "@company/*"
   requiredEnvVars:
@@ -543,6 +544,11 @@ publish:
   - Options: `true`, `false`
   - Default: `false`
   - **Use Case**: Enable for projects where release notes often need manual refinement or additional context
+
+- **`checksTimeout`**: Timeout in milliseconds for waiting for PR checks to complete
+  - Number in milliseconds
+  - Default: `3600000` (1 hour)
+  - **Use Case**: Adjust based on how long your CI/CD workflows typically take to complete
 
 - **`dependencyUpdatePatterns`**: Patterns for which dependencies to update during publish
   - Array of package name patterns (supports wildcards)
