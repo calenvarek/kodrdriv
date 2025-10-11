@@ -14,6 +14,7 @@ kodrdriv tree unlink      # Unlink workspace packages across packages
 kodrdriv tree development # Set up development environments across packages
 kodrdriv tree branches    # Display branch and status information across packages
 kodrdriv tree run         # Run npm scripts across packages with space-separated script names
+kodrdriv tree checkout    # Checkout all packages to a specified branch with safety checks
 ```
 
 ## Key Features
@@ -355,6 +356,75 @@ $ kodrdriv tree run "clean build test"
 
 **Configuration:**
 No special configuration required - uses each package's `package.json` scripts.
+
+### `kodrdriv tree checkout`
+
+Safely checkout all packages in the workspace to a specified branch with comprehensive safety checks.
+
+**What it does:**
+- Performs two-phase operation: safety check, then checkout
+- Scans all packages for uncommitted changes before proceeding
+- Handles branch creation from remote or creates new branches
+- Provides detailed status reporting and error recovery guidance
+
+**Usage:**
+```bash
+# Checkout all packages to development branch
+kodrdriv tree checkout development
+
+# Checkout to feature branch (with safety checks)
+kodrdriv tree checkout feature/new-auth
+
+# Dry run to see what would happen
+kodrdriv tree checkout main --dry-run
+
+# Exclude certain packages from checkout
+kodrdriv tree checkout development --exclude "build-*" "temp-*"
+```
+
+**Safety Features:**
+- **Phase 1**: Scans all packages for uncommitted changes, unstaged files, or git errors
+- **Precondition Checks**: Blocks operation if any package has modifications
+- **Clear Error Reporting**: Shows exactly which packages have issues and how to resolve them
+- **Recovery Guidance**: Suggests specific commands to resolve issues
+
+**Branch Handling:**
+- **Existing Local Branch**: Checks out to existing branch
+- **Remote Branch**: Creates local branch tracking remote if branch exists on origin
+- **New Branch**: Creates entirely new branch if it doesn't exist anywhere
+
+**Example Output:**
+```
+🔍 Phase 1: Checking for uncommitted changes across workspace...
+✅ package-a: clean
+⚠️  package-b: 2 unstaged, 1 uncommitted
+✅ package-c: clean
+
+❌ Cannot proceed with checkout: 1 packages have uncommitted changes or errors:
+
+  📦 package-b (/path/to/package-b):
+      Status: 2 unstaged, 1 uncommitted
+
+🔧 To resolve this issue:
+   1. Commit or stash changes in the packages listed above
+   2. Or use "kodrdriv tree commit" to commit changes across all packages
+   3. Then re-run the checkout command
+```
+
+**Use Cases:**
+- **Environment Switching**: Quickly switch entire workspace to different branch
+- **Release Preparation**: Ensure all packages are on the correct branch for release
+- **Feature Development**: Switch workspace to feature branch for coordinated development
+- **Hotfix Deployment**: Emergency switch to hotfix branch across all packages
+
+**Error Recovery:**
+If checkout fails partway through, the command provides:
+- **Status Report**: Which packages succeeded and which failed
+- **Specific Errors**: Detailed error messages for each failure
+- **Recovery Suggestions**: Commands to fix issues and retry
+
+**Configuration:**
+No special configuration required - uses workspace package discovery and git operations.
 
 ## Execution Order and Dependencies
 

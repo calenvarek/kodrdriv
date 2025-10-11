@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio } from '../../src/util/general';
+import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio, incrementPrereleaseVersion, convertToReleaseVersion, calculateBranchDependentVersion, findDevelopmentBranch, haveSamePrereleaseTag } from '../../src/util/general';
 import { beforeEach, afterEach, vi } from 'vitest';
 import * as Storage from '../../src/util/storage';
 import * as fs from 'fs';
@@ -1159,5 +1159,223 @@ describe('archiveAudio', () => {
             '250107-0530-review-audio.wav',
             '250107-0530-review-transcript.md'
         );
+    });
+});
+
+describe('Branch-dependent version targeting', () => {
+    const mockLogger = {
+        info: vi.fn(),
+        debug: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn()
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.doMock('../src/logging', () => ({
+            getLogger: () => mockLogger
+        }));
+    });
+
+    describe('incrementPrereleaseVersion', () => {
+        test('should increment same tag prerelease version', () => {
+            const result = incrementPrereleaseVersion('1.2.3-dev.0', 'dev');
+            expect(result).toBe('1.2.3-dev.1');
+        });
+
+        test('should increment higher prerelease versions', () => {
+            const result = incrementPrereleaseVersion('1.2.3-dev.5', 'dev');
+            expect(result).toBe('1.2.3-dev.6');
+        });
+
+        test('should change tag and reset to 0', () => {
+            const result = incrementPrereleaseVersion('1.2.3-dev.5', 'test');
+            expect(result).toBe('1.2.3-test.0');
+        });
+
+        test('should add prerelease tag to release version', () => {
+            const result = incrementPrereleaseVersion('1.2.3', 'dev');
+            expect(result).toBe('1.2.3-dev.0');
+        });
+
+        test('should handle version with v prefix', () => {
+            const result = incrementPrereleaseVersion('v1.2.3-dev.0', 'dev');
+            expect(result).toBe('1.2.3-dev.1');
+        });
+
+        test('should throw on invalid version', () => {
+            expect(() => incrementPrereleaseVersion('invalid', 'dev'))
+                .toThrow('Invalid version string: invalid');
+        });
+    });
+
+    describe('convertToReleaseVersion', () => {
+        test('should convert prerelease to release version', () => {
+            expect(convertToReleaseVersion('1.2.3-dev.5')).toBe('1.2.3');
+            expect(convertToReleaseVersion('1.2.3-test.2')).toBe('1.2.3');
+            expect(convertToReleaseVersion('4.5.10-rc.1')).toBe('4.5.10');
+        });
+
+        test('should handle release version unchanged', () => {
+            expect(convertToReleaseVersion('1.2.3')).toBe('1.2.3');
+        });
+
+        test('should handle v prefix', () => {
+            expect(convertToReleaseVersion('v1.2.3-dev.5')).toBe('1.2.3');
+        });
+
+        test('should throw on invalid version', () => {
+            expect(() => convertToReleaseVersion('invalid'))
+                .toThrow('Invalid version string: invalid');
+        });
+    });
+
+    describe('calculateBranchDependentVersion', () => {
+        beforeEach(() => {
+            // Mock the imports
+            vi.doMock('../src/util/child', () => ({
+                runSecure: vi.fn(),
+                validateGitRef: vi.fn().mockReturnValue(true)
+            }));
+            vi.doMock('../src/util/validation', () => ({
+                safeJsonParse: vi.fn(),
+                validatePackageJson: vi.fn()
+            }));
+        });
+
+        test('should use default behavior when no targets config', async () => {
+            const result = await calculateBranchDependentVersion(
+                '1.2.3',
+                'feature-branch',
+                undefined,
+                'main'
+            );
+
+            expect(result.targetBranch).toBe('main');
+            expect(result.version).toBe('1.2.4'); // patch increment
+        });
+
+        test('should use default behavior when branch not in targets config', async () => {
+            const targetsConfig = {
+                working: { targetBranch: 'development' }
+            };
+
+            const result = await calculateBranchDependentVersion(
+                '1.2.3',
+                'other-branch',
+                targetsConfig,
+                'main'
+            );
+
+            expect(result.targetBranch).toBe('main');
+            expect(result.version).toBe('1.2.4');
+        });
+
+        test('should convert to release version', async () => {
+            const targetsConfig = {
+                test: {
+                    targetBranch: 'main',
+                    version: { type: 'release' }
+                }
+            };
+
+            const result = await calculateBranchDependentVersion(
+                '1.2.3-test.5',
+                'test',
+                targetsConfig
+            );
+
+            expect(result.targetBranch).toBe('main');
+            expect(result.version).toBe('1.2.3');
+        });
+
+        test('should increment prerelease version', async () => {
+            const targetsConfig = {
+                working: {
+                    targetBranch: 'development',
+                    version: { type: 'prerelease', increment: true, tag: 'dev' }
+                }
+            };
+
+            // Mock getVersionFromBranch to return null (no existing version in target)
+            vi.doMock('../src/util/general', async () => {
+                const actual = await vi.importActual('../src/util/general');
+                return {
+                    ...actual,
+                    getVersionFromBranch: vi.fn().mockResolvedValue(null)
+                };
+            });
+
+            const result = await calculateBranchDependentVersion(
+                '1.2.3-dev.0',
+                'working',
+                targetsConfig
+            );
+
+            expect(result.targetBranch).toBe('development');
+            expect(result.version).toBe('1.2.3-dev.1');
+        });
+    });
+
+    describe('findDevelopmentBranch', () => {
+        test('should find branch marked with developmentBranch flag', () => {
+            const targetsConfig = {
+                working: {
+                    targetBranch: 'development',
+                    developmentBranch: true
+                },
+                development: {
+                    targetBranch: 'test'
+                }
+            };
+
+            const result = findDevelopmentBranch(targetsConfig);
+            expect(result).toBe('working');
+        });
+
+        test('should return null when no development branch is marked', () => {
+            const targetsConfig = {
+                working: {
+                    targetBranch: 'development'
+                },
+                development: {
+                    targetBranch: 'test'
+                }
+            };
+
+            const result = findDevelopmentBranch(targetsConfig);
+            expect(result).toBe(null);
+        });
+
+        test('should return null for invalid config', () => {
+            expect(findDevelopmentBranch(null)).toBe(null);
+            expect(findDevelopmentBranch(undefined)).toBe(null);
+            expect(findDevelopmentBranch('invalid')).toBe(null);
+        });
+    });
+
+    describe('haveSamePrereleaseTag', () => {
+        test('should return true for same prerelease tags', () => {
+            expect(haveSamePrereleaseTag('1.2.3-dev.0', '1.2.3-dev.5')).toBe(true);
+            expect(haveSamePrereleaseTag('1.2.3-test.1', '1.2.3-test.0')).toBe(true);
+        });
+
+        test('should return false for different prerelease tags', () => {
+            expect(haveSamePrereleaseTag('1.2.3-dev.0', '1.2.3-test.0')).toBe(false);
+            expect(haveSamePrereleaseTag('1.2.3-rc.1', '1.2.3-beta.1')).toBe(false);
+        });
+
+        test('should return false when one version has no prerelease tag', () => {
+            expect(haveSamePrereleaseTag('1.2.3', '1.2.3-dev.0')).toBe(false);
+            expect(haveSamePrereleaseTag('1.2.3-dev.0', '1.2.3')).toBe(false);
+        });
+
+        test('should return false when both versions have no prerelease tag', () => {
+            expect(haveSamePrereleaseTag('1.2.3', '1.2.3')).toBe(false);
+        });
+
+        test('should handle v prefix', () => {
+            expect(haveSamePrereleaseTag('v1.2.3-dev.0', '1.2.3-dev.5')).toBe(true);
+        });
     });
 });

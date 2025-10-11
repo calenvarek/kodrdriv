@@ -71,6 +71,7 @@ export const InputSchema = z.object({
     keepTemp: z.boolean().optional(), // Keep temporary recording files
     noMilestones: z.boolean().optional(), // Disable GitHub milestone integration
     subcommand: z.string().optional(), // Subcommand for versions command
+    scope: z.string().optional(), // Scope for updates command
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -315,6 +316,13 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.directories !== undefined) transformedCliArgs.versions.directories = finalCliArgs.directories;
     }
 
+    // Nested mappings for 'updates' options
+    if (commandName === 'updates' && (finalCliArgs.scope !== undefined || finalCliArgs.directories !== undefined)) {
+        transformedCliArgs.updates = {};
+        if (finalCliArgs.scope !== undefined) transformedCliArgs.updates.scope = finalCliArgs.scope;
+        if (finalCliArgs.directories !== undefined) transformedCliArgs.updates.directories = finalCliArgs.directories;
+    }
+
     // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
     // Also handle exclude as alias for excludedPatterns
     const excludedPatterns = finalCliArgs.excludedPatterns || finalCliArgs.exclude || finalCliArgs.excludedPaths;
@@ -479,6 +487,24 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
         ...transformedCliArgs.tree,
     };
 
+    const mergedTargets = {
+        ...(KODRDRIV_DEFAULTS.targets || {}),
+        ...(fileValues.targets || {}),
+        ...(transformedCliArgs.targets || {}),
+    };
+
+    const mergedVersions = {
+        ...KODRDRIV_DEFAULTS.versions,
+        ...fileValues.versions,
+        ...transformedCliArgs.versions,
+    };
+
+    const mergedUpdates = {
+        ...KODRDRIV_DEFAULTS.updates,
+        ...fileValues.updates,
+        ...transformedCliArgs.updates,
+    };
+
     const partialConfig: Partial<Config> = {
         ...KODRDRIV_DEFAULTS,      // Start with Kodrdriv defaults
         ...fileValues,            // Apply file values (overwrites defaults)
@@ -492,6 +518,9 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
         audioReview: mergedAudioReview,
         review: mergedReview,
         tree: mergedTree,
+        targets: mergedTargets,
+        versions: mergedVersions,
+        updates: mergedUpdates,
     } as Partial<Config>; // Cast to Partial<Config> initially
 
     // Specific validation and processing after merge
@@ -537,6 +566,7 @@ export async function getCliConfig(
         cleanCommand?: Command;
         developmentCommand?: Command;
         versionsCommand?: Command;
+        updatesCommand?: Command;
         selectAudioCommand?: Command;
     }
 ): Promise<[Input, CommandConfig]> {
@@ -678,7 +708,7 @@ export async function getCliConfig(
         .option('--status', 'check status of running tree publish processes')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
-        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run');
+        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run, checkout');
     addSharedOptions(treeCommand);
 
     const linkCommand = program
@@ -824,6 +854,12 @@ export async function getCliConfig(
         .description('Update dependency versions across packages. Subcommands: minor');
     addSharedOptions(versionsCommand);
 
+    const updatesCommand = program
+        .command('updates <scope>')
+        .option('--directories [directories...]', 'directories to scan for packages (tree mode, defaults to current directory)')
+        .description('Update dependencies matching a specific scope using npm-check-updates (e.g., kodrdriv updates @fjell)');
+    addSharedOptions(updatesCommand);
+
     const selectAudioCommand = program
         .command('select-audio')
         .description('Interactively select and save audio device for recording');
@@ -857,6 +893,7 @@ export async function getCliConfig(
             cleanCommand,
             developmentCommand,
             versionsCommand,
+            updatesCommand,
             selectAudioCommand,
         } as const;
 
@@ -939,7 +976,7 @@ export async function getCliConfig(
                 const firstTruthyArg = args.find((arg: any) => arg);
                 if (firstTruthyArg) {
                     (commandOptions as any).builtInCommand = firstTruthyArg;
-                    if ((firstTruthyArg === 'link' || firstTruthyArg === 'unlink' || firstTruthyArg === 'run') && args.length > 1) {
+                    if ((firstTruthyArg === 'link' || firstTruthyArg === 'unlink' || firstTruthyArg === 'run' || firstTruthyArg === 'checkout' || firstTruthyArg === 'updates') && args.length > 1) {
                         const secondTruthyArg = args.slice(1).find((arg: any) => arg);
                         if (secondTruthyArg) {
                             (commandOptions as any).packageArgument = secondTruthyArg;
@@ -1037,6 +1074,13 @@ export async function getCliConfig(
             const args = versionsCmd.args;
             if (args && args.length > 0 && args[0]) {
                 commandOptions.subcommand = args[0];
+            }
+        } else if (commandName === 'updates' && chosen?.updatesCommand?.opts) {
+            const updatesCmd = chosen.updatesCommand as any;
+            commandOptions = updatesCmd.opts();
+            const args = updatesCmd.args;
+            if (args && args.length > 0 && args[0]) {
+                commandOptions.scope = args[0];
             }
         } else if (commandName === 'select-audio' && chosen?.selectAudioCommand?.opts) {
             const selectAudioCmd = chosen.selectAudioCommand;
@@ -1159,7 +1203,12 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             ...KODRDRIV_DEFAULTS.versions,
             ...Object.fromEntries(Object.entries(options.versions || {}).filter(([_, v]) => v !== undefined)),
         },
+        updates: {
+            ...KODRDRIV_DEFAULTS.updates,
+            ...Object.fromEntries(Object.entries(options.updates || {}).filter(([_, v]) => v !== undefined)),
+        },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
+        targets: options.targets ?? KODRDRIV_DEFAULTS.targets,
     };
 
     // Final validation against the MainConfig shape (optional, cardigantime might handle it)

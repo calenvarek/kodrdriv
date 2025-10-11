@@ -53,6 +53,7 @@ vi.mock('../../src/util/git', () => ({
     localBranchExists: vi.fn(),
     remoteBranchExists: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
+    getCurrentBranch: vi.fn(),
 }));
 
 // Mock the GitHub utilities
@@ -82,6 +83,7 @@ describe('development command', () => {
     let mockSafeJsonParse: any;
     let mockValidatePackageJson: any;
     let mockCommitExecute: any;
+    let mockGetCurrentBranch: any;
 
     beforeEach(async () => {
         vi.clearAllMocks();
@@ -90,7 +92,7 @@ describe('development command', () => {
         const { getDryRunLogger } = await import('../../src/logging');
         const { create: createStorage } = await import('../../src/util/storage');
         const { run, runSecure, validateGitRef } = await import('../../src/util/child');
-        const { localBranchExists, safeSyncBranchWithRemote } = await import('../../src/util/git');
+        const { localBranchExists, safeSyncBranchWithRemote, getCurrentBranch } = await import('../../src/util/git');
         const { safeJsonParse, validatePackageJson } = await import('../../src/util/validation');
         const { execute: commitExecute } = await import('../../src/commands/commit');
         Development = await import('../../src/commands/development');
@@ -103,6 +105,7 @@ describe('development command', () => {
         mockSafeJsonParse = safeJsonParse as any;
         mockValidatePackageJson = validatePackageJson as any;
         mockCommitExecute = commitExecute as any;
+        mockGetCurrentBranch = getCurrentBranch as any;
 
         // Configure validateGitRef mock to return true for valid branch names
         (validateGitRef as any).mockReturnValue(true);
@@ -123,6 +126,9 @@ describe('development command', () => {
             }
             return Promise.resolve({ stdout: '' });
         });
+
+        // Reset getCurrentBranch mock to return 'main' by default
+        mockGetCurrentBranch.mockResolvedValue('main');
     });
 
     describe('execute', () => {
@@ -737,6 +743,49 @@ describe('development command', () => {
             expect(mockStorage.writeFile).toHaveBeenCalledWith('package.json', expect.stringContaining('"version": "3.5.0-dev.0"'), 'utf-8');
         });
 
+        it('should merge development into working when on development branch', async () => {
+            const runConfig = {
+                dryRun: false
+            };
+
+            // Mock current branch as development
+            mockGetCurrentBranch.mockResolvedValueOnce('development');
+
+            // Mock working branch exists
+            mockLocalBranchExists.mockResolvedValueOnce(true);
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBe('Merged development into working and switched to development branch');
+            expect(mockRun).toHaveBeenCalledWith('git checkout working');
+            expect(mockRun).toHaveBeenCalledWith('git merge development --no-ff -m "Merge development into working for continued development"');
+            expect(mockRun).toHaveBeenCalledWith('npm install');
+        });
+
+        it('should handle merge conflicts when merging development into working', async () => {
+            const runConfig = {
+                dryRun: false
+            };
+
+            // Mock current branch as development
+            mockGetCurrentBranch.mockResolvedValueOnce('development');
+
+            // Mock working branch exists
+            mockLocalBranchExists.mockResolvedValueOnce(true);
+
+            // Mock merge conflict
+            mockRun.mockImplementation((command: string) => {
+                if (command.includes('git merge development')) {
+                    const error = new Error('CONFLICT (content): Merge conflict in package.json');
+                    throw error;
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow(
+                'Merge conflicts detected when merging development into working. Please resolve conflicts manually.'
+            );
+        });
 
     });
 
@@ -769,3 +818,4 @@ describe('development command', () => {
 
     });
 });
+

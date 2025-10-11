@@ -212,6 +212,224 @@ export const calculateTargetVersion = (currentVersion: string, targetVersion: st
     }
 };
 
+/**
+ * Increment prerelease version with a specific tag
+ * Examples:
+ * - incrementPrereleaseVersion("1.2.3-dev.0", "dev") => "1.2.3-dev.1"
+ * - incrementPrereleaseVersion("1.2.3", "dev") => "1.2.3-dev.0"
+ * - incrementPrereleaseVersion("1.2.3-dev.5", "test") => "1.2.3-test.0"
+ */
+export const incrementPrereleaseVersion = (version: string, tag: string): string => {
+    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+
+    // Split on dots but only use first 3 parts for major.minor.patch
+    // This handles cases like "1.2.3-dev.5" correctly
+    const dotParts = cleanVersion.split('.');
+    if (dotParts.length < 3) {
+        throw new Error(`Invalid version string: ${version}`);
+    }
+
+    const major = dotParts[0];
+    const minor = dotParts[1];
+
+    // Reconstruct the patch part - everything after the second dot
+    const patchAndPrerelease = dotParts.slice(2).join('.');
+    const patchComponents = patchAndPrerelease.split('-');
+    const patchNumber = patchComponents[0];
+
+    if (patchComponents.length > 1) {
+        // Already has prerelease (e.g., "3-dev.0" or "3-test.2")
+        const prereleaseString = patchComponents.slice(1).join('-'); // Handle multiple dashes
+        const prereleaseComponents = prereleaseString.split('.');
+        const existingTag = prereleaseComponents[0];
+        const existingPrereleaseVersion = prereleaseComponents[1];
+
+        if (existingTag === tag) {
+            // Same tag, increment the prerelease version
+            const prereleaseNumber = parseInt(existingPrereleaseVersion) || 0;
+            return `${major}.${minor}.${patchNumber}-${tag}.${prereleaseNumber + 1}`;
+        } else {
+            // Different tag, start at 0
+            return `${major}.${minor}.${patchNumber}-${tag}.0`;
+        }
+    } else {
+        // No prerelease yet, add it
+        return `${major}.${minor}.${patchNumber}-${tag}.0`;
+    }
+};
+
+/**
+ * Convert prerelease version to release version
+ * Examples:
+ * - convertToReleaseVersion("1.2.3-dev.5") => "1.2.3"
+ * - convertToReleaseVersion("1.2.3-test.2") => "1.2.3"
+ * - convertToReleaseVersion("1.2.3") => "1.2.3"
+ */
+export const convertToReleaseVersion = (version: string): string => {
+    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+
+    // Split on dots but only use first 3 parts for major.minor.patch
+    const dotParts = cleanVersion.split('.');
+    if (dotParts.length < 3) {
+        throw new Error(`Invalid version string: ${version}`);
+    }
+
+    const major = dotParts[0];
+    const minor = dotParts[1];
+
+    // Reconstruct the patch part - everything after the second dot
+    const patchAndPrerelease = dotParts.slice(2).join('.');
+    const patchComponents = patchAndPrerelease.split('-');
+    const patchNumber = patchComponents[0];
+
+    return `${major}.${minor}.${patchNumber}`;
+};
+
+/**
+ * Get version from a specific branch's package.json
+ */
+export const getVersionFromBranch = async (branchName: string): Promise<string | null> => {
+    const { runSecure, validateGitRef } = await import('./child');
+    const { safeJsonParse, validatePackageJson } = await import('./validation');
+
+    try {
+        // Validate branch name to prevent injection
+        if (!validateGitRef(branchName)) {
+            throw new Error(`Invalid branch name: ${branchName}`);
+        }
+        const { stdout } = await runSecure('git', ['show', `${branchName}:package.json`]);
+        const packageJson = safeJsonParse(stdout, 'package.json');
+        const validated = validatePackageJson(packageJson, 'package.json');
+        return validated.version;
+    } catch {
+        // Return null if we can't get the version (branch may not exist or no package.json)
+        return null;
+    }
+};
+
+/**
+ * Calculate target version based on branch configuration
+ * This is the core logic for branch-dependent versioning
+ */
+export const calculateBranchDependentVersion = async (
+    currentVersion: string,
+    currentBranch: string,
+    targetsConfig: any,
+    targetBranch?: string
+): Promise<{ version: string; targetBranch: string }> => {
+    const { getLogger } = await import('../logging');
+    const logger = getLogger();
+
+    // Check if we have branch-specific configuration
+    if (!targetsConfig || !targetsConfig[currentBranch]) {
+        // No branch-specific config, use default behavior
+        const defaultTargetBranch = targetBranch || 'main';
+        const defaultVersion = incrementPatchVersion(currentVersion);
+        logger.debug(`No branch-specific config found for '${currentBranch}', using defaults`);
+        return { version: defaultVersion, targetBranch: defaultTargetBranch };
+    }
+
+    const branchConfig = targetsConfig[currentBranch];
+    const configuredTargetBranch = branchConfig.targetBranch;
+
+    logger.info(`🎯 Using branch-dependent targeting: ${currentBranch} → ${configuredTargetBranch}`);
+
+    if (!branchConfig.version) {
+        // No version config, use default increment
+        const defaultVersion = incrementPatchVersion(currentVersion);
+        return { version: defaultVersion, targetBranch: configuredTargetBranch };
+    }
+
+    const versionConfig = branchConfig.version;
+
+    if (versionConfig.type === 'release') {
+        // Convert to release version (remove prerelease tags)
+        const releaseVersion = convertToReleaseVersion(currentVersion);
+        logger.info(`📦 Converting to release version: ${currentVersion} → ${releaseVersion}`);
+        return { version: releaseVersion, targetBranch: configuredTargetBranch };
+    } else if (versionConfig.type === 'prerelease') {
+        if (!versionConfig.tag) {
+            throw new Error(`Prerelease version type requires a tag in targets configuration`);
+        }
+
+        const tag = versionConfig.tag;
+
+        if (versionConfig.increment) {
+            // Check if there's already a version with this tag in the target branch
+            const targetBranchVersion = await getVersionFromBranch(configuredTargetBranch);
+
+            if (targetBranchVersion) {
+                // Use the target branch version as the base and increment
+                const newVersion = incrementPrereleaseVersion(targetBranchVersion, tag);
+                logger.info(`📦 Incrementing prerelease in target branch: ${targetBranchVersion} → ${newVersion}`);
+                return { version: newVersion, targetBranch: configuredTargetBranch };
+            } else {
+                // No version in target branch, use current version as base
+                const newVersion = incrementPrereleaseVersion(currentVersion, tag);
+                logger.info(`📦 Creating new prerelease version: ${currentVersion} → ${newVersion}`);
+                return { version: newVersion, targetBranch: configuredTargetBranch };
+            }
+        } else {
+            // Just add/change the prerelease tag without incrementing
+            const baseVersion = convertToReleaseVersion(currentVersion);
+            const newVersion = `${baseVersion}-${tag}.0`;
+            logger.info(`📦 Setting prerelease tag: ${currentVersion} → ${newVersion}`);
+            return { version: newVersion, targetBranch: configuredTargetBranch };
+        }
+    }
+
+    throw new Error(`Invalid version type: ${versionConfig.type}`);
+};
+
+/**
+ * Find the development branch from targets configuration
+ * Returns the branch marked with developmentBranch: true
+ */
+export const findDevelopmentBranch = (targetsConfig: any): string | null => {
+    if (!targetsConfig || typeof targetsConfig !== 'object') {
+        return null;
+    }
+
+    for (const [branchName, branchConfig] of Object.entries(targetsConfig)) {
+        if (branchConfig && typeof branchConfig === 'object' && (branchConfig as any).developmentBranch === true) {
+            return branchName;
+        }
+    }
+
+    return null;
+};
+
+/**
+ * Check if two prerelease versions have the same tag
+ * Examples:
+ * - haveSamePrereleaseTag("1.2.3-dev.0", "1.2.3-dev.5") => true
+ * - haveSamePrereleaseTag("1.2.3-dev.0", "1.2.3-test.0") => false
+ * - haveSamePrereleaseTag("1.2.3", "1.2.3-dev.0") => false
+ */
+export const haveSamePrereleaseTag = (version1: string, version2: string): boolean => {
+    const extractTag = (version: string): string | null => {
+        const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
+        const parts = cleanVersion.split('.');
+        if (parts.length < 3) return null;
+
+        const patchAndPrerelease = parts.slice(2).join('.');
+        const patchComponents = patchAndPrerelease.split('-');
+
+        if (patchComponents.length > 1) {
+            const prereleaseString = patchComponents.slice(1).join('-');
+            const prereleaseComponents = prereleaseString.split('.');
+            return prereleaseComponents[0] || null;
+        }
+
+        return null;
+    };
+
+    const tag1 = extractTag(version1);
+    const tag2 = extractTag(version2);
+
+    return tag1 !== null && tag2 !== null && tag1 === tag2;
+};
+
 export const checkIfTagExists = async (tagName: string): Promise<boolean> => {
     const { runSecure, validateGitRef } = await import('./child');
     try {

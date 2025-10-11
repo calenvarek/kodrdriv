@@ -32,6 +32,7 @@ kodrdriv tree link
 kodrdriv tree unlink
 kodrdriv tree development
 kodrdriv tree run "clean build test"
+kodrdriv tree checkout development
 ```
 
 The tree command provides two execution modes:
@@ -48,6 +49,37 @@ The tree command provides two execution modes:
 **See:**
 - [Tree Command Documentation](commands/tree.md) for complete usage
 - [Tree Built-in Commands](commands/tree-built-in-commands.md) for detailed built-in command documentation
+
+## Workspace Checkout Command
+
+Safely checkout all packages to a specified branch with comprehensive safety checks:
+
+```bash
+# Checkout entire workspace to development branch
+kodrdriv tree checkout development
+
+# Switch all packages to feature branch
+kodrdriv tree checkout feature/new-feature
+
+# Dry run to see what would happen
+kodrdriv tree checkout main --dry-run
+```
+
+The checkout command performs a two-phase operation:
+1. **Safety Check**: Scans all packages for uncommitted changes
+2. **Workspace Checkout**: Switches all clean packages to the target branch
+
+**Safety Features:**
+- **Blocks operation** if any package has uncommitted changes
+- **Clear error reporting** showing exactly which packages have issues
+- **Recovery suggestions** including using `kodrdriv tree commit` to commit changes
+- **Branch creation** from remote or new branches as needed
+
+**Use Cases:**
+- **Environment Switching**: Move entire workspace between development/staging/production branches
+- **Feature Development**: Switch all packages to feature branch for coordinated development
+- **Release Preparation**: Ensure all packages are on correct branch before release operations
+- **Hotfix Deployment**: Emergency workspace switch to hotfix branch
 
 ## Development Command
 
