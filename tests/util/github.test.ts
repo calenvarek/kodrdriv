@@ -282,6 +282,108 @@ describe('GitHub Utilities', () => {
             mockOctokit.pulls.create.mockRejectedValue(error);
             await expect(GitHub.createPullRequest('Test PR', 'This is a test PR', 'non-existent-branch')).rejects.toThrow('Branch not found');
         });
+
+        describe('title truncation', () => {
+            it('should not truncate titles under 256 characters', async () => {
+                const shortTitle = 'This is a short title';
+                const prData = { data: { html_url: 'http://github.com/pull/1' } };
+                mockOctokit.pulls.create.mockResolvedValue(prData);
+
+                await GitHub.createPullRequest(shortTitle, 'Test body', 'feature-branch');
+
+                expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: shortTitle,
+                    })
+                );
+            });
+
+            it('should truncate titles that exceed 256 characters', async () => {
+                // Create a title that's 300 characters long
+                const longTitle = 'This commit establishes a provider-first baseline: canonicalized dependency graph, single-source API URL handling, and centralized authentication surface, setting the stage for further per-file atomic commits (auth surface, cache wiring, and UI adapters). If you want, I can provide more details about this.';
+                expect(longTitle.length).toBeGreaterThan(256);
+
+                const prData = { data: { html_url: 'http://github.com/pull/1' } };
+                mockOctokit.pulls.create.mockResolvedValue(prData);
+
+                await GitHub.createPullRequest(longTitle, 'Test body', 'feature-branch');
+
+                const calledArgs = mockOctokit.pulls.create.mock.calls[0][0];
+                expect(calledArgs.title.length).toBeLessThanOrEqual(256);
+                expect(calledArgs.title.endsWith('...')).toBe(true);
+                expect(calledArgs.title).toContain('This commit establishes a provider-first baseline');
+            });
+
+            it('should truncate at word boundaries when possible', async () => {
+                // Create a title that's over 256 characters
+                const longTitle = 'This is a very long title that needs to be truncated because it exceeds the GitHub API limit of 256 characters and we want to test word boundary truncation to make sure we do not break words in the middle of them which would look bad in practice and would be quite disappointing to users.';
+                expect(longTitle.length).toBeGreaterThan(256);
+
+                const prData = { data: { html_url: 'http://github.com/pull/1' } };
+                mockOctokit.pulls.create.mockResolvedValue(prData);
+
+                await GitHub.createPullRequest(longTitle, 'Test body', 'feature-branch');
+
+                const calledArgs = mockOctokit.pulls.create.mock.calls[0][0];
+                expect(calledArgs.title.length).toBeLessThanOrEqual(256);
+                expect(calledArgs.title.endsWith('...')).toBe(true);
+                // Should end with complete words when word boundary is found, not partial words like "characte"
+                const titleWithoutEllipsis = calledArgs.title.replace('...', '');
+                // Should not end with a space (which would indicate bad truncation)
+                expect(titleWithoutEllipsis.endsWith(' ')).toBe(false);
+            });
+
+            it('should handle titles with only whitespace at the end', async () => {
+                const titleWithSpaces = '  This is a title with spaces  ';
+                const prData = { data: { html_url: 'http://github.com/pull/1' } };
+                mockOctokit.pulls.create.mockResolvedValue(prData);
+
+                await GitHub.createPullRequest(titleWithSpaces, 'Test body', 'feature-branch');
+
+                expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: 'This is a title with spaces',
+                    })
+                );
+            });
+
+            it('should handle empty or whitespace-only titles', async () => {
+                const emptyTitle = '   ';
+                const prData = { data: { html_url: 'http://github.com/pull/1' } };
+                mockOctokit.pulls.create.mockResolvedValue(prData);
+
+                await GitHub.createPullRequest(emptyTitle, 'Test body', 'feature-branch');
+
+                expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        title: '',
+                    })
+                );
+            });
+
+            it('should ensure truncated title is never longer than 256 characters', async () => {
+                // Test with various long titles
+                const longTitles = [
+                    'A'.repeat(500), // Very long, no spaces
+                    'This is a ' + 'very long word'.repeat(50), // Long words
+                    'Short words but many of them '.repeat(20), // Many short words
+                ];
+
+                const prData = { data: { html_url: 'http://github.com/pull/1' } };
+
+                for (const longTitle of longTitles) {
+                    mockOctokit.pulls.create.mockResolvedValue(prData);
+
+                    await GitHub.createPullRequest(longTitle, 'Test body', 'feature-branch');
+
+                    const calledArgs = mockOctokit.pulls.create.mock.calls[mockOctokit.pulls.create.mock.calls.length - 1][0];
+                    expect(calledArgs.title.length).toBeLessThanOrEqual(256);
+                    if (longTitle.length > 256) {
+                        expect(calledArgs.title.endsWith('...')).toBe(true);
+                    }
+                }
+            });
+        });
     });
 
     describe('findOpenPullRequestByHeadRef', () => {
