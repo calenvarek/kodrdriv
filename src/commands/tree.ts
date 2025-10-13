@@ -421,6 +421,9 @@ const runWithLogging = async (
 ): Promise<{ stdout: string; stderr: string }> => {
     const execPromise = util.promisify(exec);
 
+    // Ensure encoding is set to 'utf8' to get string output instead of Buffer
+    const execOptions = { encoding: 'utf8' as const, ...options };
+
     if (showOutput === 'full') {
         packageLogger.debug(`Executing command: ${command}`);
         // Use info level to show on console in debug mode
@@ -430,30 +433,37 @@ const runWithLogging = async (
     }
 
     try {
-        const result = await execPromise(command, options);
+        const result = await execPromise(command, execOptions);
 
         if (showOutput === 'full') {
-            if (result.stdout.trim()) {
+            const stdout = String(result.stdout);
+            const stderr = String(result.stderr);
+
+            if (stdout.trim()) {
                 packageLogger.debug('STDOUT:');
-                packageLogger.debug(result.stdout);
+                packageLogger.debug(stdout);
                 // Show on console using info level for immediate feedback
                 packageLogger.info(`📤 STDOUT:`);
-                result.stdout.split('\n').forEach((line: string) => {
+                stdout.split('\n').forEach((line: string) => {
                     if (line.trim()) packageLogger.info(`${line}`);
                 });
             }
-            if (result.stderr.trim()) {
+            if (stderr.trim()) {
                 packageLogger.debug('STDERR:');
-                packageLogger.debug(result.stderr);
+                packageLogger.debug(stderr);
                 // Show on console using info level for immediate feedback
                 packageLogger.info(`⚠️  STDERR:`);
-                result.stderr.split('\n').forEach((line: string) => {
+                stderr.split('\n').forEach((line: string) => {
                     if (line.trim()) packageLogger.info(`${line}`);
                 });
             }
         }
 
-        return result;
+        // Ensure result is properly typed as strings
+        return {
+            stdout: String(result.stdout),
+            stderr: String(result.stderr)
+        };
     } catch (error: any) {
         if (showOutput === 'full' || showOutput === 'minimal') {
             packageLogger.error(`Command failed: ${command}`);
