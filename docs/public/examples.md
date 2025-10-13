@@ -482,6 +482,24 @@ publish:
     - NODE_AUTH_TOKEN
     - CODECOV_TOKEN
   targetBranch: main
+targets:
+  working:
+    targetBranch: "development"
+    developmentBranch: true  # Mark as active development branch
+    version:
+      type: "prerelease"
+      increment: true
+      tag: "dev"
+  development:
+    targetBranch: "test"
+    version:
+      type: "prerelease"
+      increment: true
+      tag: "test"
+  test:
+    targetBranch: "main"
+    version:
+      type: "release"
 link:
   scopeRoots:
     "@company": "../"
@@ -490,6 +508,41 @@ link:
     - "@somelib"
     - "lodash"
     - "@external/*"
+```
+
+### Branch-Dependent CI/CD Pipeline
+
+```yaml
+# Advanced CI/CD workflow configuration
+targets:
+  feature/*:              # Wildcard matching for feature branches
+    targetBranch: "development"
+    version:
+      type: "prerelease"
+      increment: true
+      tag: "feature"
+  working:
+    targetBranch: "development"
+    developmentBranch: true  # Active development happens here
+    version:
+      type: "prerelease"
+      increment: true
+      tag: "dev"
+  development:
+    targetBranch: "staging"
+    version:
+      type: "prerelease"
+      increment: true
+      tag: "staging"
+  staging:
+    targetBranch: "production"
+    version:
+      type: "release"
+
+publish:
+  mergeMethod: "squash"
+  checksTimeout: 1800000  # 30 minutes for complex CI/CD
+  waitForReleaseWorkflows: true
 ```
 
 ### Project-Specific Configuration

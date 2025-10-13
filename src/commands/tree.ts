@@ -9,7 +9,7 @@
  * Built-in commands shell out to separate kodrdriv processes to preserve
  * individual project configurations while leveraging centralized dependency analysis.
  *
- * Supported built-in commands: commit, publish, link, unlink, development, branches
+ * Supported built-in commands: commit, publish, link, unlink, development, branches, checkout
  *
  * Enhanced logging based on debug/verbose flags:
  *
@@ -1100,7 +1100,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Check if we're in built-in command mode (tree command with second argument)
     const builtInCommand = runConfig.tree?.builtInCommand;
-    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches', 'run'];
+    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches', 'run', 'checkout', 'updates'];
 
     if (builtInCommand && !supportedBuiltInCommands.includes(builtInCommand)) {
         throw new Error(`Unsupported built-in command: ${builtInCommand}. Supported commands: ${supportedBuiltInCommands.join(', ')}`);
@@ -1701,6 +1701,155 @@ export const execute = async (runConfig: Config): Promise<string> => {
             return `Branch status summary for ${branchInfos.length} packages completed.`;
         }
 
+        // Handle special "checkout" command that switches all packages to specified branch
+        if (builtInCommand === 'checkout') {
+            const targetBranch = runConfig.tree?.packageArgument;
+            if (!targetBranch) {
+                throw new Error('checkout subcommand requires a branch name. Usage: kodrdriv tree checkout <branch-name>');
+            }
+
+            logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Workspace Checkout to Branch: ${targetBranch}`);
+            logger.info('');
+
+            // Phase 1: Safety check - scan all packages for uncommitted changes
+            logger.info('🔍 Phase 1: Checking for uncommitted changes across workspace...');
+            const packagesWithChanges: Array<{
+                name: string;
+                path: string;
+                status: string;
+                hasUncommittedChanges: boolean;
+                hasUnstagedFiles: boolean;
+            }> = [];
+
+            for (const packageName of buildOrder) {
+                const packageInfo = dependencyGraph.packages.get(packageName)!;
+
+                try {
+                    const gitStatus = await getGitStatusSummary(packageInfo.path);
+                    const hasProblems = gitStatus.hasUncommittedChanges || gitStatus.hasUnstagedFiles;
+
+                    packagesWithChanges.push({
+                        name: packageName,
+                        path: packageInfo.path,
+                        status: gitStatus.status,
+                        hasUncommittedChanges: gitStatus.hasUncommittedChanges,
+                        hasUnstagedFiles: gitStatus.hasUnstagedFiles
+                    });
+
+                    if (hasProblems) {
+                        logger.warn(`⚠️  ${packageName}: ${gitStatus.status}`);
+                    } else {
+                        logger.verbose(`✅ ${packageName}: clean`);
+                    }
+                } catch (error: any) {
+                    logger.warn(`❌ ${packageName}: error checking status - ${error.message}`);
+                    packagesWithChanges.push({
+                        name: packageName,
+                        path: packageInfo.path,
+                        status: 'error',
+                        hasUncommittedChanges: false,
+                        hasUnstagedFiles: false
+                    });
+                }
+            }
+
+            // Check if any packages have uncommitted changes
+            const problemPackages = packagesWithChanges.filter(pkg =>
+                pkg.hasUncommittedChanges || pkg.hasUnstagedFiles || pkg.status === 'error'
+            );
+
+            if (problemPackages.length > 0) {
+                logger.error(`❌ Cannot proceed with checkout: ${problemPackages.length} packages have uncommitted changes or errors:`);
+                logger.error('');
+
+                for (const pkg of problemPackages) {
+                    logger.error(`  📦 ${pkg.name} (${pkg.path}):`);
+                    logger.error(`      Status: ${pkg.status}`);
+                }
+
+                logger.error('');
+                logger.error('🔧 To resolve this issue:');
+                logger.error('   1. Commit or stash changes in the packages listed above');
+                logger.error('   2. Or use "kodrdriv tree commit" to commit changes across all packages');
+                logger.error('   3. Then re-run the checkout command');
+                logger.error('');
+
+                throw new Error(`Workspace checkout blocked: ${problemPackages.length} packages have uncommitted changes`);
+            }
+
+            logger.info(`✅ Phase 1 complete: All ${packagesWithChanges.length} packages are clean`);
+            logger.info('');
+
+            // Phase 2: Perform the checkout
+            logger.info(`🔄 Phase 2: Checking out all packages to branch '${targetBranch}'...`);
+
+            let successCount = 0;
+            const failedPackages: Array<{ name: string; error: string }> = [];
+
+            for (let i = 0; i < buildOrder.length; i++) {
+                const packageName = buildOrder[i];
+                const packageInfo = dependencyGraph.packages.get(packageName)!;
+
+                if (isDryRun) {
+                    logger.info(`[${i + 1}/${buildOrder.length}] ${packageName}: Would checkout ${targetBranch}`);
+                    successCount++;
+                } else {
+                    try {
+                        const originalCwd = process.cwd();
+                        process.chdir(packageInfo.path);
+
+                        try {
+                            // Check if target branch exists locally
+                            let branchExists = false;
+                            try {
+                                await runSecure('git', ['rev-parse', '--verify', targetBranch]);
+                                branchExists = true;
+                            } catch {
+                                // Branch doesn't exist locally
+                                branchExists = false;
+                            }
+
+                            if (branchExists) {
+                                await runSecure('git', ['checkout', targetBranch]);
+                                logger.info(`[${i + 1}/${buildOrder.length}] ${packageName}: ✅ Checked out ${targetBranch}`);
+                            } else {
+                                // Try to check out branch from remote
+                                try {
+                                    await runSecure('git', ['checkout', '-b', targetBranch, `origin/${targetBranch}`]);
+                                    logger.info(`[${i + 1}/${buildOrder.length}] ${packageName}: ✅ Checked out ${targetBranch} from origin`);
+                                } catch {
+                                    // If that fails, create a new branch
+                                    await runSecure('git', ['checkout', '-b', targetBranch]);
+                                    logger.info(`[${i + 1}/${buildOrder.length}] ${packageName}: ✅ Created new branch ${targetBranch}`);
+                                }
+                            }
+
+                            successCount++;
+                        } finally {
+                            process.chdir(originalCwd);
+                        }
+                    } catch (error: any) {
+                        logger.error(`[${i + 1}/${buildOrder.length}] ${packageName}: ❌ Failed - ${error.message}`);
+                        failedPackages.push({ name: packageName, error: error.message });
+                    }
+                }
+            }
+
+            // Report results
+            if (failedPackages.length > 0) {
+                logger.error(`❌ Checkout completed with errors: ${successCount}/${buildOrder.length} packages successful`);
+                logger.error('');
+                logger.error('Failed packages:');
+                for (const failed of failedPackages) {
+                    logger.error(`  - ${failed.name}: ${failed.error}`);
+                }
+                throw new Error(`Checkout failed for ${failedPackages.length} packages`);
+            } else {
+                logger.info(`✅ Checkout complete: All ${buildOrder.length} packages successfully checked out to '${targetBranch}'`);
+                return `Workspace checkout complete: ${successCount} packages checked out to '${targetBranch}'`;
+            }
+        }
+
         // Display results
         logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Build order determined:`);
 
@@ -1778,9 +1927,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Build the command with global options
             const optionsString = globalOptions.length > 0 ? ` ${globalOptions.join(' ')}` : '';
 
-            // Add package argument for link/unlink commands
+            // Add package argument for link/unlink/updates commands
             const packageArg = runConfig.tree?.packageArgument;
-            const packageArgString = (packageArg && (builtInCommand === 'link' || builtInCommand === 'unlink'))
+            const packageArgString = (packageArg && (builtInCommand === 'link' || builtInCommand === 'unlink' || builtInCommand === 'updates'))
                 ? ` "${packageArg}"`
                 : '';
 

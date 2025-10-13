@@ -573,6 +573,123 @@ publish:
   - Array of workflow names
   - If not specified, automatically detects release-triggered workflows
 
+#### Branch-Dependent Targeting
+
+KodrDriv supports sophisticated branch-dependent targeting that allows different source branches to target different destination branches with different versioning strategies. This is particularly useful for CI/CD pipelines where you want automated promotion through multiple environments.
+
+**NEW: Branches Configuration (Recommended)**
+
+The new `branches` configuration makes versioning semantics clearer by specifying what version should be **ON** each branch:
+
+```yaml
+branches:
+  working:
+    targetBranch: "development"
+    developmentBranch: true  # Mark this as the active development branch
+    version:
+      type: "prerelease"
+      increment: true
+      tag: "dev"
+  development:
+    targetBranch: "test"
+    version:
+      type: "prerelease"
+      increment: false
+      tag: "development"
+  test:
+    targetBranch: "main"
+    version:
+      type: "prerelease"
+      increment: false
+      tag: "test"
+  main:
+    version:
+      type: "release"
+```
+
+**Default Configuration:**
+
+If no configuration is provided, KodrDriv uses this simple default:
+
+```yaml
+branches:
+  working:
+    targetBranch: "main"
+    developmentBranch: true
+    version:
+      type: "prerelease"
+      increment: true
+      incrementLevel: "patch"
+      tag: "dev"
+  main:
+    version:
+      type: "release"
+```
+
+**How It Works (New Semantics):**
+
+When you run `kodrdriv publish` or `kodrdriv tree publish`, the system:
+1. **Detects your current branch** (e.g., "working")
+2. **Looks up the target branch** from the source branch configuration (e.g., "development")
+3. **Looks at the target branch's version configuration** to determine what version should be ON that branch
+4. **Calculates the target version** based on the target branch's version strategy
+
+
+**Version Strategies:**
+
+- **`type: "prerelease"`**: Creates or increments prerelease versions
+  - `increment: true`: Increments existing prerelease versions (1.2.3-dev.0 → 1.2.3-dev.1)
+  - `increment: false`: Replaces the prerelease tag without incrementing
+  - `incrementLevel: "patch|minor|major"`: When going back to development branch, increment the specified version level (used with `kodrdriv development` command)
+  - `tag: "dev"`: Uses the specified prerelease tag (dev, test, rc, etc.)
+- **`type: "release"`**: Converts prerelease to final release version (1.2.3-test.5 → 1.2.3)
+
+**Example Workflow (New Semantics):**
+
+```bash
+# On working branch (version: 1.2.3-dev.0)
+# Target: development branch (configured with increment: true, tag: dev)
+git checkout working
+kodrdriv tree publish
+# Result: Merges to development branch with version 1.2.3-dev.1
+# (increments based on development branch's version config)
+
+# On development branch (version: 1.2.3-dev.1)
+# Target: test branch (configured with increment: false, tag: test)
+git checkout development
+kodrdriv tree publish
+# Result: Merges to test branch with version 1.2.3-test.0
+# (sets test tag based on test branch's version config)
+
+# On test branch (version: 1.2.3-test.0)
+# Target: main branch (configured with type: release)
+git checkout test
+kodrdriv tree publish
+# Result: Merges to main branch with version 1.2.3 (final release)
+# (removes prerelease tags based on main branch's version config)
+```
+
+**Advanced Version Logic:**
+
+- **Cross-tag transitions**: Moving from "dev" to "test" resets the prerelease number to 0
+- **Same-tag increments**: Staying on the same tag (dev → dev) increments the number
+- **Target branch version checking**: When `increment: true`, checks the target branch for existing versions
+- **Intelligent fallbacks**: Falls back to standard behavior when no targets are configured
+- **Development branch marking**: Use `developmentBranch: true` to mark your active development branch
+
+**Development Command Integration:**
+
+The `kodrdriv development` command works in reverse with branch targeting:
+- **Finds the development branch**: Looks for the branch marked with `developmentBranch: true`
+- **Smart navigation**: From any branch (main, test, development), takes you to the development branch
+- **Version synchronization**: When coming from `development` branch, syncs versions if they have the same prerelease tag
+
+```bash
+# From any branch, navigate to your development branch
+git checkout main        # or test, or development
+kodrdriv development    # Automatically goes to "working" (marked as developmentBranch)
+```
+
 #### Automatic Workflow Detection
 
 By default, KodrDriv will automatically detect which GitHub Actions workflows will be triggered by release events by analyzing your workflow files (`.github/workflows/*.yml`). This includes workflows that:

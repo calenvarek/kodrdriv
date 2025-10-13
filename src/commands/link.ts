@@ -353,7 +353,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 
         logger.info(`Current package: ${currentPackageJson.name} (scope: ${currentScope})`);
 
-        // Step 1: Link the current package globally
+        // Step 1: Link the current package globally (optional - continue even if this fails)
         try {
             if (isDryRun) {
                 logger.info(`DRY RUN: Would run 'npm link' in current directory`);
@@ -363,8 +363,8 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                 logger.info(`✅ Self-linked: ${currentPackageJson.name}`);
             }
         } catch (error: any) {
-            logger.error(`❌ Failed to self-link ${currentPackageJson.name}: ${error.message}`);
-            throw new Error(`Failed to self-link ${currentPackageJson.name}: ${error.message}`);
+            logger.warn(`⚠️ Failed to self-link ${currentPackageJson.name}: ${error.message}`);
+            logger.info(`Continuing with dependency linking despite self-link failure...`);
         }
 
         // Step 2: Find same-scope dependencies in current package
@@ -397,6 +397,77 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
         logger.info(`Found ${sameScopeDependencies.length} same-scope dependencies: ${sameScopeDependencies.join(', ')}`);
         if (externalDependencies.length > 0) {
             logger.info(`Found ${externalDependencies.length} external dependencies matching patterns: ${externalDependencies.join(', ')}`);
+        }
+
+        // Step 2.6: Handle external dependencies using scopeRoots configuration
+        const scopeRoots = runConfig.link?.scopeRoots || {};
+        const globallyLinkedViaScopeRoots: string[] = [];
+
+        if (Object.keys(scopeRoots).length > 0 && externalDependencies.length > 0) {
+            logger.info('Using scopeRoots configuration to discover and link external packages...');
+
+            for (const depName of externalDependencies) {
+                const depScope = depName.startsWith('@') ? depName.split('/')[0] : null;
+                const scopeRoot = depScope ? scopeRoots[depScope] : null;
+
+                if (scopeRoot) {
+                    logger.verbose(`Processing ${depName} with scope ${depScope} -> ${scopeRoot}`);
+
+                    // Convert relative path to absolute
+                    const absoluteScopeRoot = path.resolve(currentDir, scopeRoot);
+                    logger.verbose(`Scanning scope root directory: ${absoluteScopeRoot}`);
+
+                    try {
+                        // Look for package with matching name in the scope directory
+                        const expectedPackageName = depName.startsWith('@') ? depName.split('/')[1] : depName;
+                        const packageDir = path.join(absoluteScopeRoot, expectedPackageName);
+                        const packageJsonPath = path.join(packageDir, 'package.json');
+
+                        logger.verbose(`Checking for package at: ${packageDir}`);
+
+                        try {
+                            const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
+                            const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
+                            const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+                            if (packageJson.name === depName) {
+                                logger.info(`Found matching package: ${depName} at ${packageDir}`);
+
+                                if (isDryRun) {
+                                    logger.info(`DRY RUN: Would run 'npm link' in: ${packageDir}`);
+                                    globallyLinkedViaScopeRoots.push(depName);
+                                } else {
+                                    // Step A: Run 'npm link' in the source package directory
+                                    const originalCwd = process.cwd();
+                                    try {
+                                        process.chdir(packageDir);
+                                        logger.verbose(`Running 'npm link' in source: ${packageDir}`);
+                                        await run('npm link');
+                                        logger.info(`✅ Source linked via scopeRoots: ${depName}`);
+                                        globallyLinkedViaScopeRoots.push(depName);
+                                    } catch (linkError: any) {
+                                        logger.warn(`⚠️ Failed to link source package ${depName}: ${linkError.message}`);
+                                    } finally {
+                                        process.chdir(originalCwd);
+                                    }
+                                }
+                            } else {
+                                logger.verbose(`Package name mismatch: expected ${depName}, found ${packageJson.name}`);
+                            }
+                        } catch (packageError: any) {
+                            logger.verbose(`Package not found or invalid: ${packageJsonPath} - ${packageError.message}`);
+                        }
+                    } catch (error: any) {
+                        logger.verbose(`Error processing scope ${depScope}: ${error.message}`);
+                    }
+                } else {
+                    logger.verbose(`No scope root configured for ${depScope}`);
+                }
+            }
+
+            if (globallyLinkedViaScopeRoots.length > 0) {
+                logger.info(`Successfully prepared ${globallyLinkedViaScopeRoots.length} packages via scopeRoots: ${globallyLinkedViaScopeRoots.join(', ')}`);
+            }
         }
 
         // Step 3: Get globally linked packages directories (only if we have dependencies to link)

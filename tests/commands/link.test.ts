@@ -235,7 +235,7 @@ describe('Link Command', () => {
             expect(result).toMatch(/Self-linked @scope\/app( and linked|, no dependencies were available to link)/);
         });
 
-        it('throws when self-link fails', async () => {
+        it('continues when self-link fails', async () => {
             const pkg = { name: '@scope/app' };
             mockStorage.readFile.mockResolvedValue(JSON.stringify(pkg));
             mockSafeJsonParse.mockImplementation((s: string) => JSON.parse(s));
@@ -243,7 +243,9 @@ describe('Link Command', () => {
             mockRun.mockRejectedValue(new Error('npm link failed'));
 
             const config: Config = { configDirectory: '/test', discoveredConfigDirs: [], resolvedConfigDirs: [] } as any;
-            await expect(Link.execute(config)).rejects.toThrow('npm link failed');
+            const result = await Link.execute(config);
+            // Should continue despite self-link failure and return success message
+            expect(result).toContain('Self-linked @scope/app, no dependencies to link');
         });
 
         it('handles npm ls failure gracefully (no dependencies available)', async () => {

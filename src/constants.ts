@@ -77,6 +77,7 @@ export const COMMAND_UNLINK = 'unlink';
 export const COMMAND_CLEAN = 'clean';
 export const COMMAND_DEVELOPMENT = 'development';
 export const COMMAND_VERSIONS = 'versions';
+export const COMMAND_UPDATES = 'updates';
 export const COMMAND_CHECK_CONFIG = 'check-config';
 export const COMMAND_INIT_CONFIG = 'init-config';
 
@@ -93,7 +94,8 @@ export const ALLOWED_COMMANDS = [
     COMMAND_UNLINK,
     COMMAND_CLEAN,
     COMMAND_DEVELOPMENT,
-    COMMAND_VERSIONS
+    COMMAND_VERSIONS,
+    COMMAND_UPDATES
 ];
 
 export const DEFAULT_COMMAND = COMMAND_COMMIT;
@@ -271,5 +273,26 @@ export const KODRDRIV_DEFAULTS = {
         subcommand: undefined,
         directories: undefined,
     },
+    updates: {
+        scope: undefined,
+        directories: undefined,
+    },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
+    branches: {
+        working: {
+            targetBranch: 'main',
+            developmentBranch: true,
+            version: {
+                type: 'prerelease' as const,
+                increment: true,
+                incrementLevel: 'patch' as const,
+                tag: 'dev'
+            }
+        },
+        main: {
+            version: {
+                type: 'release' as const
+            }
+        }
+    }
 };
