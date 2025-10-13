@@ -114,10 +114,10 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     await run('git commit -m "chore: update package-lock.json after merge"');
                 }
 
-                await run('git checkout development');
+                // Stay on working branch for development (removed checkout development)
                 mergedDevelopmentIntoWorking = true;
             } else {
-                logger.info('Would merge development into working and switch to development branch');
+                logger.info('Would merge development into working and stay on working branch');
                 mergedDevelopmentIntoWorking = true;
             }
         }
@@ -269,7 +269,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
                 // Return appropriate message based on what actions were taken
                 if (mergedDevelopmentIntoWorking) {
-                    return 'Merged development into working and switched to development branch';
+                    return 'Merged development into working and ready for development';
                 } else if (branchCreated) {
                     return 'Created working branch with development version';
                 } else if (branchUpdated) {
@@ -292,7 +292,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Return appropriate message based on what actions were taken
             if (mergedDevelopmentIntoWorking) {
-                return 'Merged development into working and switched to development branch';
+                return 'Merged development into working and ready for development';
             } else if (branchCreated) {
                 return 'Created working branch with development version';
             } else if (branchUpdated) {

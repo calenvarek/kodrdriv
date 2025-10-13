@@ -145,18 +145,25 @@ export async function run(command: string, options: child_process.ExecOptions = 
     const logger = getLogger();
     const execPromise = util.promisify(exec);
 
+    // Ensure encoding is set to 'utf8' to get string output instead of Buffer
+    const execOptions = { encoding: 'utf8' as const, ...options };
+
     logger.verbose(`Executing command: ${command}`);
-    logger.verbose(`Working directory: ${options?.cwd || process.cwd()}`);
-    logger.verbose(`Environment variables: ${Object.keys(options?.env || process.env).length} variables`);
+    logger.verbose(`Working directory: ${execOptions?.cwd || process.cwd()}`);
+    logger.verbose(`Environment variables: ${Object.keys(execOptions?.env || process.env).length} variables`);
 
     try {
-        const result = await execPromise(command, options);
+        const result = await execPromise(command, execOptions);
         logger.verbose(`Command completed successfully`);
         logger.verbose(`stdout: ${result.stdout}`);
         if (result.stderr) {
             logger.verbose(`stderr: ${result.stderr}`);
         }
-        return result;
+        // Ensure result is properly typed as strings
+        return {
+            stdout: String(result.stdout),
+            stderr: String(result.stderr)
+        };
     } catch (error: any) {
         logger.error(`Command failed: ${command}`);
         logger.error(`Error: ${error.message}`);

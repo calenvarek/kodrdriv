@@ -567,12 +567,13 @@ describe('development command', () => {
 
             const result = await Development.execute(runConfig);
 
-            expect(result).toBe('Merged development into working and switched to development branch');
+            expect(result).toBe('Merged development into working and ready for development');
             expect(mockRun).toHaveBeenCalledWith('git fetch origin');
             expect(mockRun).toHaveBeenCalledWith('git checkout working');
             expect(mockRun).toHaveBeenCalledWith('git merge development --no-ff -m "Merge development into working for continued development"');
             expect(mockRun).toHaveBeenCalledWith('npm install');
-            expect(mockRun).toHaveBeenCalledWith('git checkout development');
+            // Should NOT switch back to development branch (this was the bug)
+            expect(mockRun).not.toHaveBeenCalledWith('git checkout development');
         });
 
         it('should handle merge conflicts when merging development into working', async () => {
