@@ -34,6 +34,27 @@ export const getRepoDetails = async (): Promise<{ owner: string; repo: string }>
     return { owner: match[1], repo: match[2] };
 };
 
+// GitHub API limit for pull request titles
+const GITHUB_PR_TITLE_LIMIT = 256;
+
+const truncatePullRequestTitle = (title: string): string => {
+    if (title.length <= GITHUB_PR_TITLE_LIMIT) {
+        return title;
+    }
+
+    // Reserve space for "..." suffix
+    const maxLength = GITHUB_PR_TITLE_LIMIT - 3;
+    let truncated = title.substring(0, maxLength);
+
+    // Try to break at word boundary to avoid cutting words in half
+    const lastSpaceIndex = truncated.lastIndexOf(' ');
+    if (lastSpaceIndex > maxLength * 0.8) { // Only use word boundary if it's not too far back
+        truncated = truncated.substring(0, lastSpaceIndex);
+    }
+
+    return truncated + '...';
+};
+
 export const createPullRequest = async (
     title: string,
     body: string,
@@ -42,11 +63,19 @@ export const createPullRequest = async (
 ): Promise<PullRequest> => {
     const octokit = getOctokit();
     const { owner, repo } = await getRepoDetails();
+    const logger = getLogger();
+
+    // Truncate title if it exceeds GitHub's limit
+    const truncatedTitle = truncatePullRequestTitle(title.trim());
+
+    if (truncatedTitle !== title.trim()) {
+        logger.debug(`Pull request title truncated from ${title.trim().length} to ${truncatedTitle.length} characters to meet GitHub's 256-character limit`);
+    }
 
     const response = await octokit.pulls.create({
         owner,
         repo,
-        title,
+        title: truncatedTitle,
         body,
         head,
         base,
