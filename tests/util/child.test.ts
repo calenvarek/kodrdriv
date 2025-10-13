@@ -44,7 +44,9 @@ describe('child.ts - run function', () => {
         const result = await run('echo "hello world"');
 
         expect(mockPromisify).toHaveBeenCalledWith(mockExec);
-        expect(mockExecPromise).toHaveBeenCalledWith('echo "hello world"', {});
+        expect(mockExecPromise).toHaveBeenCalledWith('echo "hello world"', expect.objectContaining({
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -125,7 +127,10 @@ describe('child.ts - run function', () => {
 
         const result = await run('npm --version', options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('npm --version', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('npm --version', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -163,7 +168,9 @@ describe('child.ts - run function', () => {
         mockExecPromise.mockRejectedValue(error);
 
         await expect(run('invalid-command')).rejects.toThrow('Command failed');
-        expect(mockExecPromise).toHaveBeenCalledWith('invalid-command', {});
+        expect(mockExecPromise).toHaveBeenCalledWith('invalid-command', expect.objectContaining({
+            encoding: 'utf8'
+        }));
     });
 
     test('should log detailed error information when command fails', async () => {
@@ -284,7 +291,9 @@ describe('child.ts - run function', () => {
 
         const result = await run('');
 
-        expect(mockExecPromise).toHaveBeenCalledWith('', {});
+        expect(mockExecPromise).toHaveBeenCalledWith('', expect.objectContaining({
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -299,7 +308,9 @@ describe('child.ts - run function', () => {
 
         const result = await run(command);
 
-        expect(mockExecPromise).toHaveBeenCalledWith(command, {});
+        expect(mockExecPromise).toHaveBeenCalledWith(command, expect.objectContaining({
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -368,7 +379,10 @@ describe('child.ts - run function', () => {
         await run('test-command', options);
 
         expect(options).toEqual(originalOptions);
-        expect(mockExecPromise).toHaveBeenCalledWith('test-command', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('test-command', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
     });
 
     test('should handle maxBuffer option', async () => {
@@ -380,7 +394,10 @@ describe('child.ts - run function', () => {
 
         await run('command-with-large-buffer', options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('command-with-large-buffer', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('command-with-large-buffer', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
     });
 
     test('should handle shell option', async () => {
@@ -392,7 +409,10 @@ describe('child.ts - run function', () => {
 
         await run('command-with-shell', options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('command-with-shell', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('command-with-shell', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
     });
 
     test('should handle process signals', async () => {
@@ -424,7 +444,10 @@ describe('child.ts - run function', () => {
 
         await run('env-command', options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('env-command', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('env-command', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
     });
 
     test('should handle cwd option', async () => {
@@ -436,7 +459,10 @@ describe('child.ts - run function', () => {
 
         await run('pwd', options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('pwd', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('pwd', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
     });
 
     test('should handle windowsHide option', async () => {
@@ -448,7 +474,10 @@ describe('child.ts - run function', () => {
 
         await run('windows-command', options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('windows-command', options);
+        expect(mockExecPromise).toHaveBeenCalledWith('windows-command', expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
     });
 });
 
@@ -510,7 +539,9 @@ describe('child.ts - runWithDryRunSupport function', () => {
         const result = await runWithDryRunSupport(command, isDryRun);
 
         expect(mockLogger.info).not.toHaveBeenCalled();
-        expect(mockExecPromise).toHaveBeenCalledWith(command, {});
+        expect(mockExecPromise).toHaveBeenCalledWith(command, expect.objectContaining({
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -528,7 +559,10 @@ describe('child.ts - runWithDryRunSupport function', () => {
 
         const result = await runWithDryRunSupport(command, isDryRun, options);
 
-        expect(mockExecPromise).toHaveBeenCalledWith(command, options);
+        expect(mockExecPromise).toHaveBeenCalledWith(command, expect.objectContaining({
+            ...options,
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -540,7 +574,9 @@ describe('child.ts - runWithDryRunSupport function', () => {
         mockExecPromise.mockRejectedValue(error);
 
         await expect(runWithDryRunSupport(command, isDryRun)).rejects.toThrow('Command execution failed');
-        expect(mockExecPromise).toHaveBeenCalledWith(command, {});
+        expect(mockExecPromise).toHaveBeenCalledWith(command, expect.objectContaining({
+            encoding: 'utf8'
+        }));
     });
 
     test('should handle complex commands in dry run mode', async () => {
@@ -695,7 +731,9 @@ describe('child.ts - runWithDryRunSupport function', () => {
 
         await runWithDryRunSupport(command, isDryRun);
 
-        expect(mockExecPromise).toHaveBeenCalledWith(command, {});
+        expect(mockExecPromise).toHaveBeenCalledWith(command, expect.objectContaining({
+            encoding: 'utf8'
+        }));
         // spawn should not be called when useInheritedStdio is false (default)
         const mockSpawn = vi.mocked(spawn);
         expect(mockSpawn).not.toHaveBeenCalled();
@@ -729,7 +767,9 @@ describe('child.ts - run function additional edge cases', () => {
 
         const result = await run('test-command', null as any);
 
-        expect(mockExecPromise).toHaveBeenCalledWith('test-command', null);
+        expect(mockExecPromise).toHaveBeenCalledWith('test-command', expect.objectContaining({
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
@@ -739,8 +779,10 @@ describe('child.ts - run function additional edge cases', () => {
 
         const result = await run('test-command', undefined);
 
-        // When undefined is passed, default parameter kicks in and converts to {}
-        expect(mockExecPromise).toHaveBeenCalledWith('test-command', {});
+        // When undefined is passed, default parameter kicks in and converts to { encoding: 'utf8' }
+        expect(mockExecPromise).toHaveBeenCalledWith('test-command', expect.objectContaining({
+            encoding: 'utf8'
+        }));
         expect(result).toEqual(expectedResult);
     });
 
