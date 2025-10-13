@@ -9,6 +9,7 @@ on:
       - main
       - 'release/**'
       - 'feature/**'
+      - 'dependabot/**'
 
 permissions:
   contents: write
