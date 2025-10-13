@@ -1,181 +1,25 @@
 #!/usr/bin/env node
 /**
- * Development command - Manages transition from main to working branch with development version bumping
+ * Development command - Manages transition to working branch for active development
  *
- * This command handles the workflow of moving from main branch to working branch while:
- * 1. Checking current branch and package.json version state
- * 2. Merging main to working if needed
- * 3. Bumping version to next development prerelease version
- * 4. Running npm install to update lock files
- * 5. Running kodrdriv commit to commit the changes
+ * This command handles the workflow of moving to the working branch from any other branch:
  *
- * Behavior based on current state:
- * - If on main: merges main to working, bumps version, switches to working
- * - If on working: checks if working is ahead of main, does nothing if already setup
- * - If working branch doesn't exist: creates it from main and sets up development version
- * - If working already has higher version than main: just switches to working and ensures up to date
+ * New behavior:
+ * 1. Fetch latest remote information
+ * 2. Switch to the "working" branch (create if needed) and sync with remote
+ * 3. Merge latest changes from "development" branch if it exists
+ * 4. Run npm install and commit any changes (e.g., package-lock.json)
+ * 5. Run `npm version pre<incrementLevel> --preid=<tag>` to bump version
+ *
+ * This is designed for reverse flow - taking you back to working for active development.
  */
 
 import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
-import { create as createStorage } from '../util/storage';
-import { safeJsonParse, validatePackageJson } from '../util/validation';
-import { run, runSecure, validateGitRef } from '../util/child';
-import { localBranchExists, safeSyncBranchWithRemote } from '../util/git';
-import { incrementMinorVersion, incrementPatchVersion, incrementMajorVersion, validateVersionString } from '../util/general';
-import * as GitHub from '../util/github';
-import * as Commit from './commit';
-
-interface VersionComparison {
-    currentVersion: string;
-    mainVersion: string;
-    workingVersion?: string;
-    needsVersionBump: boolean;
-    isOnMain: boolean;
-    isOnWorking: boolean;
-    workingBranchExists: boolean;
-}
-
-/**
- * Parse version string to get numeric components for comparison
- */
-function parseVersion(version: string): { major: number; minor: number; patch: number; prerelease?: string } {
-    const cleanVersion = version.startsWith('v') ? version.slice(1) : version;
-    const parts = cleanVersion.split('.');
-    if (parts.length < 3) {
-        throw new Error(`Invalid version format: ${version}`);
-    }
-
-    const major = parseInt(parts[0], 10);
-    const minor = parseInt(parts[1], 10);
-
-    // Handle patch with potential prerelease
-    const patchPart = parts[2];
-    const patchComponents = patchPart.split('-');
-    const patch = parseInt(patchComponents[0], 10);
-    const prerelease = patchComponents.length > 1 ? patchComponents.slice(1).join('-') : undefined;
-
-    if (isNaN(major) || isNaN(minor) || isNaN(patch)) {
-        throw new Error(`Invalid version numbers in: ${version}`);
-    }
-
-    return { major, minor, patch, prerelease };
-}
-
-/**
- * Compare two versions to determine if first is greater than second
- */
-function isVersionGreater(version1: string, version2: string): boolean {
-    const v1 = parseVersion(version1);
-    const v2 = parseVersion(version2);
-
-    if (v1.major !== v2.major) return v1.major > v2.major;
-    if (v1.minor !== v2.minor) return v1.minor > v2.minor;
-    if (v1.patch !== v2.patch) return v1.patch > v2.patch;
-
-    // If versions are equal up to patch, check prerelease
-    // No prerelease is considered greater than prerelease
-    if (!v1.prerelease && v2.prerelease) return true;
-    if (v1.prerelease && !v2.prerelease) return false;
-
-    // Both have prerelease or both don't - consider equal for our purposes
-    return false;
-}
-
-/**
- * Create a development version from a release version
- */
-function createDevelopmentVersion(version: string, targetVersion: string = 'patch'): string {
-    let baseVersion: string;
-
-    const targetLower = targetVersion.toLowerCase();
-
-    if (targetLower === 'patch') {
-        baseVersion = incrementPatchVersion(version);
-    } else if (targetLower === 'minor') {
-        baseVersion = incrementMinorVersion(version);
-    } else if (targetLower === 'major') {
-        baseVersion = incrementMajorVersion(version);
-    } else {
-        // Assume it's an explicit version string
-        if (validateVersionString(targetVersion)) {
-            baseVersion = targetVersion.startsWith('v') ? targetVersion.slice(1) : targetVersion;
-        } else {
-            throw new Error(`Invalid target version: ${targetVersion}. Expected "patch", "minor", "major", or a valid version string like "2.1.0"`);
-        }
-    }
-
-    return `${baseVersion}-dev.0`;
-}
-
-/**
- * Get current branch name
- */
-async function getCurrentBranch(): Promise<string> {
-    const { stdout } = await run('git branch --show-current');
-    return stdout.trim();
-}
-
-/**
- * Get package.json version from a specific branch
- */
-async function getVersionFromBranch(branchName: string): Promise<string> {
-    try {
-        // Validate branch name to prevent injection
-        if (!validateGitRef(branchName)) {
-            throw new Error(`Invalid branch name: ${branchName}`);
-        }
-        const { stdout } = await runSecure('git', ['show', `${branchName}:package.json`]);
-        const packageJson = safeJsonParse(stdout, 'package.json');
-        const validated = validatePackageJson(packageJson, 'package.json');
-        return validated.version;
-    } catch (error: any) {
-        throw new Error(`Failed to get version from branch ${branchName}: ${error}`);
-    }
-}
-
-/**
- * Analyze current state and determine what actions need to be taken
- */
-async function analyzeVersionState(): Promise<VersionComparison> {
-    const currentBranch = await getCurrentBranch();
-    const workingBranchExists = await localBranchExists('working');
-
-    // Get current version from working directory
-    const storage = createStorage({ log: () => {} });
-    const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-    const packageJson = safeJsonParse(packageJsonContents, 'package.json');
-    const validated = validatePackageJson(packageJson, 'package.json');
-    const currentVersion = validated.version;
-
-    // Get version from main branch
-    const mainVersion = await getVersionFromBranch('main');
-
-    // Get version from working branch if it exists
-    let workingVersion: string | undefined;
-    if (workingBranchExists) {
-        try {
-            workingVersion = await getVersionFromBranch('working');
-        } catch {
-            // Working branch exists but doesn't have package.json or it's malformed
-            workingVersion = undefined;
-        }
-    }
-
-    const needsVersionBump = workingBranchExists && workingVersion ?
-        !isVersionGreater(workingVersion, mainVersion) :
-        !isVersionGreater(currentVersion, mainVersion);
-
-    return {
-        currentVersion,
-        mainVersion,
-        workingVersion,
-        needsVersionBump,
-        isOnMain: currentBranch === 'main',
-        isOnWorking: currentBranch === 'working',
-        workingBranchExists
-    };
-}
+import { run } from '../util/child';
+import { localBranchExists, getCurrentBranch } from '../util/git';
+import { findDevelopmentBranch } from '../util/general';
+import { KODRDRIV_DEFAULTS } from '../constants';
 
 /**
  * Execute the development command
@@ -183,149 +27,285 @@ async function analyzeVersionState(): Promise<VersionComparison> {
 export const execute = async (runConfig: Config): Promise<string> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.debug });
 
-    logger.info('🔄 Setting up development environment...');
+    logger.info('🔄 Navigating to working branch for active development...');
 
     try {
-        // Analyze current state
-        const state = await analyzeVersionState();
-        logger.debug('Version state analysis:', state);
+        // Get current branch
+        const currentBranch = isDryRun ? 'mock-branch' : await getCurrentBranch();
+        logger.info(`📍 Currently on branch: ${currentBranch}`);
 
-        // If we're already on working and everything is set up correctly, do nothing
-        if (state.isOnWorking && !state.needsVersionBump) {
-            logger.info('✅ Already on working branch with proper development version');
-            logger.info(`Current version: ${state.currentVersion}`);
-            return 'Already on working branch with development version';
-        }
+        // Find the working/development branch from configuration
+        let workingBranch = 'working'; // Default fallback
 
-        // If we're on working but need version bump (shouldn't happen in normal workflow)
-        if (state.isOnWorking && state.needsVersionBump) {
-            logger.warn('⚠️  On working branch but version needs update. This suggests an unusual state.');
-            logger.info('Proceeding with version bump...');
-        }
-
-        // Ensure we're on main if not on working, or switch to main to start process
-        if (!state.isOnWorking) {
-            if (!isDryRun) {
-                logger.info('Switching to main branch...');
-                await run('git checkout main');
-
-                // Sync main with remote to ensure we're up to date
-                logger.info('Syncing main branch with remote...');
-                const syncResult = await safeSyncBranchWithRemote('main');
-                if (!syncResult.success) {
-                    if (syncResult.conflictResolutionRequired) {
-                        throw new Error(`Main branch has diverged from remote and requires manual conflict resolution: ${syncResult.error}`);
-                    }
-                    logger.warn(`Warning: Could not sync main with remote: ${syncResult.error}`);
-                }
+        if (runConfig.branches) {
+            const configuredDevBranch = findDevelopmentBranch(runConfig.branches);
+            if (configuredDevBranch) {
+                workingBranch = configuredDevBranch;
+                logger.info(`🎯 Found configured working branch: ${workingBranch}`);
             } else {
-                logger.info('Would switch to main branch and sync with remote');
-            }
-        }
-
-        // Create working branch if it doesn't exist
-        if (!state.workingBranchExists) {
-            if (!isDryRun) {
-                logger.info('Creating working branch from main...');
-                await run('git checkout -b working');
-            } else {
-                logger.info('Would create working branch from main');
+                logger.info(`🎯 No working branch configured, using default: ${workingBranch}`);
             }
         } else {
-            // Working branch exists, merge main to working
-            if (!isDryRun) {
-                logger.info('Switching to working branch...');
-                await run('git checkout working');
+            logger.info(`🎯 No branch configuration found, using default working branch: ${workingBranch}`);
+        }
 
-                logger.info('Merging main into working branch...');
-                try {
-                    await run('git merge main --no-ff -m "Merge main into working for development"');
-                } catch (error) {
-                    throw new Error(`Failed to merge main into working. Please resolve conflicts manually: ${error}`);
+        // Track what actions are taken to determine the appropriate return message
+        let branchCreated = false;
+        let branchUpdated = false;
+        let alreadyOnBranch = false;
+        let mergedDevelopmentIntoWorking = false;
+
+        // Determine prerelease tag and increment level from configuration
+        const allBranchConfig = runConfig.branches || KODRDRIV_DEFAULTS.branches;
+        let prereleaseTag = 'dev'; // Default
+        let incrementLevel = 'patch'; // Default
+
+        // Check for development command specific targetVersion override
+        if (runConfig.development?.targetVersion) {
+            const targetVersion = runConfig.development.targetVersion;
+
+            // Validate targetVersion
+            if (!['patch', 'minor', 'major'].includes(targetVersion) && !/^\d+\.\d+\.\d+$/.test(targetVersion.replace(/^v/, ''))) {
+                throw new Error(`Invalid target version: ${targetVersion}. Expected "patch", "minor", "major", or a valid version string like "2.1.0"`);
+            }
+
+            incrementLevel = targetVersion;
+        } else if (allBranchConfig && (allBranchConfig as any)[workingBranch]) {
+            const workingBranchConfig = (allBranchConfig as any)[workingBranch];
+            if (workingBranchConfig.version) {
+                if (workingBranchConfig.version.tag) {
+                    prereleaseTag = workingBranchConfig.version.tag;
                 }
-            } else {
-                logger.info('Would switch to working branch and merge main into working');
+                if (workingBranchConfig.version.incrementLevel) {
+                    incrementLevel = workingBranchConfig.version.incrementLevel;
+                }
             }
         }
 
-        // Bump version to development version if needed
-        if (state.needsVersionBump || !state.workingBranchExists) {
-            const targetVersion = runConfig.development?.targetVersion || 'patch';
-            const newDevVersion = createDevelopmentVersion(state.mainVersion, targetVersion);
+        logger.info(`🏷️ Using prerelease tag: ${prereleaseTag}`);
+        logger.info(`📈 Using increment level: ${incrementLevel}`);
 
-            logger.info(`Bumping version from ${state.mainVersion} to ${newDevVersion}`);
+        // Step 1: Fetch latest remote information
+        if (!isDryRun) {
+            logger.info('📡 Fetching latest remote information...');
+            try {
+                await run('git fetch origin');
+                logger.info('✅ Fetched latest remote information');
+            } catch (error: any) {
+                logger.warn(`⚠️ Could not fetch from remote: ${error.message}`);
+            }
+        } else {
+            logger.info('Would fetch latest remote information');
+        }
 
-            // Extract the base version for milestone management (e.g., "1.3.2" from "1.3.2-dev.0")
-            const baseVersion = newDevVersion.split('-')[0];
-            const milestonesEnabled = !runConfig.development?.noMilestones;
-
+        // Special case: If currently on development branch, merge development into working
+        if (currentBranch === 'development') {
             if (!isDryRun) {
-                // Update package.json
-                const packageJsonContents = await storage.readFile('package.json', 'utf-8');
-                const packageJson = safeJsonParse(packageJsonContents, 'package.json');
-                const validated = validatePackageJson(packageJson, 'package.json');
-
-                validated.version = newDevVersion;
-
-                await storage.writeFile('package.json', JSON.stringify(validated, null, 2), 'utf-8');
-
-                // Run npm install to update lock files
-                logger.info('Running npm install to update lock files...');
+                logger.info('🔄 Currently on development branch, merging into working...');
+                await run(`git checkout ${workingBranch}`);
+                await run(`git merge development --no-ff -m "Merge development into working for continued development"`);
                 await run('npm install');
 
-                // Handle GitHub milestones if enabled
-                if (milestonesEnabled) {
-                    logger.info('🏁 Managing GitHub milestones...');
-                    try {
-                        await GitHub.ensureMilestoneForVersion(baseVersion, state.mainVersion);
-                    } catch (error: any) {
-                        logger.warn(`⚠️ Milestone management failed (continuing): ${error.message}`);
-                    }
-                } else {
-                    logger.debug('Milestone integration disabled via --no-milestones');
+                // Check if npm install created any changes and commit them
+                const gitStatus = await run('git status --porcelain');
+                if (gitStatus.stdout.trim()) {
+                    await run('git add -A');
+                    await run('git commit -m "chore: update package-lock.json after merge"');
                 }
 
-                // Commit the changes using kodrdriv commit
-                logger.info('Committing development version changes...');
-                const commitSummary = await Commit.execute({
-                    ...runConfig,
-                    commit: {
-                        ...runConfig.commit,
-                        add: true, // Auto-add changes
-                        sendit: true, // Auto-commit without prompts
-                    }
-                });
-
-                logger.debug('Commit result:', commitSummary);
+                await run('git checkout development');
+                mergedDevelopmentIntoWorking = true;
             } else {
-                logger.info(`Would update package.json version to ${newDevVersion}`);
-                logger.info('Would run npm install');
-                if (milestonesEnabled) {
-                    logger.info(`Would manage GitHub milestones for version ${baseVersion}`);
-                    logger.info(`Would ensure milestone: release/${baseVersion}`);
-                    logger.info(`Would move open issues from release/${state.mainVersion} if it exists and is closed`);
-                } else {
-                    logger.info('Would skip milestone management (--no-milestones)');
-                }
-                logger.info('Would commit changes with kodrdriv commit');
+                logger.info('Would merge development into working and switch to development branch');
+                mergedDevelopmentIntoWorking = true;
             }
         }
 
-        const finalMessage = state.workingBranchExists ?
-            'Updated working branch with development version' :
-            'Created working branch with development version';
+        // Step 2: Switch to working branch (create if needed) - skip if we handled development branch case
+        if (!isDryRun && !mergedDevelopmentIntoWorking) {
+            const workingBranchExists = await localBranchExists(workingBranch);
+            if (!workingBranchExists) {
+                logger.info(`🌟 Working branch '${workingBranch}' doesn't exist, creating it...`);
+                await run(`git checkout -b ${workingBranch}`);
+                logger.info(`✅ Created and switched to ${workingBranch}`);
+                branchCreated = true;
+            } else if (currentBranch !== workingBranch) {
+                logger.info(`🔄 Switching to ${workingBranch}...`);
+                await run(`git checkout ${workingBranch}`);
+                logger.info(`✅ Switched to ${workingBranch}`);
+                branchUpdated = true;
+            } else {
+                logger.info(`✅ Already on working branch: ${workingBranch}`);
+                alreadyOnBranch = true;
+            }
+        } else if (!mergedDevelopmentIntoWorking) {
+            // For dry run, we need to mock the logic
+            const workingBranchExists = await localBranchExists(workingBranch);
+            if (!workingBranchExists) {
+                branchCreated = true;
+            } else if (currentBranch !== workingBranch) {
+                branchUpdated = true;
+            } else {
+                alreadyOnBranch = true;
+            }
+            logger.info(`Would switch to ${workingBranch} branch (creating if needed)`);
+            logger.info(`Would sync ${workingBranch} with remote to avoid conflicts`);
+        }
 
-        logger.info(`✅ ${finalMessage}`);
-        logger.info(`Development version: ${state.needsVersionBump || !state.workingBranchExists ?
-            createDevelopmentVersion(state.mainVersion, runConfig.development?.targetVersion || 'patch') :
-            state.currentVersion}`);
+        // Step 2.1: Sync with remote working branch to avoid conflicts
+        if (!isDryRun) {
+            try {
+                logger.info(`🔄 Syncing ${workingBranch} with remote to avoid conflicts...`);
+                const remoteExists = await run(`git ls-remote --exit-code --heads origin ${workingBranch}`).then(() => true).catch(() => false);
 
-        return finalMessage;
+                if (remoteExists) {
+                    await run(`git pull origin ${workingBranch} --no-edit`);
+                    logger.info(`✅ Synced ${workingBranch} with remote`);
+                } else {
+                    logger.info(`ℹ️ No remote ${workingBranch} branch found, will be created on first push`);
+                }
+            } catch (error: any) {
+                if (error.message && error.message.includes('CONFLICT')) {
+                    logger.error(`❌ Merge conflicts detected when syncing ${workingBranch} with remote`);
+                    logger.error(`   Please resolve the conflicts manually and then run:`);
+                    logger.error(`   1. Resolve conflicts in the files`);
+                    logger.error(`   2. git add <resolved-files>`);
+                    logger.error(`   3. git commit`);
+                    logger.error(`   4. kodrdriv development (to continue)`);
+                    throw new Error(`Merge conflicts detected when syncing ${workingBranch} with remote. Please resolve conflicts manually.`);
+                } else {
+                    logger.warn(`⚠️ Could not sync with remote ${workingBranch}: ${error.message}`);
+                }
+            }
+        }
+
+        // Step 3: Merge latest changes from development branch if it exists
+        if (!isDryRun) {
+            const developmentBranchExists = await localBranchExists('development');
+            if (developmentBranchExists) {
+                logger.info('🔄 Merging latest changes from development branch...');
+
+                try {
+                    await run(`git merge development --no-ff -m "Merge latest development changes into ${workingBranch}"`);
+                    logger.info('✅ Successfully merged development changes');
+
+                    // Run npm install after merge to update dependencies
+                    logger.info('📦 Running npm install after merge...');
+                    await run('npm install');
+
+                    // Check if npm install created any changes (e.g., package-lock.json)
+                    const gitStatus = await run('git status --porcelain');
+                    if (gitStatus.stdout.trim()) {
+                        logger.info('📝 Committing changes from npm install...');
+                        await run('git add -A');
+                        await run(`git commit -m "chore: update package-lock.json after merge"`);
+                        logger.info('✅ Changes committed');
+                    }
+
+                } catch (error: any) {
+                    if (error.message && error.message.includes('CONFLICT')) {
+                        logger.error(`❌ Merge conflicts detected when merging development into ${workingBranch}`);
+                        logger.error(`   Please resolve the conflicts manually and then run:`);
+                        logger.error(`   1. Resolve conflicts in the files`);
+                        logger.error(`   2. git add <resolved-files>`);
+                        logger.error(`   3. git commit`);
+                        logger.error(`   4. npm install`);
+                        logger.error(`   5. npm version pre${incrementLevel} --preid=${prereleaseTag}`);
+                        throw new Error(`Merge conflicts detected when merging development into ${workingBranch}. Please resolve conflicts manually.`);
+                    } else {
+                        logger.error(`❌ Failed to merge development into ${workingBranch}: ${error.message}`);
+                        throw error;
+                    }
+                }
+            } else if (!developmentBranchExists) {
+                logger.info('ℹ️ Development branch does not exist, skipping merge step');
+            } else {
+                logger.info('ℹ️ Already merged from development (was on development branch)');
+            }
+        } else {
+            logger.info('Would merge latest changes from development branch if it exists');
+            logger.info('Would run npm install after merge');
+            logger.info('Would commit any changes from npm install (e.g., package-lock.json)');
+        }
+
+        // Step 5: Check if we already have a proper development version
+        if (alreadyOnBranch && !mergedDevelopmentIntoWorking) {
+            // Check if current version is already a development version with the right tag
+            const fs = await import('fs/promises');
+            try {
+                const packageJson = JSON.parse(await fs.readFile('package.json', 'utf-8'));
+                const currentVersion = packageJson.version;
+
+                // If current version already has the dev tag, we're done
+                if (currentVersion.includes(`-${prereleaseTag}.`)) {
+                    logger.info(`✅ Already on working branch with development version ${currentVersion}`);
+                    return 'Already on working branch with development version';
+                }
+            } catch (error) {
+                logger.debug('Could not check current version, proceeding with version bump');
+            }
+        }
+
+        // Step 5: Run npm version to bump version with increment level
+        let versionCommand: string;
+        if (['patch', 'minor', 'major'].includes(incrementLevel)) {
+            versionCommand = `pre${incrementLevel}`;
+            logger.info(`🚀 Bumping ${incrementLevel} version with prerelease tag '${prereleaseTag}'...`);
+        } else {
+            // Explicit version like "3.5.0"
+            const cleanVersion = incrementLevel.replace(/^v/, '');
+            versionCommand = `${cleanVersion}-${prereleaseTag}.0`;
+            logger.info(`🚀 Setting explicit version ${versionCommand}...`);
+        }
+
+        if (!isDryRun) {
+            try {
+                const versionResult = ['patch', 'minor', 'major'].includes(incrementLevel)
+                    ? await run(`npm version ${versionCommand} --preid=${prereleaseTag}`)
+                    : await run(`npm version ${versionCommand}`);
+                const newVersion = versionResult.stdout.trim();
+                logger.info(`✅ Version bumped to: ${newVersion}`);
+
+                // Return appropriate message based on what actions were taken
+                if (mergedDevelopmentIntoWorking) {
+                    return 'Merged development into working and switched to development branch';
+                } else if (branchCreated) {
+                    return 'Created working branch with development version';
+                } else if (branchUpdated) {
+                    return 'Updated working branch with development version';
+                } else if (alreadyOnBranch) {
+                    return 'Already on working branch with development version';
+                } else {
+                    return `Ready for development on ${workingBranch} with version ${newVersion}`;
+                }
+            } catch (error: any) {
+                logger.error(`❌ Failed to bump version: ${error.message}`);
+                throw new Error(`Failed to bump ${incrementLevel} version: ${error.message}`);
+            }
+        } else {
+            if (['patch', 'minor', 'major'].includes(incrementLevel)) {
+                logger.info(`Would run: npm version ${versionCommand} --preid=${prereleaseTag}`);
+            } else {
+                logger.info(`Would run: npm version ${versionCommand}`);
+            }
+
+            // Return appropriate message based on what actions were taken
+            if (mergedDevelopmentIntoWorking) {
+                return 'Merged development into working and switched to development branch';
+            } else if (branchCreated) {
+                return 'Created working branch with development version';
+            } else if (branchUpdated) {
+                return 'Updated working branch with development version';
+            } else if (alreadyOnBranch) {
+                return 'Already on working branch with development version';
+            } else {
+                return `Ready for development on ${workingBranch} (dry run)`;
+            }
+        }
 
     } catch (error: any) {
-        logger.error('Failed to set up development environment:', error.message);
+        logger.error('Failed to prepare working branch for development:', error.message);
         throw error;
     }
 };

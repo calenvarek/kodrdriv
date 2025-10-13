@@ -1,0 +1,71 @@
+# Example KodrDriv Configuration for Branch-Dependent Targeting
+# This demonstrates how to set up automated CI/CD pipeline targeting
+# Using the NEW branches configuration format
+
+# Global settings
+model: gpt-4o-mini
+verbose: true
+
+# Branch-dependent targeting configuration
+branches:
+  working:
+    targetBranch: "development"
+    developmentBranch: true  # Mark this as the active development branch
+    version:
+      type: "prerelease"
+      increment: true
+      incrementLevel: "patch"  # Increment patch version when going back to working
+      tag: "dev"
+
+  development:
+    targetBranch: "test"
+    version:
+      type: "prerelease"
+      increment: false
+      tag: "development"
+
+  test:
+    targetBranch: "main"
+    version:
+      type: "prerelease"
+      increment: false
+      tag: "test"
+
+  main:
+    version:
+      type: "release"
+
+# Publish configuration (applies to all branches unless overridden by targets)
+publish:
+  mergeMethod: "squash"
+  checksTimeout: 1800000  # 30 minutes for complex CI/CD workflows
+  waitForReleaseWorkflows: true
+  sendit: true  # Auto-commit and merge without prompts
+
+# Commit configuration
+commit:
+  add: true
+  sendit: true
+  push: true
+
+# Note: The 'development' command will automatically navigate to whichever
+# branch is marked with 'developmentBranch: true' (in this case, 'working')
+#
+# Example workflow commands:
+#   kodrdriv tree checkout working     # Switch entire workspace to working branch
+#   kodrdriv tree publish              # Publish working → development
+#   kodrdriv tree checkout development # Switch to development to test
+#   kodrdriv tree publish              # Publish development → test
+#   kodrdriv development               # Back to working for more coding
+
+# Optional: workspace linking for local development
+link:
+  scopeRoots:
+    "@yourcompany": "../"
+
+# File exclusions
+excludedPatterns:
+  - node_modules
+  - dist
+  - "*.log"
+  - coverage

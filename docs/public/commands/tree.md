@@ -39,7 +39,7 @@ kodrdriv tree link --exclude "test-*"
 kodrdriv tree unlink --dry-run
 ```
 
-**Supported Built-in Commands**: `commit`, `publish`, `link`, `unlink`, `branches`, `run`
+**Supported Built-in Commands**: `commit`, `publish`, `link`, `unlink`, `development`, `branches`, `run`, `checkout`
 
 > [!IMPORTANT]
 > ### Configuration Isolation in Built-in Command Mode

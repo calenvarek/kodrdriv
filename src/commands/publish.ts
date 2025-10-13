@@ -9,7 +9,7 @@ import { Config, PullRequest } from '../types';
 import { run, runWithDryRunSupport, runSecure, validateGitRef } from '../util/child';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
-import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively } from '../util/general';
+import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '../util/git';
@@ -66,7 +66,7 @@ const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boole
     }
 };
 
-const runPrechecks = async (runConfig: Config): Promise<void> => {
+const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
     const storage = createStorage({ log: logger.info });
@@ -109,30 +109,32 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
         }
     }
 
+    // Use the passed target branch or fallback to config/default
+    const effectiveTargetBranch = targetBranch || runConfig.publish?.targetBranch || 'main';
+
     // Check that we're not running from the target branch
     logger.info('Checking current branch...');
-    const targetBranch = runConfig.publish?.targetBranch || 'main';
     if (isDryRun) {
-        logger.info(`Would verify current branch is not the target branch (${targetBranch})`);
+        logger.info(`Would verify current branch is not the target branch (${effectiveTargetBranch})`);
     } else {
         const currentBranch = await GitHub.getCurrentBranchName();
-        if (currentBranch === targetBranch) {
-            throw new Error(`Cannot run publish from the target branch '${targetBranch}'. Please switch to a different branch before running publish.`);
+        if (currentBranch === effectiveTargetBranch) {
+            throw new Error(`Cannot run publish from the target branch '${effectiveTargetBranch}'. Please switch to a different branch before running publish.`);
         }
     }
 
     // Check target branch sync with remote
-    logger.info(`Checking target branch '${targetBranch}' sync with remote...`);
+    logger.info(`Checking target branch '${effectiveTargetBranch}' sync with remote...`);
     if (isDryRun) {
-        logger.info(`Would verify target branch '${targetBranch}' is in sync with remote origin`);
+        logger.info(`Would verify target branch '${effectiveTargetBranch}' is in sync with remote origin`);
     } else {
         // Only check if local target branch exists (it's okay if it doesn't exist locally)
-        const targetBranchExists = await localBranchExists(targetBranch);
+        const targetBranchExists = await localBranchExists(effectiveTargetBranch);
         if (targetBranchExists) {
-            const syncStatus = await isBranchInSyncWithRemote(targetBranch);
+            const syncStatus = await isBranchInSyncWithRemote(effectiveTargetBranch);
 
             if (!syncStatus.inSync) {
-                logger.error(`❌ Target branch '${targetBranch}' is not in sync with remote.`);
+                logger.error(`❌ Target branch '${effectiveTargetBranch}' is not in sync with remote.`);
                 logger.error('');
 
                 if (syncStatus.error) {
@@ -144,19 +146,19 @@ const runPrechecks = async (runConfig: Config): Promise<void> => {
 
                 logger.error('');
                 logger.error('📋 To resolve this issue:');
-                logger.error(`   1. Switch to the target branch: git checkout ${targetBranch}`);
-                logger.error(`   2. Pull the latest changes: git pull origin ${targetBranch}`);
+                logger.error(`   1. Switch to the target branch: git checkout ${effectiveTargetBranch}`);
+                logger.error(`   2. Pull the latest changes: git pull origin ${effectiveTargetBranch}`);
                 logger.error('   3. Resolve any merge conflicts if they occur');
                 logger.error('   4. Switch back to your feature branch and re-run publish');
                 logger.error('');
                 logger.error('💡 Alternatively, run "kodrdriv publish --sync-target" to attempt automatic sync.');
 
-                throw new Error(`Target branch '${targetBranch}' is not in sync with remote. Please sync the branch before running publish.`);
+                throw new Error(`Target branch '${effectiveTargetBranch}' is not in sync with remote. Please sync the branch before running publish.`);
             } else {
-                logger.info(`✅ Target branch '${targetBranch}' is in sync with remote.`);
+                logger.info(`✅ Target branch '${effectiveTargetBranch}' is in sync with remote.`);
             }
         } else {
-            logger.info(`ℹ️  Target branch '${targetBranch}' does not exist locally - will be created when needed.`);
+            logger.info(`ℹ️  Target branch '${effectiveTargetBranch}' does not exist locally - will be created when needed.`);
         }
     }
 
@@ -232,6 +234,16 @@ const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun
     // We compare current HEAD branch to the provided target branch
     const currentBranch = await GitHub.getCurrentBranchName();
 
+    // Check if target branch exists before trying to compare
+    try {
+        // Validate target branch exists and is accessible
+        await runSecure('git', ['rev-parse', '--verify', targetBranch]);
+    } catch (error: any) {
+        // Target branch doesn't exist or isn't accessible
+        logger.verbose(`Target branch '${targetBranch}' does not exist or is not accessible. Proceeding with publish.`);
+        return { necessary: true, reason: `Target branch '${targetBranch}' does not exist; first release to this branch` };
+    }
+
     // If branches are identical, nothing to release
     const { stdout: namesStdout } = await runSecure('git', ['diff', '--name-only', `${targetBranch}..${currentBranch}`]);
     const changedFiles = namesStdout.split('\n').map(s => s.trim()).filter(Boolean);
@@ -276,10 +288,9 @@ const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun
     }
 };
 
-const handleTargetBranchSyncRecovery = async (runConfig: Config): Promise<void> => {
+const handleTargetBranchSyncRecovery = async (runConfig: Config, targetBranch: string): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const targetBranch = runConfig.publish?.targetBranch || 'main';
 
     logger.info(`🔄 Attempting to sync target branch '${targetBranch}' with remote...`);
 
@@ -313,16 +324,112 @@ export const execute = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
     const storage = createStorage({ log: logger.info });
-    const targetBranch = runConfig.publish?.targetBranch || 'main';
+
+    // Get current branch for branch-dependent targeting
+    let currentBranch: string;
+    if (isDryRun) {
+        currentBranch = 'mock-branch';
+    } else {
+        currentBranch = await GitHub.getCurrentBranchName();
+
+        // Fetch latest remote information to avoid conflicts
+        logger.info('📡 Fetching latest remote information to avoid conflicts...');
+        try {
+            await run('git fetch origin');
+            logger.info('✅ Fetched latest remote information');
+        } catch (error: any) {
+            logger.warn(`⚠️ Could not fetch from remote: ${error.message}`);
+        }
+
+        // Sync current branch with remote to avoid conflicts
+        logger.info(`🔄 Syncing ${currentBranch} with remote to avoid conflicts...`);
+        try {
+            const remoteExists = await run(`git ls-remote --exit-code --heads origin ${currentBranch}`).then(() => true).catch(() => false);
+
+            if (remoteExists) {
+                await run(`git pull origin ${currentBranch} --no-edit`);
+                logger.info(`✅ Synced ${currentBranch} with remote`);
+            } else {
+                logger.info(`ℹ️ No remote ${currentBranch} branch found, will be created on first push`);
+            }
+        } catch (error: any) {
+            if (error.message && error.message.includes('CONFLICT')) {
+                logger.error(`❌ Merge conflicts detected when syncing ${currentBranch} with remote`);
+                logger.error(`   Please resolve the conflicts manually and then run:`);
+                logger.error(`   1. Resolve conflicts in the files`);
+                logger.error(`   2. git add <resolved-files>`);
+                logger.error(`   3. git commit`);
+                logger.error(`   4. kodrdriv publish (to continue)`);
+                throw new Error(`Merge conflicts detected when syncing ${currentBranch} with remote. Please resolve conflicts manually.`);
+            } else {
+                logger.warn(`⚠️ Could not sync with remote ${currentBranch}: ${error.message}`);
+            }
+        }
+    }
+
+    // Determine target branch and version strategy based on branch configuration
+    let targetBranch = runConfig.publish?.targetBranch || 'main';
+    let branchDependentVersioning = false;
+
+    // Check for branches configuration
+    if (runConfig.branches && runConfig.branches[currentBranch]) {
+        branchDependentVersioning = true;
+
+        const branchConfig = runConfig.branches[currentBranch];
+
+        if (branchConfig.targetBranch) {
+            targetBranch = branchConfig.targetBranch;
+        }
+
+        logger.info(`🎯 Branch-dependent targeting enabled:`);
+        logger.info(`   Source branch: ${currentBranch}`);
+        logger.info(`   Target branch: ${targetBranch}`);
+
+        // Look at target branch config to show version strategy
+        const targetBranchConfig = runConfig.branches[targetBranch];
+        if (targetBranchConfig?.version) {
+            const versionType = targetBranchConfig.version.type;
+            const versionTag = targetBranchConfig.version.tag;
+            const versionIncrement = targetBranchConfig.version.increment;
+
+            logger.info(`   Target branch version strategy: ${versionType}${versionTag ? ` (tag: ${versionTag})` : ''}${versionIncrement ? ' with increment' : ''}`);
+        }
+    } else {
+        logger.debug(`No branch-specific targeting configured for '${currentBranch}', using default target: ${targetBranch}`);
+    }
 
     // Handle --sync-target flag
     if (runConfig.publish?.syncTarget) {
-        await handleTargetBranchSyncRecovery(runConfig);
+        await handleTargetBranchSyncRecovery(runConfig, targetBranch);
         return; // Exit after sync operation
     }
 
+    // Check if target branch exists and create it if needed
+    logger.info(`Checking if target branch '${targetBranch}' exists...`);
+    if (isDryRun) {
+        logger.info(`Would check if target branch '${targetBranch}' exists and create if needed`);
+    } else {
+        const targetBranchExists = await localBranchExists(targetBranch);
+        if (!targetBranchExists) {
+            logger.info(`🌟 Target branch '${targetBranch}' does not exist, creating it from current branch...`);
+            try {
+                // Create the target branch from the current HEAD
+                await runSecure('git', ['branch', targetBranch, 'HEAD']);
+                logger.info(`✅ Created target branch: ${targetBranch}`);
+
+                // Push the new branch to origin
+                await runSecure('git', ['push', 'origin', targetBranch]);
+                logger.info(`✅ Pushed new target branch to origin: ${targetBranch}`);
+            } catch (error: any) {
+                throw new Error(`Failed to create target branch '${targetBranch}': ${error.message}`);
+            }
+        } else {
+            logger.info(`✅ Target branch '${targetBranch}' already exists`);
+        }
+    }
+
     // Run prechecks before starting any work
-    await runPrechecks(runConfig);
+    await runPrechecks(runConfig, targetBranch);
 
     // Early check: determine if a release is necessary compared to target branch
     logger.info('Evaluating if a release is necessary compared to target branch...');
@@ -405,8 +512,30 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const packageJson = validatePackageJson(parsed, 'package.json');
             const currentVersion = packageJson.version;
 
-            const targetVersionInput = runConfig.publish?.targetVersion || 'patch';
-            const proposedVersion = calculateTargetVersion(currentVersion, targetVersionInput);
+            let proposedVersion: string;
+            let finalTargetBranch = targetBranch;
+
+            if (branchDependentVersioning && runConfig.branches) {
+                // Use branch-dependent versioning logic
+                const branchDependentResult = await calculateBranchDependentVersion(
+                    currentVersion,
+                    currentBranch,
+                    runConfig.branches,
+                    targetBranch
+                );
+                proposedVersion = branchDependentResult.version;
+                finalTargetBranch = branchDependentResult.targetBranch;
+
+                logger.info(`🎯 Branch-dependent version calculated: ${currentVersion} → ${proposedVersion}`);
+                logger.info(`🎯 Final target branch: ${finalTargetBranch}`);
+
+                // Update targetBranch for the rest of the function
+                targetBranch = finalTargetBranch;
+            } else {
+                // Use existing logic for backward compatibility
+                const targetVersionInput = runConfig.publish?.targetVersion || 'patch';
+                proposedVersion = calculateTargetVersion(currentVersion, targetVersionInput);
+            }
 
             const targetTagName = `v${proposedVersion}`;
             const tagExists = await checkIfTagExists(targetTagName);
@@ -415,7 +544,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
             }
 
             if (runConfig.publish?.interactive) {
-                newVersion = await confirmVersionInteractively(currentVersion, proposedVersion, targetVersionInput);
+                newVersion = await confirmVersionInteractively(currentVersion, proposedVersion, runConfig.publish?.targetVersion);
                 const confirmedTagName = `v${newVersion}`;
                 const confirmedTagExists = await checkIfTagExists(confirmedTagName);
                 if (confirmedTagExists) {
@@ -485,8 +614,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         logger.info('Pushing to origin...');
         // Get current branch name and push explicitly to avoid pushing to wrong remote/branch
-        const currentBranch = await GitHub.getCurrentBranchName();
-        await runWithDryRunSupport(`git push origin ${currentBranch}`, isDryRun);
+        const branchName = await GitHub.getCurrentBranchName();
+        await runWithDryRunSupport(`git push origin ${branchName}`, isDryRun);
 
         logger.info('Creating pull request...');
         if (isDryRun) {
@@ -494,11 +623,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
             pr = { number: 123, html_url: 'https://github.com/mock/repo/pull/123', labels: [] } as PullRequest;
         } else {
             const { stdout: commitTitle } = await run('git log -1 --pretty=%B');
-            pr = await GitHub.createPullRequest(commitTitle, 'Automated release PR.', await GitHub.getCurrentBranchName());
+            pr = await GitHub.createPullRequest(commitTitle, 'Automated release PR.', branchName, targetBranch);
             if (!pr) {
                 throw new Error('Failed to create pull request.');
             }
-            logger.info(`Pull request created: ${pr.html_url}`);
+            logger.info(`Pull request created: ${pr.html_url} (${branchName} → ${targetBranch})`);
         }
     }
 
@@ -563,7 +692,39 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     try {
         await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
-        await runWithDryRunSupport(`git pull origin ${targetBranch}`, isDryRun);
+
+        // Sync target branch with remote to avoid conflicts during PR creation
+        if (!isDryRun) {
+            logger.info(`🔄 Syncing ${targetBranch} with remote to avoid PR conflicts...`);
+            try {
+                const remoteExists = await run(`git ls-remote --exit-code --heads origin ${targetBranch}`).then(() => true).catch(() => false);
+
+                if (remoteExists) {
+                    await run(`git pull origin ${targetBranch} --no-edit`);
+                    logger.info(`✅ Synced ${targetBranch} with remote`);
+                } else {
+                    logger.info(`ℹ️ No remote ${targetBranch} branch found, will be created on first push`);
+                }
+            } catch (syncError: any) {
+                if (syncError.message && syncError.message.includes('CONFLICT')) {
+                    logger.error(`❌ Merge conflicts detected when syncing ${targetBranch} with remote`);
+                    logger.error(`   Please resolve the conflicts manually:`);
+                    logger.error(`   1. git checkout ${targetBranch}`);
+                    logger.error(`   2. git pull origin ${targetBranch}`);
+                    logger.error(`   3. Resolve conflicts in the files`);
+                    logger.error(`   4. git add <resolved-files>`);
+                    logger.error(`   5. git commit`);
+                    logger.error(`   6. git checkout ${currentBranch}`);
+                    logger.error(`   7. kodrdriv publish (to continue)`);
+                    throw syncError;
+                } else {
+                    logger.warn(`⚠️ Could not sync ${targetBranch} with remote: ${syncError.message}`);
+                    // Continue with publish process, but log the warning
+                }
+            }
+        } else {
+            logger.info(`Would sync ${targetBranch} with remote to avoid PR conflicts`);
+        }
     } catch (error: any) {
         // Check if this is a merge conflict or sync issue
         if (!isDryRun && (error.message.includes('conflict') ||

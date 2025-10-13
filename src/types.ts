@@ -111,6 +111,16 @@ export const ConfigSchema = z.object({
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
     }).optional(),
+    branches: z.record(z.string(), z.object({
+        targetBranch: z.string().optional(),
+        developmentBranch: z.boolean().optional(),
+        version: z.object({
+            type: z.enum(['release', 'prerelease']),
+            increment: z.boolean().optional(),
+            incrementLevel: z.enum(['patch', 'minor', 'major']).optional(),
+            tag: z.string().optional(),
+        }).optional(),
+    })).optional(),
     link: z.object({
         scopeRoots: z.record(z.string(), z.string()).optional(),
         dryRun: z.boolean().optional(),
@@ -145,6 +155,10 @@ export const ConfigSchema = z.object({
     }).optional(),
     versions: z.object({
         subcommand: z.string().optional(),
+        directories: z.array(z.string()).optional(),
+    }).optional(),
+    updates: z.object({
+        scope: z.string().optional(),
         directories: z.array(z.string()).optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
@@ -289,6 +303,20 @@ export type PublishConfig = {
     targetBranch?: string;
 }
 
+export type VersionTargetConfig = {
+    type: 'release' | 'prerelease';
+    increment?: boolean;
+    tag?: string;
+}
+
+export type BranchTargetConfig = {
+    targetBranch: string;
+    developmentBranch?: boolean;
+    version?: VersionTargetConfig;
+}
+
+export type TargetsConfig = Record<string, BranchTargetConfig>;
+
 export type TreeConfig = {
     directories?: string[];
     excludedPatterns?: string[];
@@ -312,4 +340,9 @@ export type DevelopmentConfig = {
 export type VersionsConfig = {
     subcommand?: string; // 'minor' or other versioning strategies
     directories?: string[]; // directories to scan for packages
+}
+
+export type UpdatesConfig = {
+    scope?: string; // npm scope to update (e.g., '@fjell', '@getdidthey')
+    directories?: string[]; // directories to scan for packages (tree mode)
 }
