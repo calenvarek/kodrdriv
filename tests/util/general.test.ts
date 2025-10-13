@@ -1,6 +1,16 @@
 import { describe, test, expect } from 'vitest';
-import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio, incrementPrereleaseVersion, convertToReleaseVersion, calculateBranchDependentVersion, findDevelopmentBranch, haveSamePrereleaseTag } from '../../src/util/general';
 import { beforeEach, afterEach, vi } from 'vitest';
+
+// Mock getVersionFromBranch function
+vi.mock('../../src/util/general', async () => {
+    const actual = await vi.importActual('../../src/util/general') as any;
+    return {
+        ...actual,
+        getVersionFromBranch: vi.fn()
+    };
+});
+
+import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio, incrementPrereleaseVersion, convertToReleaseVersion, calculateBranchDependentVersion, findDevelopmentBranch, haveSamePrereleaseTag, getVersionFromBranch } from '../../src/util/general';
 import * as Storage from '../../src/util/storage';
 import * as fs from 'fs';
 import * as Logging from '../../src/logging';
@@ -1292,19 +1302,15 @@ describe('Branch-dependent version targeting', () => {
         test('should increment prerelease version', async () => {
             const targetsConfig = {
                 working: {
-                    targetBranch: 'development',
+                    targetBranch: 'development'
+                },
+                development: {
                     version: { type: 'prerelease', increment: true, tag: 'dev' }
                 }
             };
 
             // Mock getVersionFromBranch to return null (no existing version in target)
-            vi.doMock('../src/util/general', async () => {
-                const actual = await vi.importActual('../src/util/general');
-                return {
-                    ...actual,
-                    getVersionFromBranch: vi.fn().mockResolvedValue(null)
-                };
-            });
+            vi.mocked(getVersionFromBranch).mockResolvedValue(null);
 
             const result = await calculateBranchDependentVersion(
                 '1.2.3-dev.0',

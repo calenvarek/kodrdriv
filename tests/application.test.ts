@@ -73,6 +73,10 @@ vi.mock('../src/commands/versions', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../src/commands/updates', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../src/constants', () => ({
     COMMAND_AUDIO_COMMIT: 'audio-commit',
     COMMAND_AUDIO_REVIEW: 'audio-review',
@@ -91,6 +95,7 @@ vi.mock('../src/constants', () => ({
     COMMAND_UNLINK: 'unlink',
     COMMAND_DEVELOPMENT: 'development',
     COMMAND_VERSIONS: 'versions',
+    COMMAND_UPDATES: 'updates',
     DEFAULT_CONFIG_DIR: '.kodrdriv',
     VERSION: '0.0.52-test'
 }));

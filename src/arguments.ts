@@ -487,10 +487,10 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
         ...transformedCliArgs.tree,
     };
 
-    const mergedTargets = {
-        ...(KODRDRIV_DEFAULTS.targets || {}),
-        ...(fileValues.targets || {}),
-        ...(transformedCliArgs.targets || {}),
+    const mergedBranches = {
+        ...(KODRDRIV_DEFAULTS.branches || {}),
+        ...(fileValues.branches || {}),
+        ...(transformedCliArgs.branches || {}),
     };
 
     const mergedVersions = {
@@ -518,7 +518,7 @@ export const configure = async (cardigantime: any): Promise<[Config, SecureConfi
         audioReview: mergedAudioReview,
         review: mergedReview,
         tree: mergedTree,
-        targets: mergedTargets,
+        branches: mergedBranches,
         versions: mergedVersions,
         updates: mergedUpdates,
     } as Partial<Config>; // Cast to Partial<Config> initially
@@ -1208,7 +1208,7 @@ export async function validateAndProcessOptions(options: Partial<Config>): Promi
             ...Object.fromEntries(Object.entries(options.updates || {}).filter(([_, v]) => v !== undefined)),
         },
         excludedPatterns: options.excludedPatterns ?? KODRDRIV_DEFAULTS.excludedPatterns,
-        targets: options.targets ?? KODRDRIV_DEFAULTS.targets,
+        branches: options.branches ?? KODRDRIV_DEFAULTS.branches,
     };
 
     // Final validation against the MainConfig shape (optional, cardigantime might handle it)

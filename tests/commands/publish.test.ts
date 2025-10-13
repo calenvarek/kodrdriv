@@ -858,14 +858,13 @@ cache=\${CACHE_DIR}/npm
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotesBody, 'utf-8');
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/0.0.4', false);
-            expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName);
+            expect(GitHub.createPullRequest).toHaveBeenCalledWith('feat: update dependencies', 'Automated release PR.', mockBranchName, 'main');
             expect(GitHub.waitForPullRequestChecks).toHaveBeenCalledWith(123, {
                 timeout: 3600000,
                 skipUserConfirmation: false
             });
             expect(GitHub.mergePullRequest).toHaveBeenCalledWith(123, 'squash', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', false);
             expect(GitHub.createRelease).toHaveBeenCalledWith('v0.0.4', mockReleaseTitle, mockReleaseNotesBody);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', false);
 
@@ -2018,7 +2017,6 @@ cache=\${CACHE_DIR}/npm
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/1.0.0', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git checkout main', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git pull origin main', true);
             expect(GitHub.createPullRequest).not.toHaveBeenCalled();
             expect(GitHub.waitForPullRequestChecks).not.toHaveBeenCalled();
             expect(GitHub.mergePullRequest).not.toHaveBeenCalled();
@@ -3200,13 +3198,30 @@ cache=\${CACHE_DIR}/npm
                     if (command === 'git log -1 --pretty=%B') {
                         return Promise.resolve({ stdout: 'test commit' });
                     }
+                    if (command === 'git fetch origin') {
+                        return Promise.resolve({ stdout: '' });
+                    }
+                    if (command.includes('git ls-remote')) {
+                        return Promise.resolve({ stdout: 'refs/heads/main' });
+                    }
+                    if (command.includes('git pull') && command.includes('main')) {
+                        return Promise.reject(new Error('CONFLICT: Merge conflict in file.txt'));
+                    }
                     return Promise.resolve({ stdout: '' });
                 });
 
-                // Mock git pull failure during target branch sync
+                // Mock git operations with runSecure
+                Child.runSecure.mockImplementation((command: string, args?: string[]) => {
+                    if (command === 'git' && args?.includes('status') && args?.includes('--porcelain')) {
+                        return Promise.resolve({ stdout: '', stderr: '' });
+                    }
+                    return Promise.resolve({ stdout: '', stderr: '' });
+                });
+
+                // Mock runWithDryRunSupport for git checkout
                 Child.runWithDryRunSupport.mockImplementation((command: string) => {
-                    if (command.includes('git pull origin main')) {
-                        return Promise.reject(new Error('CONFLICT: Merge conflict in file.txt'));
+                    if (command === 'git checkout main') {
+                        return Promise.resolve(undefined);
                     }
                     return Promise.resolve(undefined);
                 });
@@ -3221,11 +3236,15 @@ cache=\${CACHE_DIR}/npm
                 GitHub.waitForPullRequestChecks.mockResolvedValue(undefined);
                 GitHub.mergePullRequest.mockResolvedValue(undefined);
 
+                // Mock Git utilities for branch sync
+                Git.localBranchExists.mockResolvedValue(true);
+                Git.isBranchInSyncWithRemote.mockResolvedValue({ inSync: true, localExists: true, remoteExists: true });
+
                 Diff.hasStagedChanges.mockResolvedValue(true);
                 Release.execute.mockResolvedValue({ title: 'Release v1.0.1', body: 'Release notes' });
 
 
-                await expect(Publish.execute(mockConfig)).rejects.toThrow("Target branch 'main' sync failed");
+                await expect(Publish.execute(mockConfig)).rejects.toThrow("Target branch 'main' sync failed. Use recovery options above to resolve.");
             });
     });
 });

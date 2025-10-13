@@ -331,28 +331,68 @@ export const execute = async (runConfig: Config): Promise<void> => {
         currentBranch = 'mock-branch';
     } else {
         currentBranch = await GitHub.getCurrentBranchName();
+
+        // Fetch latest remote information to avoid conflicts
+        logger.info('📡 Fetching latest remote information to avoid conflicts...');
+        try {
+            await run('git fetch origin');
+            logger.info('✅ Fetched latest remote information');
+        } catch (error: any) {
+            logger.warn(`⚠️ Could not fetch from remote: ${error.message}`);
+        }
+
+        // Sync current branch with remote to avoid conflicts
+        logger.info(`🔄 Syncing ${currentBranch} with remote to avoid conflicts...`);
+        try {
+            const remoteExists = await run(`git ls-remote --exit-code --heads origin ${currentBranch}`).then(() => true).catch(() => false);
+
+            if (remoteExists) {
+                await run(`git pull origin ${currentBranch} --no-edit`);
+                logger.info(`✅ Synced ${currentBranch} with remote`);
+            } else {
+                logger.info(`ℹ️ No remote ${currentBranch} branch found, will be created on first push`);
+            }
+        } catch (error: any) {
+            if (error.message && error.message.includes('CONFLICT')) {
+                logger.error(`❌ Merge conflicts detected when syncing ${currentBranch} with remote`);
+                logger.error(`   Please resolve the conflicts manually and then run:`);
+                logger.error(`   1. Resolve conflicts in the files`);
+                logger.error(`   2. git add <resolved-files>`);
+                logger.error(`   3. git commit`);
+                logger.error(`   4. kodrdriv publish (to continue)`);
+                throw new Error(`Merge conflicts detected when syncing ${currentBranch} with remote. Please resolve conflicts manually.`);
+            } else {
+                logger.warn(`⚠️ Could not sync with remote ${currentBranch}: ${error.message}`);
+            }
+        }
     }
 
     // Determine target branch and version strategy based on branch configuration
     let targetBranch = runConfig.publish?.targetBranch || 'main';
     let branchDependentVersioning = false;
 
-    if (runConfig.targets && runConfig.targets[currentBranch]) {
-        // Branch-dependent targeting is configured
-        const branchConfig = runConfig.targets[currentBranch];
-        targetBranch = branchConfig.targetBranch;
+    // Check for branches configuration
+    if (runConfig.branches && runConfig.branches[currentBranch]) {
         branchDependentVersioning = true;
+
+        const branchConfig = runConfig.branches[currentBranch];
+
+        if (branchConfig.targetBranch) {
+            targetBranch = branchConfig.targetBranch;
+        }
 
         logger.info(`🎯 Branch-dependent targeting enabled:`);
         logger.info(`   Source branch: ${currentBranch}`);
         logger.info(`   Target branch: ${targetBranch}`);
 
-        if (branchConfig.version) {
-            const versionType = branchConfig.version.type;
-            const versionTag = branchConfig.version.tag;
-            const versionIncrement = branchConfig.version.increment;
+        // Look at target branch config to show version strategy
+        const targetBranchConfig = runConfig.branches[targetBranch];
+        if (targetBranchConfig?.version) {
+            const versionType = targetBranchConfig.version.type;
+            const versionTag = targetBranchConfig.version.tag;
+            const versionIncrement = targetBranchConfig.version.increment;
 
-            logger.info(`   Version strategy: ${versionType}${versionTag ? ` (tag: ${versionTag})` : ''}${versionIncrement ? ' with increment' : ''}`);
+            logger.info(`   Target branch version strategy: ${versionType}${versionTag ? ` (tag: ${versionTag})` : ''}${versionIncrement ? ' with increment' : ''}`);
         }
     } else {
         logger.debug(`No branch-specific targeting configured for '${currentBranch}', using default target: ${targetBranch}`);
@@ -475,12 +515,12 @@ export const execute = async (runConfig: Config): Promise<void> => {
             let proposedVersion: string;
             let finalTargetBranch = targetBranch;
 
-            if (branchDependentVersioning && runConfig.targets) {
+            if (branchDependentVersioning && runConfig.branches) {
                 // Use branch-dependent versioning logic
                 const branchDependentResult = await calculateBranchDependentVersion(
                     currentVersion,
                     currentBranch,
-                    runConfig.targets,
+                    runConfig.branches,
                     targetBranch
                 );
                 proposedVersion = branchDependentResult.version;
@@ -652,7 +692,39 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     try {
         await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
-        await runWithDryRunSupport(`git pull origin ${targetBranch}`, isDryRun);
+
+        // Sync target branch with remote to avoid conflicts during PR creation
+        if (!isDryRun) {
+            logger.info(`🔄 Syncing ${targetBranch} with remote to avoid PR conflicts...`);
+            try {
+                const remoteExists = await run(`git ls-remote --exit-code --heads origin ${targetBranch}`).then(() => true).catch(() => false);
+
+                if (remoteExists) {
+                    await run(`git pull origin ${targetBranch} --no-edit`);
+                    logger.info(`✅ Synced ${targetBranch} with remote`);
+                } else {
+                    logger.info(`ℹ️ No remote ${targetBranch} branch found, will be created on first push`);
+                }
+            } catch (syncError: any) {
+                if (syncError.message && syncError.message.includes('CONFLICT')) {
+                    logger.error(`❌ Merge conflicts detected when syncing ${targetBranch} with remote`);
+                    logger.error(`   Please resolve the conflicts manually:`);
+                    logger.error(`   1. git checkout ${targetBranch}`);
+                    logger.error(`   2. git pull origin ${targetBranch}`);
+                    logger.error(`   3. Resolve conflicts in the files`);
+                    logger.error(`   4. git add <resolved-files>`);
+                    logger.error(`   5. git commit`);
+                    logger.error(`   6. git checkout ${currentBranch}`);
+                    logger.error(`   7. kodrdriv publish (to continue)`);
+                    throw syncError;
+                } else {
+                    logger.warn(`⚠️ Could not sync ${targetBranch} with remote: ${syncError.message}`);
+                    // Continue with publish process, but log the warning
+                }
+            }
+        } else {
+            logger.info(`Would sync ${targetBranch} with remote to avoid PR conflicts`);
+        }
     } catch (error: any) {
         // Check if this is a merge conflict or sync issue
         if (!isDryRun && (error.message.includes('conflict') ||

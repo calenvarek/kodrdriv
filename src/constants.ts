@@ -278,5 +278,21 @@ export const KODRDRIV_DEFAULTS = {
         directories: undefined,
     },
     excludedPatterns: DEFAULT_EXCLUDED_PATTERNS,
-    targets: undefined, // No default branch targets - must be explicitly configured
+    branches: {
+        working: {
+            targetBranch: 'main',
+            developmentBranch: true,
+            version: {
+                type: 'prerelease' as const,
+                increment: true,
+                incrementLevel: 'patch' as const,
+                tag: 'dev'
+            }
+        },
+        main: {
+            version: {
+                type: 'release' as const
+            }
+        }
+    }
 };

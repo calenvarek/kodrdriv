@@ -16,6 +16,10 @@ describe('countdown', () => {
             configurable: true
         });
 
+        // Ensure ANSI support is enabled
+        delete process.env.NO_COLOR;
+        process.env.TERM = 'xterm-256color';
+
         // Mock timers
         vi.useFakeTimers();
     });

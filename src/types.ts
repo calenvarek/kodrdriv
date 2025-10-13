@@ -111,12 +111,13 @@ export const ConfigSchema = z.object({
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
     }).optional(),
-    targets: z.record(z.string(), z.object({
-        targetBranch: z.string(),
+    branches: z.record(z.string(), z.object({
+        targetBranch: z.string().optional(),
         developmentBranch: z.boolean().optional(),
         version: z.object({
             type: z.enum(['release', 'prerelease']),
             increment: z.boolean().optional(),
+            incrementLevel: z.enum(['patch', 'minor', 'major']).optional(),
             tag: z.string().optional(),
         }).optional(),
     })).optional(),

@@ -1,29 +1,37 @@
 # Example KodrDriv Configuration for Branch-Dependent Targeting
 # This demonstrates how to set up automated CI/CD pipeline targeting
+# Using the NEW branches configuration format
 
 # Global settings
 model: gpt-4o-mini
 verbose: true
 
 # Branch-dependent targeting configuration
-targets:
+branches:
   working:
     targetBranch: "development"
     developmentBranch: true  # Mark this as the active development branch
     version:
       type: "prerelease"
       increment: true
+      incrementLevel: "patch"  # Increment patch version when going back to working
       tag: "dev"
 
   development:
     targetBranch: "test"
     version:
       type: "prerelease"
-      increment: true
-      tag: "test"
+      increment: false
+      tag: "development"
 
   test:
     targetBranch: "main"
+    version:
+      type: "prerelease"
+      increment: false
+      tag: "test"
+
+  main:
     version:
       type: "release"
 

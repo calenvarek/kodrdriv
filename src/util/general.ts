@@ -309,88 +309,125 @@ export const getVersionFromBranch = async (branchName: string): Promise<string |
 
 /**
  * Calculate target version based on branch configuration
- * This is the core logic for branch-dependent versioning
+ * SEMANTICS: The version config specifies what version should be ON the target branch
  */
 export const calculateBranchDependentVersion = async (
     currentVersion: string,
     currentBranch: string,
-    targetsConfig: any,
+    branchesConfig: any,
     targetBranch?: string
 ): Promise<{ version: string; targetBranch: string }> => {
     const { getLogger } = await import('../logging');
     const logger = getLogger();
 
-    // Check if we have branch-specific configuration
-    if (!targetsConfig || !targetsConfig[currentBranch]) {
-        // No branch-specific config, use default behavior
+    // Look up the source branch to find the target branch
+    if (!branchesConfig || !branchesConfig[currentBranch]) {
+        // Use default configuration from constants
+        const { KODRDRIV_DEFAULTS } = await import('../constants');
+        const defaultConfig = KODRDRIV_DEFAULTS.branches as any;
+
+        if (defaultConfig && defaultConfig[currentBranch]) {
+            const sourceConfig = defaultConfig[currentBranch];
+            const finalTargetBranch = sourceConfig.targetBranch || targetBranch || 'main';
+
+            // Look at target branch's version config to determine what version it should have
+            const targetConfig = defaultConfig[finalTargetBranch];
+
+            logger.info(`🎯 Using default branch configuration: ${currentBranch} → ${finalTargetBranch}`);
+
+            if (!targetConfig?.version) {
+                const defaultVersion = incrementPatchVersion(currentVersion);
+                logger.debug(`No version config for target branch '${finalTargetBranch}', using default increment`);
+                return { version: defaultVersion, targetBranch: finalTargetBranch };
+            }
+
+            return calculateVersionFromTargetConfig(currentVersion, finalTargetBranch, targetConfig.version, logger);
+        }
+
+        // No config at all, use traditional defaults
         const defaultTargetBranch = targetBranch || 'main';
         const defaultVersion = incrementPatchVersion(currentVersion);
         logger.debug(`No branch-specific config found for '${currentBranch}', using defaults`);
         return { version: defaultVersion, targetBranch: defaultTargetBranch };
     }
 
-    const branchConfig = targetsConfig[currentBranch];
-    const configuredTargetBranch = branchConfig.targetBranch;
+    const sourceConfig = branchesConfig[currentBranch];
+    const finalTargetBranch = sourceConfig.targetBranch || targetBranch || 'main';
 
-    logger.info(`🎯 Using branch-dependent targeting: ${currentBranch} → ${configuredTargetBranch}`);
+    // Look at target branch's version config to determine what version it should have
+    const targetConfig = branchesConfig[finalTargetBranch];
 
-    if (!branchConfig.version) {
-        // No version config, use default increment
+    logger.info(`🎯 Using branch-dependent targeting: ${currentBranch} → ${finalTargetBranch}`);
+
+    if (!targetConfig?.version) {
+        // No version config for target, use default increment
         const defaultVersion = incrementPatchVersion(currentVersion);
-        return { version: defaultVersion, targetBranch: configuredTargetBranch };
+        logger.debug(`No version config for target branch '${finalTargetBranch}', using default increment`);
+        return { version: defaultVersion, targetBranch: finalTargetBranch };
     }
 
-    const versionConfig = branchConfig.version;
+    return calculateVersionFromTargetConfig(currentVersion, finalTargetBranch, targetConfig.version, logger);
+};
 
+/**
+ * Calculate version based on target branch configuration
+ */
+const calculateVersionFromTargetConfig = async (
+    currentVersion: string,
+    targetBranch: string,
+    versionConfig: any,
+    logger: any
+): Promise<{ version: string; targetBranch: string }> => {
     if (versionConfig.type === 'release') {
         // Convert to release version (remove prerelease tags)
         const releaseVersion = convertToReleaseVersion(currentVersion);
         logger.info(`📦 Converting to release version: ${currentVersion} → ${releaseVersion}`);
-        return { version: releaseVersion, targetBranch: configuredTargetBranch };
+        return { version: releaseVersion, targetBranch };
     } else if (versionConfig.type === 'prerelease') {
         if (!versionConfig.tag) {
-            throw new Error(`Prerelease version type requires a tag in targets configuration`);
+            throw new Error(`Prerelease version type requires a tag in branch configuration`);
         }
 
         const tag = versionConfig.tag;
 
         if (versionConfig.increment) {
             // Check if there's already a version with this tag in the target branch
-            const targetBranchVersion = await getVersionFromBranch(configuredTargetBranch);
+            const targetBranchVersion = await getVersionFromBranch(targetBranch);
 
             if (targetBranchVersion) {
                 // Use the target branch version as the base and increment
                 const newVersion = incrementPrereleaseVersion(targetBranchVersion, tag);
                 logger.info(`📦 Incrementing prerelease in target branch: ${targetBranchVersion} → ${newVersion}`);
-                return { version: newVersion, targetBranch: configuredTargetBranch };
+                return { version: newVersion, targetBranch };
             } else {
                 // No version in target branch, use current version as base
                 const newVersion = incrementPrereleaseVersion(currentVersion, tag);
                 logger.info(`📦 Creating new prerelease version: ${currentVersion} → ${newVersion}`);
-                return { version: newVersion, targetBranch: configuredTargetBranch };
+                return { version: newVersion, targetBranch };
             }
         } else {
             // Just add/change the prerelease tag without incrementing
             const baseVersion = convertToReleaseVersion(currentVersion);
             const newVersion = `${baseVersion}-${tag}.0`;
             logger.info(`📦 Setting prerelease tag: ${currentVersion} → ${newVersion}`);
-            return { version: newVersion, targetBranch: configuredTargetBranch };
+            return { version: newVersion, targetBranch };
         }
     }
 
     throw new Error(`Invalid version type: ${versionConfig.type}`);
 };
 
+
 /**
- * Find the development branch from targets configuration
+ * Find the development branch from branches configuration
  * Returns the branch marked with developmentBranch: true
  */
-export const findDevelopmentBranch = (targetsConfig: any): string | null => {
-    if (!targetsConfig || typeof targetsConfig !== 'object') {
+export const findDevelopmentBranch = (branchesConfig: any): string | null => {
+    if (!branchesConfig || typeof branchesConfig !== 'object') {
         return null;
     }
 
-    for (const [branchName, branchConfig] of Object.entries(targetsConfig)) {
+    for (const [branchName, branchConfig] of Object.entries(branchesConfig)) {
         if (branchConfig && typeof branchConfig === 'object' && (branchConfig as any).developmentBranch === true) {
             return branchName;
         }
