@@ -110,6 +110,7 @@ export const ConfigSchema = z.object({
         targetBranch: z.string().optional(),
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
+        skipPrePublishMerge: z.boolean().optional(),
     }).optional(),
     branches: z.record(z.string(), z.object({
         targetBranch: z.string().optional(),
