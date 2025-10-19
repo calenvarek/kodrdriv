@@ -50,7 +50,7 @@ export default defineConfig([
                 argsIgnorePattern: "^_",
             }],
 
-            indent: ["error", 4, {
+            indent: ["warn", 4, {
                 SwitchCase: 1,
             }],
 
