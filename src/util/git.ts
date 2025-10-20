@@ -48,9 +48,13 @@ export const isValidGitRef = async (ref: string): Promise<boolean> => {
  * Returns the highest version tag that is less than the current version.
  *
  * @param currentVersion The current version (e.g., "1.2.3", "2.0.0")
+ * @param tagPattern The pattern to match tags (e.g., "v*", "working/v*")
  * @returns The previous release tag or null if none found
  */
-export const findPreviousReleaseTag = async (currentVersion: string): Promise<string | null> => {
+export const findPreviousReleaseTag = async (
+    currentVersion: string,
+    tagPattern: string = 'v*'
+): Promise<string | null> => {
     const logger = getLogger();
 
     try {
@@ -61,32 +65,31 @@ export const findPreviousReleaseTag = async (currentVersion: string): Promise<st
             return null;
         }
 
-        logger.debug(`Looking for previous release tag for version ${currentVersion}`);
+        logger.debug(`Looking for previous release tag matching ${tagPattern} for version ${currentVersion}`);
 
         // Get all tags - try sorted first, fallback to unsorted
         let tags: string[];
         try {
-            const { stdout } = await runSecure('git', ['tag', '--sort=-version:refname']);
+            const { stdout } = await runSecure('git', ['tag', '-l', tagPattern, '--sort=-version:refname']);
             tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
+            logger.debug(`Found ${tags.length} tags matching ${tagPattern}`);
         } catch {
             // Fallback for older git versions that don't support --sort
             logger.debug('Git tag --sort failed, falling back to manual sorting');
-            const { stdout } = await runSecure('git', ['tag']);
+            const { stdout } = await runSecure('git', ['tag', '-l', tagPattern]);
             tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
 
             // Manual semantic version sorting
             tags.sort((a, b) => {
-                const aClean = a.startsWith('v') ? a.substring(1) : a;
-                const bClean = b.startsWith('v') ? b.substring(1) : b;
-                const aSemver = semver.parse(aClean);
-                const bSemver = semver.parse(bClean);
+                const aMatch = a.match(/v?(\d+\.\d+\.\d+.*?)$/);
+                const bMatch = b.match(/v?(\d+\.\d+\.\d+.*?)$/);
+                if (!aMatch || !bMatch) return 0;
 
-                if (!aSemver && !bSemver) return 0;
-                if (!aSemver) return 1;
-                if (!bSemver) return -1;
+                const aSemver = semver.parse(aMatch[1]);
+                const bSemver = semver.parse(bMatch[1]);
+                if (!aSemver || !bSemver) return 0;
 
-                // Sort in descending order (newest first)
-                return semver.compare(bSemver, aSemver);
+                return semver.rcompare(aSemver, bSemver);
             });
         }
 
@@ -104,20 +107,27 @@ export const findPreviousReleaseTag = async (currentVersion: string): Promise<st
         let skippedTags = 0;
 
         for (const tag of tags) {
-            // Remove 'v' prefix if present for parsing
-            const cleanTag = tag.startsWith('v') ? tag.substring(1) : tag;
-            const tagSemver = semver.parse(cleanTag);
+            // Extract version from tag - handle "v1.2.13", "1.2.13", and "working/v1.2.13"
+            const versionMatch = tag.match(/v?(\d+\.\d+\.\d+.*?)$/);
+            if (!versionMatch) {
+                logger.debug(`Tag ${tag} doesn't match version pattern, skipping`);
+                continue;
+            }
+
+            const versionString = versionMatch[1];
+            const tagSemver = semver.parse(versionString);
 
             if (tagSemver) {
                 validTags++;
+                logger.debug(`Comparing tag ${tag} (${versionString}) with current ${currentVersion}`);
 
                 // Check if this tag version is less than current version
                 if (semver.lt(tagSemver, currentSemver)) {
                     // If we don't have a previous version yet, or this one is higher than our current previous
                     if (!previousVersion || semver.gt(tagSemver, previousVersion)) {
                         previousVersion = tagSemver;
-                        previousTag = tag; // Keep the original tag format (with or without 'v')
-                        logger.debug(`Found candidate previous tag: ${tag} (${tagSemver.version})`);
+                        previousTag = tag; // Keep the original tag format
+                        logger.debug(`Found candidate previous tag: ${tag} (${versionString})`);
                     }
                 } else {
                     skippedTags++;
@@ -128,15 +138,12 @@ export const findPreviousReleaseTag = async (currentVersion: string): Promise<st
         logger.debug(`Processed ${validTags} valid semantic version tags, skipped ${skippedTags} tags >= current version`);
 
         if (previousTag) {
-            logger.info(`Found previous release tag: ${previousTag} (version: ${previousVersion?.version})`);
-        } else {
-            logger.debug(`No previous release tag found for version ${currentVersion}`);
-            if (validTags > 0) {
-                logger.debug('All existing tags are greater than or equal to current version (likely first release)');
-            }
+            logger.debug(`Found previous tag: ${previousTag} (${previousVersion?.version} < ${currentVersion})`);
+            return previousTag;
         }
 
-        return previousTag;
+        logger.debug(`No previous tag found for ${currentVersion} matching ${tagPattern}`);
+        return null;
     } catch (error: any) {
         logger.debug(`Error finding previous release tag: ${error.message}`);
         return null;
@@ -190,23 +197,51 @@ export const getCurrentVersion = async (): Promise<string | null> => {
  * Gets a reliable default for the --from parameter by trying multiple fallbacks
  *
  * Tries in order:
- * 1. Previous release tag (if current version can be determined)
- * 2. main (local main branch - typical release comparison base)
- * 3. master (local master branch - legacy default)
- * 4. origin/main (remote main branch fallback)
- * 5. origin/master (remote master branch fallback)
+ * 1. Previous working branch tag (if on working branch)
+ * 2. Previous release tag (if current version can be determined)
+ * 3. main (local main branch - typical release comparison base)
+ * 4. master (local master branch - legacy default)
+ * 5. origin/main (remote main branch fallback)
+ * 6. origin/master (remote master branch fallback)
  *
  * @param forceMainBranch If true, skip tag detection and use main branch
+ * @param currentBranch Current branch name for branch-aware tag detection
  * @returns A valid git reference to use as the default from parameter
  * @throws Error if no valid reference can be found
  */
-export const getDefaultFromRef = async (forceMainBranch: boolean = false): Promise<string> => {
+export const getDefaultFromRef = async (
+    forceMainBranch: boolean = false,
+    currentBranch?: string
+): Promise<string> => {
     const logger = getLogger();
 
     // If forced to use main branch, skip tag detection
     if (forceMainBranch) {
         logger.debug('Forced to use main branch, skipping tag detection');
     } else {
+        // If on working branch, look for working branch tags first
+        if (currentBranch && currentBranch === 'working') {
+            try {
+                const currentVersion = await getCurrentVersion();
+                if (currentVersion) {
+                    logger.debug(`Looking for previous working branch tag (current version: ${currentVersion})`);
+                    const previousTag = await findPreviousReleaseTag(
+                        currentVersion,
+                        'working/v*'
+                    );
+                    if (previousTag && await isValidGitRef(previousTag)) {
+                        logger.info(`Using previous working branch tag '${previousTag}' as default --from reference`);
+                        logger.info(`   This shows commits added since the last release`);
+                        return previousTag;
+                    } else {
+                        logger.debug('No valid previous working tag found, will try regular tags');
+                    }
+                }
+            } catch (error: any) {
+                logger.debug(`Could not determine previous working tag: ${error.message}`);
+            }
+        }
+
         // First, try to find the previous release tag
         try {
             const currentVersion = await getCurrentVersion();

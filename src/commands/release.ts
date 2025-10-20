@@ -3,7 +3,7 @@ import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import { ChatCompletionMessageParam } from 'openai/resources';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
-import { getDefaultFromRef } from '../util/git';
+import { getDefaultFromRef, getCurrentBranch } from '../util/git';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import * as ReleasePrompt from '../prompt/release';
@@ -190,8 +190,14 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
 
+    // Get current branch to help determine best tag comparison
+    const currentBranch = runConfig.release?.currentBranch || await getCurrentBranch();
+
     // Resolve the from reference with fallback logic if not explicitly provided
-    const fromRef = runConfig.release?.from ?? await getDefaultFromRef(runConfig.release?.fromMain || false);
+    const fromRef = runConfig.release?.from ?? await getDefaultFromRef(
+        runConfig.release?.fromMain || false,
+        currentBranch
+    );
     const toRef = runConfig.release?.to ?? DEFAULT_TO_COMMIT_ALIAS;
 
     logger.debug(`Using git references: from=${fromRef}, to=${toRef}`);

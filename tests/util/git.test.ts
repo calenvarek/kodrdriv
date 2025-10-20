@@ -133,7 +133,7 @@ describe('Git Utilities', () => {
             const result = await git.findPreviousReleaseTag('2.1.0');
 
             expect(result).toBe('v2.0.0'); // Should be v2.0.0, not v1.9.0
-            expect(mockRunSecure).toHaveBeenCalledWith('git', ['tag', '--sort=-version:refname']);
+            expect(mockRunSecure).toHaveBeenCalledWith('git', ['tag', '-l', 'v*', '--sort=-version:refname']);
         });
 
         it('should return null when no tags exist', async () => {
@@ -280,8 +280,8 @@ describe('Git Utilities', () => {
 
             expect(result).toBe('v1.5.0');
             expect(mockRunSecure).toHaveBeenCalledTimes(2);
-            expect(mockRunSecure).toHaveBeenNthCalledWith(1, 'git', ['tag', '--sort=-version:refname']);
-            expect(mockRunSecure).toHaveBeenNthCalledWith(2, 'git', ['tag']);
+            expect(mockRunSecure).toHaveBeenNthCalledWith(1, 'git', ['tag', '-l', 'v*', '--sort=-version:refname']);
+            expect(mockRunSecure).toHaveBeenNthCalledWith(2, 'git', ['tag', '-l', 'v*']);
         });
 
         it('should find highest previous version correctly', async () => {
@@ -507,7 +507,7 @@ describe('Git Utilities', () => {
             expect(result).toBe('main');
             // Should not try to get current version or find previous tag when forced
             expect(mockRunSecure).not.toHaveBeenCalledWith('git', ['show', 'HEAD:package.json']);
-            expect(mockRunSecure).not.toHaveBeenCalledWith('git', ['tag', '--sort=-version:refname']);
+            expect(mockRunSecure).not.toHaveBeenCalledWith('git', ['tag', '-l', 'v*', '--sort=-version:refname']);
         });
 
         it('should return main when it exists', async () => {

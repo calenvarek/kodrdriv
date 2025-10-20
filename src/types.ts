@@ -50,6 +50,7 @@ export const ConfigSchema = z.object({
         openaiMaxOutputTokens: z.number().optional(),
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
+        currentBranch: z.string().optional(),
     }).optional(),
     review: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -207,6 +208,7 @@ export type ReleaseConfig = {
     model?: string;
     openaiReasoning?: 'low' | 'medium' | 'high';
     openaiMaxOutputTokens?: number;
+    currentBranch?: string;
 }
 
 export type ReviewConfig = {

@@ -113,7 +113,8 @@ vi.mock('@riotprompt/riotprompt', () => ({
 }));
 
 vi.mock('../../src/util/git', () => ({
-    getDefaultFromRef: vi.fn().mockResolvedValue('main')
+    getDefaultFromRef: vi.fn().mockResolvedValue('main'),
+    getCurrentBranch: vi.fn().mockResolvedValue('working')
 }));
 
 describe('release command', () => {
