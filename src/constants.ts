@@ -49,7 +49,10 @@ export const DEFAULT_CACHED = false;
 export const DEFAULT_SENDIT_MODE = false;
 export const DEFAULT_INTERACTIVE_MODE = false;
 export const DEFAULT_AMEND_MODE = false;
-export const DEFAULT_MESSAGE_LIMIT = 50;
+// CRITICAL: Keep this low (3-5) to prevent log context contamination.
+// The LLM tends to pattern-match against recent commits instead of describing
+// the actual diff when it sees too much commit history. Set to 0 to disable.
+export const DEFAULT_MESSAGE_LIMIT = 3;
 export const DEFAULT_MAX_DIFF_BYTES = 20480; // 20KB limit per file
 
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';

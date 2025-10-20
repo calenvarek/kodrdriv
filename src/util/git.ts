@@ -61,23 +61,29 @@ export const findPreviousReleaseTag = async (
         // Parse current version first to validate it
         const currentSemver = semver.parse(currentVersion);
         if (!currentSemver) {
-            logger.debug(`Invalid version format: ${currentVersion}`);
+            logger.warn(`❌ Invalid version format: ${currentVersion}`);
             return null;
         }
 
-        logger.debug(`Looking for previous release tag matching ${tagPattern} for version ${currentVersion}`);
+        logger.info(`🔍 findPreviousReleaseTag: Looking for tags matching "${tagPattern}" < ${currentVersion}`);
 
         // Get all tags - try sorted first, fallback to unsorted
         let tags: string[];
         try {
+            logger.info(`   Running: git tag -l "${tagPattern}" --sort=-version:refname`);
             const { stdout } = await runSecure('git', ['tag', '-l', tagPattern, '--sort=-version:refname']);
             tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
-            logger.debug(`Found ${tags.length} tags matching ${tagPattern}`);
-        } catch {
+            logger.info(`   ✅ Found ${tags.length} tags matching pattern "${tagPattern}"`);
+            if (tags.length > 0) {
+                logger.info(`   📋 Tags (newest first): ${tags.slice(0, 15).join(', ')}${tags.length > 15 ? ` ... (${tags.length - 15} more)` : ''}`);
+            }
+        } catch (sortError: any) {
             // Fallback for older git versions that don't support --sort
-            logger.debug('Git tag --sort failed, falling back to manual sorting');
+            logger.info(`   ⚠️  Git tag --sort failed: ${sortError.message}`);
+            logger.info(`   Falling back to manual sorting...`);
             const { stdout } = await runSecure('git', ['tag', '-l', tagPattern]);
             tags = stdout.trim().split('\n').filter(tag => tag.length > 0);
+            logger.info(`   Found ${tags.length} tags (unsorted) matching pattern "${tagPattern}"`);
 
             // Manual semantic version sorting
             tags.sort((a, b) => {
@@ -91,14 +97,18 @@ export const findPreviousReleaseTag = async (
 
                 return semver.rcompare(aSemver, bSemver);
             });
+            logger.info(`   ✅ Sorted ${tags.length} tags manually`);
         }
 
         if (tags.length === 0) {
-            logger.debug('No tags found in repository');
+            logger.warn('');
+            logger.warn(`❌ NO TAGS FOUND matching pattern "${tagPattern}"`);
+            logger.warn(`   To verify, run: git tag -l '${tagPattern}'`);
+            logger.warn('');
             return null;
         }
 
-        logger.debug(`Found ${tags.length} tags in repository`);
+        logger.info(`   🔬 Processing ${tags.length} tags to find the highest version < ${currentVersion}...`);
 
         // Find the highest version that is less than the current version
         let previousTag: string | null = null;
@@ -110,7 +120,7 @@ export const findPreviousReleaseTag = async (
             // Extract version from tag - handle "v1.2.13", "1.2.13", and "working/v1.2.13"
             const versionMatch = tag.match(/v?(\d+\.\d+\.\d+.*?)$/);
             if (!versionMatch) {
-                logger.debug(`Tag ${tag} doesn't match version pattern, skipping`);
+                logger.debug(`   ⏭️  Skipping tag "${tag}" (doesn't match version pattern)`);
                 continue;
             }
 
@@ -119,7 +129,6 @@ export const findPreviousReleaseTag = async (
 
             if (tagSemver) {
                 validTags++;
-                logger.debug(`Comparing tag ${tag} (${versionString}) with current ${currentVersion}`);
 
                 // Check if this tag version is less than current version
                 if (semver.lt(tagSemver, currentSemver)) {
@@ -127,22 +136,36 @@ export const findPreviousReleaseTag = async (
                     if (!previousVersion || semver.gt(tagSemver, previousVersion)) {
                         previousVersion = tagSemver;
                         previousTag = tag; // Keep the original tag format
-                        logger.debug(`Found candidate previous tag: ${tag} (${versionString})`);
+                        logger.info(`      ✅ New best candidate: ${tag} (${versionString} < ${currentVersion})`);
+                    } else {
+                        logger.debug(`      ⏭️  ${tag} (${versionString}) is < current but not better than ${previousTag}`);
                     }
                 } else {
                     skippedTags++;
+                    logger.debug(`      ⏭️  ${tag} (${versionString}) >= current (${currentVersion}), skipping`);
                 }
             }
         }
 
-        logger.debug(`Processed ${validTags} valid semantic version tags, skipped ${skippedTags} tags >= current version`);
+        logger.info('');
+        logger.info(`   📊 Tag analysis results:`);
+        logger.info(`      - Total tags examined: ${tags.length}`);
+        logger.info(`      - Valid semver tags: ${validTags}`);
+        logger.info(`      - Tags >= current version (skipped): ${skippedTags}`);
+        logger.info(`      - Best match: ${previousTag || 'none'}`);
+        logger.info('');
 
         if (previousTag) {
-            logger.debug(`Found previous tag: ${previousTag} (${previousVersion?.version} < ${currentVersion})`);
+            logger.info(`✅ SUCCESS: Found previous tag: ${previousTag}`);
+            logger.info(`   Version comparison: ${previousVersion?.version} < ${currentVersion}`);
+            logger.info('');
             return previousTag;
         }
 
-        logger.debug(`No previous tag found for ${currentVersion} matching ${tagPattern}`);
+        logger.warn(`❌ FAILED: No previous tag found for version ${currentVersion}`);
+        logger.warn(`   Pattern searched: "${tagPattern}"`);
+        logger.warn(`   Reason: All ${validTags} valid tags were >= ${currentVersion}`);
+        logger.warn('');
         return null;
     } catch (error: any) {
         logger.debug(`Error finding previous release tag: ${error.message}`);
@@ -215,31 +238,81 @@ export const getDefaultFromRef = async (
 ): Promise<string> => {
     const logger = getLogger();
 
+    logger.info('');
+    logger.info('═══════════════════════════════════════════════════════════');
+    logger.info('🔍 DETECTING DEFAULT --from REFERENCE FOR RELEASE NOTES');
+    logger.info('═══════════════════════════════════════════════════════════');
+    logger.info(`📋 Input parameters:`);
+    logger.info(`   - forceMainBranch: ${forceMainBranch}`);
+    logger.info(`   - currentBranch: "${currentBranch}"`);
+    logger.info('');
+
     // If forced to use main branch, skip tag detection
     if (forceMainBranch) {
-        logger.debug('Forced to use main branch, skipping tag detection');
+        logger.info('⚡ Forced to use main branch, skipping tag detection');
     } else {
         // If on working branch, look for working branch tags first
+        logger.info(`🎯 Branch check: currentBranch="${currentBranch}", isWorking=${currentBranch === 'working'}`);
         if (currentBranch && currentBranch === 'working') {
+            logger.info('');
+            logger.info('📍 DETECTED WORKING BRANCH - Searching for working branch tags...');
+            logger.info('───────────────────────────────────────────────────────────');
             try {
                 const currentVersion = await getCurrentVersion();
+                logger.info(`📦 Current version from package.json: ${currentVersion}`);
                 if (currentVersion) {
-                    logger.debug(`Looking for previous working branch tag (current version: ${currentVersion})`);
+                    logger.info(`🔍 Searching for tags matching pattern: "working/v*"`);
+                    logger.info(`   (Looking for tags < ${currentVersion})`);
+                    logger.info('');
                     const previousTag = await findPreviousReleaseTag(
                         currentVersion,
                         'working/v*'
                     );
-                    if (previousTag && await isValidGitRef(previousTag)) {
-                        logger.info(`Using previous working branch tag '${previousTag}' as default --from reference`);
-                        logger.info(`   This shows commits added since the last release`);
-                        return previousTag;
+                    logger.info(`🎯 findPreviousReleaseTag result: ${previousTag || 'null (no tag found)'}`);
+
+                    if (previousTag) {
+                        logger.info(`🔬 Validating tag reference: "${previousTag}"`);
+                        const isValid = await isValidGitRef(previousTag);
+                        logger.info(`   Tag is valid git ref: ${isValid}`);
+
+                        if (isValid) {
+                            logger.info('');
+                            logger.info(`✅ SUCCESS: Using previous working branch tag '${previousTag}'`);
+                            logger.info(`   This shows commits added since the last release`);
+                            logger.info('═══════════════════════════════════════════════════════════');
+                            logger.info('');
+                            return previousTag;
+                        } else {
+                            logger.warn('');
+                            logger.warn(`⚠️  VALIDATION FAILED: Tag "${previousTag}" exists but is not a valid git reference`);
+                            logger.warn(`   This should not happen - the tag might be corrupted`);
+                        }
                     } else {
-                        logger.debug('No valid previous working tag found, will try regular tags');
+                        logger.warn('');
+                        logger.warn('❌ NO WORKING BRANCH TAG FOUND matching pattern "working/v*"');
+                        logger.warn(`   Current version: ${currentVersion}`);
+                        logger.warn('   💡 To create working branch tags for past releases, run:');
+                        logger.warn('      kodrdriv development --create-retroactive-tags');
+                        logger.warn('');
+                        logger.warn('   Falling back to regular tag search...');
                     }
+                } else {
+                    logger.warn('');
+                    logger.warn('❌ CANNOT READ VERSION from package.json');
+                    logger.warn('   Cannot search for working branch tags without current version');
                 }
             } catch (error: any) {
-                logger.debug(`Could not determine previous working tag: ${error.message}`);
+                logger.warn('');
+                logger.warn(`❌ ERROR while searching for working branch tag: ${error.message}`);
+                logger.debug(`Full error stack: ${error.stack}`);
+                logger.warn('   Falling back to regular tag search...');
             }
+            logger.info('───────────────────────────────────────────────────────────');
+            logger.info('');
+        } else {
+            logger.info(`ℹ️  Not on "working" branch - skipping working tag search`);
+            logger.info(`   (Only search for working/v* tags when on working branch)`);
+            logger.info('');
         }
 
         // First, try to find the previous release tag

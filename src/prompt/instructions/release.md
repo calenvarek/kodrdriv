@@ -1,12 +1,16 @@
-Task #1: Write release notes by reading all of the log messages from this release and writing a summary of the release.
+## ⚠️ CRITICAL RULES - READ FIRST
 
-Task #2: Provide a detailed list of changes involved in this release, and make sure that the release notes are directly related to the content in the log messages.
+1. **LOG MESSAGES ARE YOUR SOURCE OF TRUTH** - Every change you describe must come from actual commit messages in the `[Log Context]` section or issues in `[Resolved Issues from Milestone]`
+2. **NO HALLUCINATIONS** - Do not invent features, fixes, or changes that aren't explicitly mentioned in the log messages or milestone issues
+3. **CITE ACTUAL COMMITS** - When describing changes, refer to what's in the actual commit messages, not what you think should be there
+4. **USE RELEASE FOCUS FOR FRAMING** - The `[Release Focus]` guides how you frame and emphasize changes, but doesn't add new changes not in the logs
+5. **LENGTH FOLLOWS SCOPE** - Small releases get concise notes. Large releases deserve comprehensive documentation. Match the actual scope of changes in the log
 
-Task #3: Use the content in the Release Focus section as the PRIMARY GUIDE for writing the release notes and to help make connections with people, projects, issues, features, and other information. The Release Focus should heavily influence the tone, emphasis, and structure of your release notes.
+---
 
-Task #4: If there is a "Resolved Issues from Milestone" section, use this information to significantly enhance your release notes. These are well-documented issues that were resolved in this release. Include the important changes from these issues in your release notes, and make sure to reference the issue numbers. Milestone issues represent significant work that users care about and should be prominently featured in the release notes.
+## Your Task
 
-**IMPORTANT**: If you see a "Release Size Context" indicating this is a LARGE RELEASE, you should provide comprehensive, detailed release notes that thoroughly document all changes. For large releases, be extensive rather than brief - users need to understand the full scope of changes. Don't just summarize - dive deep into the details, organize changes into meaningful groups, and explain the impact of major changes.
+Write release notes by reading all commit messages in `[Log Context]` and milestone issues in `[Resolved Issues from Milestone]`. Every change you mention must be traceable to an actual commit message or resolved issue.
 
 ### Output Format
 
@@ -91,19 +95,19 @@ Create release notes that:
 
 3. **Use clear, factual bullet points** under each section. Briefly describe what changed and why it's relevant — **write like a developer documenting changes, not like marketing copy**.
 
-   **For large releases**: Provide detailed bullet points that explain:
-   - What specifically changed
-   - Why the change was made (if evident from commit messages or issue descriptions)
-   - Impact on users or developers
-   - Related files or components affected (when relevant)
+   **CRITICAL**: Every bullet point must be traceable to actual commit messages in `[Log Context]` or issues in `[Resolved Issues from Milestone]`. If a change isn't in the log, don't mention it.
 
-   Avoid vague or exaggerated terms like:
-   * "awesome new feature"
-   * "significant boost"
-   * "exciting changes"
-   * "revolutionary update"
-   * "streamlined workflow"
-   * "enhanced user experience"
+   **For large releases**: Provide detailed bullet points that explain:
+   - What specifically changed (cite actual commit messages)
+   - Why the change was made (if evident from commit messages or issue descriptions)
+   - Impact on users or developers (based on commit/issue context)
+   - Related files or components affected (when mentioned in commits)
+
+   **DO NOT**:
+   * Invent features not mentioned in commits
+   * Describe changes that "should" be there but aren't in the log
+   * Use vague or exaggerated marketing terms like "awesome new feature", "significant boost", "revolutionary update", "streamlined workflow", "enhanced user experience"
+   * Group unrelated commits under theme names that aren't in the actual commits
 
 4. **Keep your tone technical, neutral, and useful.** It's okay to include references to:
 
@@ -121,22 +125,64 @@ Create release notes that:
 
 ---
 
+## Anti-Examples: What NOT to Do
+
+### ❌ BAD: Hallucinated Changes
+
+**Problem**: The release notes describe features that aren't in any commit message:
+
+```json
+{
+  "title": "Major Performance Overhaul and API Redesign",
+  "body": "**Performance Improvements**\\n\\n* Reduced API response times by 60% through query optimization\\n* Implemented connection pooling for database efficiency\\n* Added Redis caching layer for frequently accessed data\\n\\n**API Redesign**\\n\\n* Completely redesigned REST API with versioning support\\n* Migrated all endpoints to new authentication system"
+}
+```
+
+**Why it's terrible**: None of these changes appear in the commit log. The LLM invented them based on what it thinks "should" be in a performance release. This is a critical failure even if the notes sound good.
+
+---
+
+### ❌ BAD: Vague Marketing Fluff
+
+**Problem**: Generic marketing language instead of specific commit-based changes:
+
+```json
+{
+  "title": "Enhanced User Experience and Streamlined Workflows",
+  "body": "This exciting release brings revolutionary improvements to the user experience! We've streamlined workflows across the board and enhanced overall system performance. Users will notice significant improvements in every aspect of the application."
+}
+```
+
+**Why it's terrible**: No specific changes, no commit references, pure marketing fluff. Completely useless to developers.
+
+---
+
 ## Output Format Examples
 
-### Example for a Large Release:
+### ✅ GOOD: Grounded in Actual Commits
+
+**Scenario**: Log contains commits about removing post-publish sync, adding verbose logging, and fixing a config bug
 
 ```json
 {
-  "title": "Configuration System Overhaul and Developer Tooling v2.1.0",
-  "body": "This release represents a comprehensive overhaul of the configuration system, developer tooling, and testing infrastructure. Based on the Release Focus of modernizing the development workflow and addressing long-standing technical debt, this release includes significant architectural changes, new developer features, and extensive improvements to code quality and maintainability.\\n\\n**Configuration System Overhaul**\\n\\n* Completely redesigned configuration loading system with support for environment-specific overrides\\n* Unified `vite.config.ts`, `webpack.config.js`, and `rollup.config.js` into a single environment-aware configuration module\\n* Added support for `.env.defaults`, `.env.local`, and `.env.production` files with proper precedence handling\\n* Implemented configuration validation with detailed error messages for missing or invalid settings\\n* Migrated from legacy JSON-based config to TypeScript-based configuration with full type safety\\n\\n**New Features**\\n\\n* Added comprehensive CLI argument parsing with support for nested configuration options\\n* Implemented hot-reloading development server with automatic dependency injection\\n* Added support for custom build plugins with a new plugin API\\n* Created new debugging tools including request/response logging and performance profiling\\n* Added automated code formatting and linting with pre-commit hooks\\n\\n**Developer Experience Improvements**\\n\\n* Reduced config nesting depth in `tsconfig.json` to improve readability and maintainability\\n* Updated all development scripts to use the new unified configuration system\\n* Added comprehensive error handling with stack traces and helpful troubleshooting suggestions\\n* Implemented automatic workspace package linking and unlinking for monorepo development\\n* Created new developer documentation with step-by-step setup instructions\\n\\n**Testing Infrastructure**\\n\\n* Migrated entire test suite from Jest to Vitest for better ES module support\\n* Added comprehensive integration tests for the new configuration system\\n* Implemented end-to-end testing with Playwright for critical user workflows\\n* Added test coverage reporting with detailed branch and function coverage metrics\\n* Created performance benchmarks for build times and memory usage\\n\\n**Bug Fixes**\\n\\n* Fixed critical crash in config loader when optional fields were undefined or null\\n* Resolved issue with `yarn build` failing on Windows due to missing path escaping\\n* Fixed memory leak in development server during file watching operations\\n* Corrected TypeScript compilation errors in strict mode for legacy code\\n* Fixed race condition in parallel test execution causing intermittent failures\\n\\n**Breaking Changes**\\n\\n* Removed support for legacy `.env.local.js` files - migrate to `.env.local`\\n* Changed default output directory from `dist/` to `build/` for consistency\\n* Updated minimum Node.js version requirement to 18.0.0\\n* Deprecated `--legacy-config` flag - will be removed in next major version\\n\\n**Documentation Updates**\\n\\n* Completely rewrote setup instructions in `README.md` to reflect new configuration process\\n* Added comprehensive API documentation with examples for all configuration options\\n* Created troubleshooting guide for common development environment issues\\n* Added migration guide for users upgrading from previous versions\\n* Updated all code examples to use the new configuration system"
+  "title": "Simplify publish flow and improve git tag debugging",
+  "body": "**Workflow Changes**\\n\\n* Remove automatic branch sync and version bump from publish flow - users now manually run `kodrdriv development` to continue work after publish\\n* Simplify publish completion to show next steps instead of auto-syncing\\n\\n**Debugging Improvements**\\n\\n* Add extensive logging to git tag detection in `getDefaultFromRef()` to diagnose tag search issues\\n* Add emoji indicators and structured output for tag search process\\n\\n**Bug Fixes**\\n\\n* Fix config validation error when optional field was missing"
 }
 ```
 
-### Example for a Simple Release:
+**Why it's good**: Every bullet point traces to an actual commit. Specific file references. No invented features.
+
+---
+
+### ✅ GOOD: Large Release with Detail
+
+**Scenario**: 30 commits touching configuration system, tests, docs, and CLI
 
 ```json
 {
-  "title": "Simplified Configuration and Windows Build Fixes v1.2.1",
-  "body": "This release focuses on simplifying the configuration system and removing deprecated environment-specific files. Based on the Release Focus of improving developer onboarding and standardizing build behavior, the team prioritized changes that reduce friction for new developers and standardize build behavior across local and CI environments.\\n\\n**Improvements**\\n\\n* Unified `vite.config.ts` and `webpack.config.js` into a single environment-aware module\\n* Reduced config nesting depth in `tsconfig.json` to improve readability\\n* Updated CI scripts to use `.env.defaults` instead of `.env.local`\\n\\n**Bug Fixes**\\n\\n* Fixed crash in config loader when optional fields were undefined\\n* Resolved issue with `yarn build` failing on Windows due to missing path escape\\n\\n**Documentation Updates**\\n\\n* Rewrote setup instructions in `README.md` to reflect unified config process\\n* Removed legacy instructions for `env.local.js`"
+  "title": "Configuration System Overhaul and Testing Migration",
+  "body": "This release modernizes the configuration system and migrates the test suite based on accumulated technical debt and developer feedback.\\n\\n**Configuration System Changes**\\n\\n* Unify vite.config.ts and webpack.config.js into single environment-aware module\\n* Add support for .env.defaults with proper precedence handling\\n* Implement config validation with detailed error messages\\n* Reduce tsconfig.json nesting depth for readability\\n\\n**Testing Infrastructure**\\n\\n* Migrate test suite from Jest to Vitest for better ES module support\\n* Add integration tests for configuration system\\n* Implement coverage reporting with branch and function metrics\\n\\n**Bug Fixes**\\n\\n* Fix crash in config loader when optional fields undefined\\n* Resolve Windows build failure due to missing path escaping\\n* Fix race condition in parallel test execution\\n\\n**Breaking Changes**\\n\\n* Remove support for legacy .env.local.js files\\n* Change default output directory from dist/ to build/\\n* Require Node.js 18.0.0 or higher\\n\\n**Documentation**\\n\\n* Rewrite setup instructions in README.md for new config process\\n* Add migration guide for users upgrading from previous versions"
 }
 ```
+
+**Why it's good**: Comprehensive coverage of a large release, but every change is grounded in actual commits. No fluff, just facts.
