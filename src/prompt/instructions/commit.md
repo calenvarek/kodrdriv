@@ -1,13 +1,27 @@
 **🔧 Task Definition**
 
-You are generating a Git commit message based on the content provided below. The content contains several critical sections:
+You are generating a Git commit message that describes **ONLY THE CURRENT DIFF**.
 
-* **\[User Direction]** — When present, this is the PRIMARY guidance for your commit message focus. This describes the motivation, goals, or intent behind the change from the user's perspective. This should be the starting point and main theme of your commit message.
-* **\[User Context]** — When present, this provides IMPORTANT additional context about the user's situation, environment, or background that should inform your commit message understanding and approach.
-* **\[Diff]** — A code diff representing the actual modifications. Analyze this to understand *what* was changed. **THIS IS THE CURRENT CHANGE YOU ARE DESCRIBING** — focus your commit message on explaining these specific modifications.
-* **\[Project Files]** — When no diff is available (e.g., in a new repository), this section contains the current project files. Analyze these to understand the project structure and generate an appropriate initial commit message that describes what was added to the repository.
-* **\[Recent GitHub Issues]** — When present, this contains recently closed GitHub issues, with priority given to issues from milestones matching the current version. **Use this context to understand WHY changes might have been made and to identify which specific issues or features the current changes address.** This helps you provide motivation and context for the changes, especially for large commits that may address multiple issues.
-* **\[Log Context]** — A short history of recent commit messages. **IMPORTANT: This is provided ONLY for background context and temporal continuity. DO NOT use this to drive your commit message focus or content. DO NOT describe previous commits or reference past changes. Your commit message should describe ONLY the current diff/change.**
+---
+
+## ⚠️ CRITICAL RULES - READ FIRST
+
+1. **THE DIFF IS YOUR ONLY SOURCE OF TRUTH** - Your commit message must describe ONLY what appears in the `[Diff]` section
+2. **IGNORE LOG CONTEXT** - Previous commits are shown for background only. DO NOT describe them, reference them, or let them influence your message
+3. **CITE SPECIFIC FILES** - Every change you mention must reference actual files from the diff (e.g., "Remove post-publish sync logic in src/commands/publish.ts")
+4. **BE CONCISE** - Maximum 10-15 lines total. Most commits should be 3-6 lines
+5. **NO HALLUCINATIONS** - If you mention a change, it MUST exist in the diff. Describing changes not in the diff is a critical failure
+
+---
+
+## 📋 Input Sections
+
+* **\[User Direction]** — When present, use this to understand the user's INTENT, but your commit message must still accurately describe what's in the diff
+* **\[User Context]** — Optional background about the user's environment
+* **\[Diff]** — **THE ONLY SOURCE OF TRUTH** - This shows exactly what changed. Describe ONLY these changes
+* **\[Project Files]** — Only present for new repositories with no diff
+* **\[Recent GitHub Issues]** — Optional context for understanding motivation. Only reference issues if the diff clearly addresses them
+* **\[Log Context]** — **IGNORE THIS** - Previous commit messages shown for background only. DO NOT describe previous commits or copy their language
 
 ---
 
@@ -15,100 +29,103 @@ You are generating a Git commit message based on the content provided below. The
 
 ### ✅ DO:
 
-* **PRIORITIZE User Direction**: If `[User Direction]` is provided, make it the central theme and starting point of your commit message. Let it guide the narrative and focus.
-* **CONSIDER User Context**: If `[User Context]` is provided, use it to inform your understanding and tailor your commit message appropriately to the user's situation.
-* **LEVERAGE GitHub Issues for Context**: If `[Recent GitHub Issues]` is provided, use it to:
-  - Understand the **motivation** behind changes (why they were made)
-  - Identify **specific issues** the changes address (e.g., "Fixes #123: authentication timeout")
-  - Provide better context for **large commits** that may touch multiple areas
-  - Connect **related changes** to their original requirements or bug reports
-  - **For smaller commits**: Only reference issues if directly relevant; don't force connections
-  - **For larger commits**: Use issues to explain the broader context and group related changes
-* **FOCUS ON THE CURRENT CHANGE**: Your commit message should describe only what is happening in the current diff or project files — not previous work or future plans. For new repositories with project files, focus on describing what has been initially added.
-* Start with a **clear, concise summary** of what was changed and why — grounded in the `User Direction` when present and informed by any `User Context`.
-* **ALWAYS GROUP CHANGES INTO SEPARATE LINES**: Break down changes into distinct logical groups, with each group on its own line. Even for simple changes, use multiple lines when there are different types of modifications.
-* **USE BULLET POINTS BY DEFAULT**: Format most commit messages with bullet points to clearly separate different groups of changes.
-* **Refer to specific changes** seen in the `Diff` or specific files/components in `Project Files`, and explain why those changes matter when it's non-obvious.
-* Keep the tone technical and direct — written for a fellow developer who will read this in six months.
+* **Ground every statement in the diff** - Mention specific files that changed (e.g., "Add retry logic to src/api/client.ts")
+* **Start with clear intent** - One line explaining the overall purpose
+* **Use bullet points** - Separate distinct changes into individual bullets
+* **Be specific** - "Remove 68 lines of post-publish sync code" not "Refactor publish flow"
+* **Keep it short** - Target 3-6 lines for most commits, max 10-15 lines even for large changes
+* **Use technical language** - Direct, precise, no fluff
 
 ### ❌ DO NOT:
 
-* ❌ **Don't squeeze multiple unrelated changes into a single line** — always separate different types of changes.
-* ❌ **Don't create single-line commit messages when multiple logical groups exist** — use separate lines for each group.
-* ❌ Don't describe the project or its general purpose.
-* ❌ Don't begin with boilerplate like "This commit includes..." or "The following changes..."
-* ❌ Don't use fluffy or celebratory language ("awesome update", "great enhancement").
-* ❌ Don't end with vague statements like "improves experience" unless clearly supported by the change.
-* ❌ Don't use markdown formatting — the output should be plain text only.
-* ❌ **Don't reference or describe previous commits from the log context** — focus only on the current change.
-* ❌ **Don't let the log context influence your commit message content** — it's background information only.
-* ❌ **Don't continue themes or patterns from previous commits** unless they're directly relevant to the current diff.
+* ❌ **NEVER describe changes not in the diff** - This is the #1 failure mode
+* ❌ **NEVER reference log context** - Don't describe "this continues previous work" or similar
+* ❌ **NEVER use vague language** - "Improve", "refactor", "enhance" without specifics
+* ❌ **NEVER write multi-paragraph essays** - Keep it concise
+* ❌ **NEVER mention test changes unless they're significant** - Focus on production code
+* ❌ **NEVER use markdown** - Plain text only
+* ❌ **NEVER begin with "This commit..."** - Just describe what changed
 
 ---
 
-## 📝 OUTPUT STRUCTURE
+## 📝 OUTPUT FORMATS & EXAMPLES
 
-### ✅ DEFAULT FORMAT: Multiline with Bullet Points
+### ✅ GOOD: Concise with file citations (3-6 lines)
 
-**PREFERRED FORMAT** - Use this for most changes, even relatively simple ones:
-
-* A **summary line** describing the overall intent
-* **Bullet points** for each distinct group of changes
-* Each bullet should represent a different logical area (files, functionality, configuration, tests, etc.)
-
-#### Example:
-
-> Refactor session handling to use new getUserProfile API
+> Remove post-publish branch sync and version bump automation
 >
-> * Switch from parseUser() to getUserProfile() in session.ts
-> * Update session schema validation in auth.ts
-> * Remove legacy parsing logic from user-utils.ts
-> * Update related tests in session.test.ts
+> * Delete 68 lines of merge/version-bump code from src/commands/publish.ts (lines 1039-1106)
+> * Replace with simple completion message and manual next-steps guidance
+> * Add verbose logging to git tag search in src/util/git.ts for debugging
 
-#### Example with GitHub Issues Context:
+**Why this is good:** Specific files, line counts, describes what actually changed
 
-> Fix authentication timeout and improve session handling (addresses #145, #167)
+---
+
+### ✅ GOOD: Single atomic change (1 line)
+
+> Fix typo in error message for invalid credentials in src/auth/validator.ts
+
+**Why this is good:** One file, one change, specific
+
+---
+
+### ✅ GOOD: Multiple related changes (4-7 lines)
+
+> Add retry logic for API timeout errors
 >
-> * Increase session timeout from 30min to 2hrs in config.ts (fixes #145)
-> * Add automatic token refresh logic in auth-service.ts (fixes #167)
-> * Update error handling for expired sessions in middleware.ts
-> * Add tests for extended session scenarios in auth.test.ts
+> * Implement exponential backoff in src/api/client.ts
+> * Add max retry configuration to src/config/api.ts
+> * Update error handling in src/api/error-handler.ts to detect retryable errors
+> * Add retry tests in tests/api/client.test.ts
+
+**Why this is good:** Grounded in actual files, specific changes, concise
 
 ---
 
-### ✅ For Single, Atomic Changes Only
+### ❌ BAD: Hallucinated changes (DO NOT DO THIS)
 
-**ONLY use a single line when the change is truly atomic** - affecting one function in one file with one clear purpose:
+> Centralize ref-detection and streamline publish flow
+>
+> * Move to single ref-detection approach and stop passing from/to into Log.create()
+> * Replace ad-hoc fromRef/toRef handling in src/commands/release.ts
+> * Scale diff context: DEFAULT_MAX_DIFF_BYTES now 20480
+> * Update tests to mock new git boundary
+> * Update docs/public/commands/publish.md
 
-#### Example:
-
-> Fix typo in error message for invalid user credentials
+**Why this is terrible:** These changes aren't in the diff! The LLM is describing previous commits from log context instead of the actual diff. This is the #1 failure mode to avoid.
 
 ---
 
-### ✅ For Complex or Multi-Part Changes
-
-For larger changes with significant architectural implications:
-
-* A **summary paragraph** describing the overall intent
-* One or two **detail paragraphs** focusing on key aspects or trade-offs
-* **Bullet points** to call out specific files, tools, or changes
-
-#### Example:
+### ❌ BAD: Verbose multi-paragraph essay (DO NOT DO THIS)
 
 > Reorganize pipeline logic to improve readability and make phase execution more testable. This is part of ongoing work to modularize transition handling.
 >
 > The main change separates phase node execution into its own module, reduces reliance on shared state, and simplifies test construction. Existing functionality remains unchanged, but internal structure is now better aligned with future transition plugin support.
 >
+> This commit represents a significant cleanup of the execution flow and provides a safer foundation for future operations.
+>
 > * Extract executePhaseNode() from pipeline.ts
 > * Add phase-runner.ts with dedicated error handling
-> * Update tests in phase.test.ts for new isolation boundaries
-> * Refactor shared state management in core.ts
+> ...
+
+**Why this is terrible:** Way too verbose (could be 3 lines), fluffy language, unnecessary context paragraphs
 
 ---
 
-## 🧾 Final Note
+### ❌ BAD: Vague without file citations (DO NOT DO THIS)
 
-**DEFAULT TO MULTILINE**: When in doubt, use bullet points to separate different types of changes. This makes commit messages much more scannable and helps reviewers understand the scope of each change group. Only use single-line messages for truly atomic, single-purpose changes.
+> Improve error handling and refactor configuration logic
 
-Match your output to the **scope and complexity** of the change, but favor clarity and separation over brevity. Your audience is technical and time-constrained — give them clear, well-organized information they can quickly scan.
+**Why this is terrible:** No specific files, vague verbs like "improve" and "refactor", no details
+
+---
+
+## 🎯 Length Guidelines
+
+* **Single change:** 1 line
+* **Typical commit:** 3-6 lines (summary + 2-5 bullets)
+* **Large commit:** 6-10 lines maximum
+* **Absolute maximum:** 15 lines (very rare)
+
+If you find yourself writing more than 10 lines, you're being too verbose. Cut the fluff and focus on what actually changed.

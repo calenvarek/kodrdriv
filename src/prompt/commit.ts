@@ -63,6 +63,9 @@ export const createPrompt = async (
         contentItems.push({ content: githubIssuesContext, title: 'Recent GitHub Issues' });
     }
 
+    // IMPORTANT: Log context provides background but can contaminate output if too large.
+    // LLMs tend to pattern-match against recent commits instead of describing the actual diff.
+    // Keep messageLimit low (3-5) to minimize contamination. See DEFAULT_MESSAGE_LIMIT in constants.ts
     if (logContext) {
         contextItems.push({ content: logContext, title: 'Log Context' });
     }
