@@ -13,6 +13,7 @@ import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTa
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '../util/git';
+import fs from 'fs/promises';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const logger = getLogger();
@@ -44,6 +45,86 @@ const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     }
 
     return envVars;
+};
+
+/**
+ * Checks if package-lock.json contains file: dependencies (from npm link)
+ * and cleans them up if found by removing package-lock.json and regenerating it.
+ */
+const cleanupNpmLinkReferences = async (isDryRun: boolean): Promise<void> => {
+    const logger = getDryRunLogger(isDryRun);
+    const packageLockPath = path.join(process.cwd(), 'package-lock.json');
+
+    try {
+        // Check if package-lock.json exists
+        try {
+            await fs.access(packageLockPath);
+        } catch {
+            // No package-lock.json, nothing to clean
+            logger.verbose('No package-lock.json found, skipping npm link cleanup');
+            return;
+        }
+
+        // Read and parse package-lock.json
+        const packageLockContent = await fs.readFile(packageLockPath, 'utf-8');
+        const packageLock = safeJsonParse(packageLockContent, packageLockPath);
+
+        // Check for file: dependencies in the lockfile
+        let hasFileReferences = false;
+
+        // Check in packages (npm v7+)
+        if (packageLock.packages) {
+            for (const [pkgPath, pkgInfo] of Object.entries(packageLock.packages as Record<string, any>)) {
+                if (pkgInfo.resolved && typeof pkgInfo.resolved === 'string' && pkgInfo.resolved.startsWith('file:')) {
+                    // Check if it's a relative path (from npm link) rather than a workspace path
+                    const resolvedPath = pkgInfo.resolved.replace('file:', '');
+                    if (resolvedPath.startsWith('../') || resolvedPath.startsWith('./')) {
+                        hasFileReferences = true;
+                        logger.verbose(`Found npm link reference: ${pkgPath} -> ${pkgInfo.resolved}`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Check in dependencies (npm v6)
+        if (!hasFileReferences && packageLock.dependencies) {
+            for (const [pkgName, pkgInfo] of Object.entries(packageLock.dependencies as Record<string, any>)) {
+                if (pkgInfo.version && typeof pkgInfo.version === 'string' && pkgInfo.version.startsWith('file:')) {
+                    const versionPath = pkgInfo.version.replace('file:', '');
+                    if (versionPath.startsWith('../') || versionPath.startsWith('./')) {
+                        hasFileReferences = true;
+                        logger.verbose(`Found npm link reference: ${pkgName} -> ${pkgInfo.version}`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (hasFileReferences) {
+            logger.info('⚠️  Detected npm link references in package-lock.json');
+            logger.info('🧹 Cleaning up package-lock.json to remove relative file: dependencies...');
+
+            if (isDryRun) {
+                logger.info('DRY RUN: Would remove package-lock.json and regenerate it');
+            } else {
+                // Remove package-lock.json
+                await fs.unlink(packageLockPath);
+                logger.verbose('Removed package-lock.json with npm link references');
+
+                // Regenerate clean package-lock.json
+                logger.verbose('Regenerating package-lock.json from package.json...');
+                await runWithDryRunSupport('npm install --package-lock-only --no-audit --no-fund', isDryRun);
+                logger.info('✅ Regenerated clean package-lock.json');
+            }
+        } else {
+            logger.verbose('No npm link references found in package-lock.json');
+        }
+    } catch (error: any) {
+        // Log warning but don't fail - let npm update handle any issues
+        logger.warn(`⚠️  Failed to check/clean npm link references: ${error.message}`);
+        logger.verbose('Continuing with publish process...');
+    }
 };
 
 const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boolean): void => {
@@ -468,6 +549,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         // STEP 1: Prepare for release (update dependencies and run prepublish checks) with NO version bump yet
         logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
+
+        // Clean up any npm link references before updating dependencies
+        logger.verbose('Checking for npm link references in package-lock.json...');
+        await cleanupNpmLinkReferences(isDryRun);
 
         logger.verbose('Updating dependencies to latest versions from registry');
         const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
