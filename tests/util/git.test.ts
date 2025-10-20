@@ -733,6 +733,61 @@ describe('Git Utilities', () => {
             expect(result).toBe('v1.2.14');
             expect(mockRunSecure).not.toHaveBeenCalledWith('git', ['tag', '-l', 'working/v*', '--sort=-version:refname']);
         });
+
+        it('should handle getCurrentVersion returning null when on working branch', async () => {
+            mockRunSecure
+                .mockRejectedValueOnce(new Error('No version'))
+                .mockResolvedValueOnce({ stdout: 'abc123' });
+
+            const result = await git.getDefaultFromRef(false, 'working');
+
+            expect(result).toBe('main');
+        });
+
+        it('should fallback to main when working tag lookup fails on working branch', async () => {
+            mockRunSecure
+                .mockResolvedValueOnce({ stdout: '{"version":"1.2.15"}' })
+                .mockRejectedValueOnce(new Error('Git tag error'))
+                .mockResolvedValueOnce({ stdout: 'abc123' });
+
+            mockSafeJsonParse.mockReturnValue({ version: '1.2.15' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.2.15' });
+
+            const result = await git.getDefaultFromRef(false, 'working');
+
+            // Falls back to main after working tag lookup error
+            expect(result).toBe('main');
+        });
+
+        it('should handle no working tags available when on working branch', async () => {
+            mockRunSecure
+                .mockResolvedValueOnce({ stdout: '{"version":"1.2.15"}' })  // getCurrentVersion #1
+                .mockResolvedValueOnce({ stdout: '' })  // findPreviousReleaseTag working/v* (returns empty)
+                .mockResolvedValueOnce({ stdout: '{"version":"1.2.15"}' })  // getCurrentVersion #2
+                .mockResolvedValueOnce({ stdout: 'v1.2.14\nv1.2.13' })  // findPreviousReleaseTag v*
+                .mockResolvedValueOnce({ stdout: 'abc123' });  // isValidGitRef v1.2.14
+
+            mockSafeJsonParse.mockReturnValue({ version: '1.2.15' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.2.15' });
+
+            mockSemver.parse.mockImplementation((version: string | semver.SemVer | null | undefined) => {
+                if (!version || typeof version !== 'string') return null;
+                const versions: any = {
+                    '1.2.15': { major: 1, minor: 2, patch: 15, version: '1.2.15' },
+                    '1.2.14': { major: 1, minor: 2, patch: 14, version: '1.2.14' }
+                };
+                return versions[version] || null;
+            });
+
+            mockSemverLt.mockReturnValue(true);
+            mockSemverGt.mockReturnValue(true);
+
+            const result = await git.getDefaultFromRef(false, 'working');
+
+            // Falls back to regular tags when no working tags exist
+            expect(result).toBe('v1.2.14');
+        });
+
     });
 
     describe('getRemoteDefaultBranch', () => {
