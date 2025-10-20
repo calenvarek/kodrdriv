@@ -198,6 +198,7 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         }
 
         // Add timeout wrapper to the OpenAI API call
+        const startTime = Date.now();
         const completionPromise = openai.chat.completions.create(apiOptions);
 
         // Create timeout promise with proper cleanup to prevent memory leaks
@@ -217,6 +218,8 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
             }
         }
 
+        const elapsedTime = Date.now() - startTime;
+
         // Save response debug file if enabled
         if (options.debug && (options.debugResponseFile || options.debugFile)) {
             const debugFile = options.debugResponseFile || options.debugFile;
@@ -233,6 +236,12 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         const responseSize = response.length;
         const responseSizeKB = (responseSize / 1024).toFixed(2);
         logger.info('   Response size: %s KB (%s bytes)', responseSizeKB, responseSize.toLocaleString());
+
+        // Log elapsed time
+        const elapsedTimeFormatted = elapsedTime >= 1000
+            ? `${(elapsedTime / 1000).toFixed(1)}s`
+            : `${elapsedTime}ms`;
+        logger.info('   Time: %s', elapsedTimeFormatted);
 
         // Log token usage if available
         if (completion.usage) {
