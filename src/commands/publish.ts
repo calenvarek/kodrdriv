@@ -1036,68 +1036,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.verbose('Skipping waiting for release workflows (disabled in config).');
     }
 
-    // Switch back to source branch and sync with target
     logger.info('');
-    logger.info('🔄 Syncing source branch with target after publish...');
-    await runWithDryRunSupport(`git checkout ${currentBranch}`, isDryRun);
-
-    if (!isDryRun) {
-        // Merge target into source (should be fast-forward since PR just merged)
-        logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
-        try {
-            await run(`git merge ${targetBranch} --ff-only`);
-            logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
-        } catch (error: any) {
-            // If ff-only fails, something is wrong - source diverged somehow
-            logger.error(`❌ Failed to fast-forward merge ${targetBranch} into ${currentBranch}`);
-            logger.error('   This suggests the source branch has commits not in target.');
-            logger.error('   This should not happen after a successful PR merge.');
-            logger.warn('⚠️  Attempting regular merge...');
-            await run(`git merge ${targetBranch} --no-edit`);
-        }
-
-        // Determine version bump based on branch configuration
-        let versionCommand = 'prepatch'; // Default
-        let versionTag = 'dev'; // Default
-
-        if (branchDependentVersioning && runConfig.branches) {
-            const sourceBranchConfig = runConfig.branches[currentBranch];
-            if (sourceBranchConfig?.version) {
-                // Use configured version strategy for source branch
-                if (sourceBranchConfig.version.increment) {
-                    versionCommand = `pre${sourceBranchConfig.version.increment}`;
-                }
-                if (sourceBranchConfig.version.tag) {
-                    versionTag = sourceBranchConfig.version.tag;
-                }
-            }
-        }
-
-        // Bump to next development version
-        logger.info(`Bumping to next development version...`);
-        try {
-            const { stdout: newVersion } = await run(`npm version ${versionCommand} --preid=${versionTag}`);
-            logger.info(`✅ Version bumped to: ${newVersion.trim()}`);
-        } catch (versionError: any) {
-            logger.warn(`⚠️  Failed to bump version: ${versionError.message}`);
-            logger.warn('   You may need to manually bump the version for next development cycle.');
-        }
-
-        // Push updated source branch
-        logger.info(`Pushing updated ${currentBranch} branch...`);
-        try {
-            await run(`git push origin ${currentBranch}`);
-            logger.info(`✅ Pushed ${currentBranch} to origin`);
-        } catch (pushError: any) {
-            logger.warn(`⚠️  Failed to push ${currentBranch}: ${pushError.message}`);
-            logger.warn(`   Please push manually: git push origin ${currentBranch}`);
-        }
-    } else {
-        logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
-        logger.info(`Would bump version to next development version`);
-        logger.info(`Would push ${currentBranch} to origin`);
-    }
-
+    logger.info(`✅ Publish complete!`);
     logger.info('');
-    logger.info(`✅ Publish complete - on ${currentBranch} with next development version`);
+    logger.info(`💡 Next steps:`);
+    logger.info(`   - Run 'kodrdriv development' to return to working branch and bump version`);
+    logger.info(`   - Or manually switch to your working branch to continue development`);
 };
