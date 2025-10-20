@@ -17,12 +17,15 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
+      - name: Install dependencies
+        run: npm ci --verbose
+        timeout-minutes: 10
       - run: npm run lint
       - run: npm run build
       - run: npm run test
