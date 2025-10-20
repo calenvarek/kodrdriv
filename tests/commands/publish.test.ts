@@ -854,7 +854,14 @@ cache=\${CACHE_DIR}/npm
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
 
-            expect(Release.execute).toHaveBeenCalledWith(mockConfig);
+            // Expect Release.execute to be called with config that includes currentBranch
+            expect(Release.execute).toHaveBeenCalledWith(expect.objectContaining({
+                model: mockConfig.model,
+                configDirectory: mockConfig.configDirectory,
+                release: expect.objectContaining({
+                    currentBranch: mockBranchName
+                })
+            }));
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_NOTES.md', mockReleaseNotesBody, 'utf-8');
             expect(mockStorage.writeFile).toHaveBeenCalledWith('RELEASE_TITLE.md', mockReleaseTitle, 'utf-8');
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/0.0.4', false);

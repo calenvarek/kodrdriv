@@ -1383,5 +1383,10 @@ describe('Branch-dependent version targeting', () => {
         test('should handle v prefix', () => {
             expect(haveSamePrereleaseTag('v1.2.3-dev.0', '1.2.3-dev.5')).toBe(true);
         });
+
+        test('should handle complex prerelease identifiers', () => {
+            expect(haveSamePrereleaseTag('1.2.3-rc.1', '1.2.3-rc.5')).toBe(true);
+            expect(haveSamePrereleaseTag('1.2.3-alpha.1', '1.2.3-beta.1')).toBe(false);
+        });
     });
 });

@@ -629,4 +629,5 @@ describe('Storage Utility', () => {
             await expect(storage.listFiles('/test/dir')).rejects.toThrow('Directory read error');
         });
     });
+
 });
