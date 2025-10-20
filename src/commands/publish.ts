@@ -13,6 +13,7 @@ import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTa
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '../util/git';
+import fs from 'fs/promises';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const logger = getLogger();
@@ -44,6 +45,86 @@ const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     }
 
     return envVars;
+};
+
+/**
+ * Checks if package-lock.json contains file: dependencies (from npm link)
+ * and cleans them up if found by removing package-lock.json and regenerating it.
+ */
+const cleanupNpmLinkReferences = async (isDryRun: boolean): Promise<void> => {
+    const logger = getDryRunLogger(isDryRun);
+    const packageLockPath = path.join(process.cwd(), 'package-lock.json');
+
+    try {
+        // Check if package-lock.json exists
+        try {
+            await fs.access(packageLockPath);
+        } catch {
+            // No package-lock.json, nothing to clean
+            logger.verbose('No package-lock.json found, skipping npm link cleanup');
+            return;
+        }
+
+        // Read and parse package-lock.json
+        const packageLockContent = await fs.readFile(packageLockPath, 'utf-8');
+        const packageLock = safeJsonParse(packageLockContent, packageLockPath);
+
+        // Check for file: dependencies in the lockfile
+        let hasFileReferences = false;
+
+        // Check in packages (npm v7+)
+        if (packageLock.packages) {
+            for (const [pkgPath, pkgInfo] of Object.entries(packageLock.packages as Record<string, any>)) {
+                if (pkgInfo.resolved && typeof pkgInfo.resolved === 'string' && pkgInfo.resolved.startsWith('file:')) {
+                    // Check if it's a relative path (from npm link) rather than a workspace path
+                    const resolvedPath = pkgInfo.resolved.replace('file:', '');
+                    if (resolvedPath.startsWith('../') || resolvedPath.startsWith('./')) {
+                        hasFileReferences = true;
+                        logger.verbose(`Found npm link reference: ${pkgPath} -> ${pkgInfo.resolved}`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Check in dependencies (npm v6)
+        if (!hasFileReferences && packageLock.dependencies) {
+            for (const [pkgName, pkgInfo] of Object.entries(packageLock.dependencies as Record<string, any>)) {
+                if (pkgInfo.version && typeof pkgInfo.version === 'string' && pkgInfo.version.startsWith('file:')) {
+                    const versionPath = pkgInfo.version.replace('file:', '');
+                    if (versionPath.startsWith('../') || versionPath.startsWith('./')) {
+                        hasFileReferences = true;
+                        logger.verbose(`Found npm link reference: ${pkgName} -> ${pkgInfo.version}`);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (hasFileReferences) {
+            logger.info('⚠️  Detected npm link references in package-lock.json');
+            logger.info('🧹 Cleaning up package-lock.json to remove relative file: dependencies...');
+
+            if (isDryRun) {
+                logger.info('DRY RUN: Would remove package-lock.json and regenerate it');
+            } else {
+                // Remove package-lock.json
+                await fs.unlink(packageLockPath);
+                logger.verbose('Removed package-lock.json with npm link references');
+
+                // Regenerate clean package-lock.json
+                logger.verbose('Regenerating package-lock.json from package.json...');
+                await runWithDryRunSupport('npm install --package-lock-only --no-audit --no-fund', isDryRun);
+                logger.info('✅ Regenerated clean package-lock.json');
+            }
+        } else {
+            logger.verbose('No npm link references found in package-lock.json');
+        }
+    } catch (error: any) {
+        // Log warning but don't fail - let npm update handle any issues
+        logger.warn(`⚠️  Failed to check/clean npm link references: ${error.message}`);
+        logger.verbose('Continuing with publish process...');
+    }
 };
 
 const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boolean): void => {
@@ -469,6 +550,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
         // STEP 1: Prepare for release (update dependencies and run prepublish checks) with NO version bump yet
         logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
 
+        // Clean up any npm link references before updating dependencies
+        logger.verbose('Checking for npm link references in package-lock.json...');
+        await cleanupNpmLinkReferences(isDryRun);
+
         logger.verbose('Updating dependencies to latest versions from registry');
         const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
         if (updatePatterns && updatePatterns.length > 0) {
@@ -510,102 +595,102 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 logger.info(`Would merge ${targetBranch} into current branch`);
             } else {
                 // Fetch the latest target branch
-            try {
-                await run(`git fetch origin ${targetBranch}:${targetBranch}`);
-                logger.info(`✅ Fetched latest ${targetBranch}`);
-            } catch (fetchError: any) {
-                logger.warn(`⚠️ Could not fetch ${targetBranch}: ${fetchError.message}`);
-                logger.warn('Continuing without merge - PR may have conflicts...');
-            }
+                try {
+                    await run(`git fetch origin ${targetBranch}:${targetBranch}`);
+                    logger.info(`✅ Fetched latest ${targetBranch}`);
+                } catch (fetchError: any) {
+                    logger.warn(`⚠️ Could not fetch ${targetBranch}: ${fetchError.message}`);
+                    logger.warn('Continuing without merge - PR may have conflicts...');
+                }
 
-            // Check if merge is needed (avoid unnecessary merge commits)
-            try {
-                const { stdout: mergeBase } = await run(`git merge-base HEAD ${targetBranch}`);
-                const { stdout: targetCommit } = await run(`git rev-parse ${targetBranch}`);
+                // Check if merge is needed (avoid unnecessary merge commits)
+                try {
+                    const { stdout: mergeBase } = await run(`git merge-base HEAD ${targetBranch}`);
+                    const { stdout: targetCommit } = await run(`git rev-parse ${targetBranch}`);
 
-                if (mergeBase.trim() === targetCommit.trim()) {
-                    logger.info(`ℹ️  Already up-to-date with ${targetBranch}, no merge needed`);
-                } else {
+                    if (mergeBase.trim() === targetCommit.trim()) {
+                        logger.info(`ℹ️  Already up-to-date with ${targetBranch}, no merge needed`);
+                    } else {
                     // Try to merge target branch into current branch
-                    let mergeSucceeded = false;
-                    try {
-                        await run(`git merge ${targetBranch} --no-edit -m "Merge ${targetBranch} to sync before version bump"`);
-                        logger.info(`✅ Merged ${targetBranch} into current branch`);
-                        mergeSucceeded = true;
-                    } catch (mergeError: any) {
+                        let mergeSucceeded = false;
+                        try {
+                            await run(`git merge ${targetBranch} --no-edit -m "Merge ${targetBranch} to sync before version bump"`);
+                            logger.info(`✅ Merged ${targetBranch} into current branch`);
+                            mergeSucceeded = true;
+                        } catch (mergeError: any) {
                         // If merge conflicts occur, check if they're only in version-related files
-                        const errorText = [mergeError.message || '', mergeError.stdout || '', mergeError.stderr || ''].join(' ');
-                        if (errorText.includes('CONFLICT')) {
-                            logger.warn(`⚠️  Merge conflicts detected, attempting automatic resolution...`);
+                            const errorText = [mergeError.message || '', mergeError.stdout || '', mergeError.stderr || ''].join(' ');
+                            if (errorText.includes('CONFLICT')) {
+                                logger.warn(`⚠️  Merge conflicts detected, attempting automatic resolution...`);
 
-                            // Get list of conflicted files
-                            const { stdout: conflictedFiles } = await run('git diff --name-only --diff-filter=U');
-                            const conflicts = conflictedFiles.trim().split('\n').filter(Boolean);
+                                // Get list of conflicted files
+                                const { stdout: conflictedFiles } = await run('git diff --name-only --diff-filter=U');
+                                const conflicts = conflictedFiles.trim().split('\n').filter(Boolean);
 
-                            logger.verbose(`Conflicted files: ${conflicts.join(', ')}`);
+                                logger.verbose(`Conflicted files: ${conflicts.join(', ')}`);
 
-                            // Check if conflicts are only in package.json and package-lock.json
-                            const versionFiles = ['package.json', 'package-lock.json'];
-                            const nonVersionConflicts = conflicts.filter(f => !versionFiles.includes(f));
+                                // Check if conflicts are only in package.json and package-lock.json
+                                const versionFiles = ['package.json', 'package-lock.json'];
+                                const nonVersionConflicts = conflicts.filter(f => !versionFiles.includes(f));
 
-                            if (nonVersionConflicts.length > 0) {
-                                logger.error(`❌ Cannot auto-resolve: conflicts in non-version files: ${nonVersionConflicts.join(', ')}`);
-                                logger.error('');
-                                logger.error('Please resolve conflicts manually:');
-                                logger.error('   1. Resolve conflicts in the files listed above');
-                                logger.error('   2. git add <resolved-files>');
-                                logger.error('   3. git commit');
-                                logger.error('   4. kodrdriv publish (to continue)');
-                                logger.error('');
-                                throw new Error(`Merge conflicts in non-version files. Please resolve manually.`);
+                                if (nonVersionConflicts.length > 0) {
+                                    logger.error(`❌ Cannot auto-resolve: conflicts in non-version files: ${nonVersionConflicts.join(', ')}`);
+                                    logger.error('');
+                                    logger.error('Please resolve conflicts manually:');
+                                    logger.error('   1. Resolve conflicts in the files listed above');
+                                    logger.error('   2. git add <resolved-files>');
+                                    logger.error('   3. git commit');
+                                    logger.error('   4. kodrdriv publish (to continue)');
+                                    logger.error('');
+                                    throw new Error(`Merge conflicts in non-version files. Please resolve manually.`);
+                                }
+
+                                // Auto-resolve version conflicts by accepting current branch versions
+                                // (keep our working branch's version, which is likely already updated)
+                                logger.info(`Auto-resolving version conflicts by keeping current branch versions...`);
+                                for (const file of conflicts) {
+                                    if (versionFiles.includes(file)) {
+                                        await run(`git checkout --ours ${file}`);
+                                        await run(`git add ${file}`);
+                                        logger.verbose(`Resolved ${file} using current branch version`);
+                                    }
+                                }
+
+                                // Complete the merge
+                                await run(`git commit --no-edit -m "Merge ${targetBranch} to sync before version bump (auto-resolved version conflicts)"`);
+                                logger.info(`✅ Auto-resolved version conflicts and completed merge`);
+                                mergeSucceeded = true;
+                            } else {
+                            // Not a conflict error, re-throw
+                                throw mergeError;
                             }
+                        }
 
-                            // Auto-resolve version conflicts by accepting current branch versions
-                            // (keep our working branch's version, which is likely already updated)
-                            logger.info(`Auto-resolving version conflicts by keeping current branch versions...`);
-                            for (const file of conflicts) {
-                                if (versionFiles.includes(file)) {
-                                    await run(`git checkout --ours ${file}`);
-                                    await run(`git add ${file}`);
-                                    logger.verbose(`Resolved ${file} using current branch version`);
+                        // Only run npm install if merge actually happened
+                        if (mergeSucceeded) {
+                        // Run npm install to update package-lock.json based on merged package.json
+                            logger.info('Running npm install after merge...');
+                            await run('npm install');
+                            logger.info('✅ npm install completed');
+
+                            // Commit any changes from npm install (e.g., package-lock.json updates)
+                            const { stdout: mergeChangesStatus } = await run('git status --porcelain');
+                            if (mergeChangesStatus.trim()) {
+                                logger.verbose('Staging post-merge changes for commit');
+                                await run('git add package.json package-lock.json');
+
+                                if (await Diff.hasStagedChanges()) {
+                                    logger.verbose('Committing post-merge changes...');
+                                    await Commit.execute(runConfig);
                                 }
                             }
-
-                            // Complete the merge
-                            await run(`git commit --no-edit -m "Merge ${targetBranch} to sync before version bump (auto-resolved version conflicts)"`);
-                            logger.info(`✅ Auto-resolved version conflicts and completed merge`);
-                            mergeSucceeded = true;
-                        } else {
-                            // Not a conflict error, re-throw
-                            throw mergeError;
                         }
                     }
-
-                    // Only run npm install if merge actually happened
-                    if (mergeSucceeded) {
-                        // Run npm install to update package-lock.json based on merged package.json
-                        logger.info('Running npm install after merge...');
-                        await run('npm install');
-                        logger.info('✅ npm install completed');
-
-                        // Commit any changes from npm install (e.g., package-lock.json updates)
-                        const { stdout: mergeChangesStatus } = await run('git status --porcelain');
-                        if (mergeChangesStatus.trim()) {
-                            logger.verbose('Staging post-merge changes for commit');
-                            await run('git add package.json package-lock.json');
-
-                            if (await Diff.hasStagedChanges()) {
-                                logger.verbose('Committing post-merge changes...');
-                                await Commit.execute(runConfig);
-                            }
-                        }
-                    }
-                }
-            } catch (error: any) {
+                } catch (error: any) {
                 // Only catch truly unexpected errors here
-                logger.error(`❌ Unexpected error during merge: ${error.message}`);
-                throw error;
-            }
+                    logger.error(`❌ Unexpected error during merge: ${error.message}`);
+                    throw error;
+                }
             }
         }
 
@@ -1036,10 +1121,68 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.verbose('Skipping waiting for release workflows (disabled in config).');
     }
 
+    // Switch back to source branch and sync with target
     logger.info('');
-    logger.info(`✅ Publish complete!`);
+    logger.info(`🔄 Syncing source branch with target after publish...`);
+    await runWithDryRunSupport(`git checkout ${currentBranch}`, isDryRun);
+
+    if (!isDryRun) {
+        // Merge target into source (should be fast-forward since PR just merged)
+        logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
+        try {
+            await run(`git merge ${targetBranch} --ff-only`);
+            logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
+        } catch (error: any) {
+            // If ff-only fails, something is wrong - source diverged somehow
+            logger.error(`❌ Failed to fast-forward merge ${targetBranch} into ${currentBranch}`);
+            logger.error('   This suggests the source branch has commits not in target.');
+            logger.error('   This should not happen after a successful PR merge.');
+            logger.warn('⚠️  Attempting regular merge...');
+            await run(`git merge ${targetBranch} --no-edit`);
+        }
+
+        // Determine version bump based on branch configuration
+        let versionCommand = 'prepatch'; // Default
+        let versionTag = 'dev'; // Default
+
+        if (branchDependentVersioning && runConfig.branches) {
+            const sourceBranchConfig = runConfig.branches[currentBranch];
+            if (sourceBranchConfig?.version) {
+                // Use configured version strategy for source branch
+                if (sourceBranchConfig.version.increment) {
+                    versionCommand = `pre${sourceBranchConfig.version.increment}`;
+                }
+                if (sourceBranchConfig.version.tag) {
+                    versionTag = sourceBranchConfig.version.tag;
+                }
+            }
+        }
+
+        // Bump to next development version
+        logger.info(`Bumping to next development version...`);
+        try {
+            const { stdout: newVersion } = await run(`npm version ${versionCommand} --preid=${versionTag}`);
+            logger.info(`✅ Version bumped to: ${newVersion.trim()}`);
+        } catch (versionError: any) {
+            logger.warn(`⚠️  Failed to bump version: ${versionError.message}`);
+            logger.warn('   You may need to manually bump the version for next development cycle.');
+        }
+
+        // Push updated source branch
+        logger.info(`Pushing updated ${currentBranch} branch...`);
+        try {
+            await run(`git push origin ${currentBranch}`);
+            logger.info(`✅ Pushed ${currentBranch} to origin`);
+        } catch (pushError: any) {
+            logger.warn(`⚠️  Failed to push ${currentBranch}: ${pushError.message}`);
+            logger.warn(`   Please push manually: git push origin ${currentBranch}`);
+        }
+    } else {
+        logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
+        logger.info(`Would bump version to next development version`);
+        logger.info(`Would push ${currentBranch} to origin`);
+    }
+
     logger.info('');
-    logger.info(`💡 Next steps:`);
-    logger.info(`   - Run 'kodrdriv development' to return to working branch and bump version`);
-    logger.info(`   - Or manually switch to your working branch to continue development`);
+    logger.info(`✅ Publish complete - on ${currentBranch} with next development version`);
 };

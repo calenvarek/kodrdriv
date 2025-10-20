@@ -276,6 +276,63 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
         }
 
+        // Step 2.5: Sync with target branch (main) if it exists
+        // This is a safety net for when publish fails or user ends up on target branch
+        if (!isDryRun) {
+            // Determine target branch from config
+            const targetBranch = allBranchConfig && (allBranchConfig as any)[workingBranch]?.targetBranch || 'main';
+            const targetBranchExists = await localBranchExists(targetBranch);
+            
+            if (targetBranchExists) {
+                logger.info(`🔄 Syncing ${workingBranch} with target branch '${targetBranch}'...`);
+                try {
+                    await run(`git merge ${targetBranch} --ff-only`);
+                    logger.info(`✅ Fast-forward merged ${targetBranch} into ${workingBranch}`);
+                } catch (error: any) {
+                    // Fast-forward failed, might need regular merge
+                    if (error.message && error.message.includes('Not possible to fast-forward')) {
+                        logger.warn(`⚠️  Cannot fast-forward ${targetBranch} into ${workingBranch}`);
+                        logger.info(`   Attempting regular merge...`);
+                        try {
+                            await run(`git merge ${targetBranch} --no-ff -m "Merge ${targetBranch} into ${workingBranch} for sync"`);
+                            logger.info(`✅ Merged ${targetBranch} into ${workingBranch}`);
+                            
+                            // Run npm install after merge
+                            logger.info('📦 Running npm install after merge...');
+                            await run('npm install');
+                            
+                            // Check if npm install created changes
+                            const gitStatus = await run('git status --porcelain');
+                            if (gitStatus.stdout.trim()) {
+                                logger.info('📝 Committing changes from npm install...');
+                                await run('git add -A');
+                                await run('git commit -m "chore: update package-lock.json after merge"');
+                            }
+                        } catch (mergeError: any) {
+                            if (mergeError.message && mergeError.message.includes('CONFLICT')) {
+                                logger.error(`❌ Merge conflicts detected when merging ${targetBranch} into ${workingBranch}`);
+                                logger.error(`   Please resolve the conflicts manually and then run:`);
+                                logger.error(`   1. Resolve conflicts in the files`);
+                                logger.error(`   2. git add <resolved-files>`);
+                                logger.error(`   3. git commit`);
+                                logger.error(`   4. npm install`);
+                                logger.error(`   5. kodrdriv development (to continue)`);
+                                throw new Error(`Merge conflicts detected when merging ${targetBranch} into ${workingBranch}. Please resolve conflicts manually.`);
+                            } else {
+                                throw mergeError;
+                            }
+                        }
+                    } else {
+                        logger.warn(`⚠️  Could not merge ${targetBranch} into ${workingBranch}: ${error.message}`);
+                    }
+                }
+            } else {
+                logger.info(`ℹ️ Target branch '${targetBranch}' does not exist, skipping target sync`);
+            }
+        } else {
+            logger.info('Would sync working branch with target branch (main) if it exists');
+        }
+
         // Step 3: Merge latest changes from development branch if it exists
         if (!isDryRun) {
             const developmentBranchExists = await localBranchExists('development');

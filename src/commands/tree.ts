@@ -768,7 +768,10 @@ const executePackage = async (
     const logger = getLogger();
 
     // Determine output level based on flags
-    let showOutput: 'none' | 'minimal' | 'full' = 'none';
+    // For publish commands, default to full output to show OpenAI progress and other details
+    // For other commands, require --verbose or --debug for output
+    const isPublishCommand = isBuiltInCommand && commandToRun.includes('publish');
+    let showOutput: 'none' | 'minimal' | 'full' = isPublishCommand ? 'full' : 'none';
     if (runConfig.debug) {
         showOutput = 'full';
     } else if (runConfig.verbose) {
@@ -989,6 +992,15 @@ const executePackage = async (
                 }
             }
         }
+
+        // Show completion status
+        if (runConfig.debug || runConfig.verbose) {
+            packageLogger.info(`✅ Completed successfully`);
+        } else if (isPublishCommand) {
+            // For publish commands, always show completion even without verbose
+            logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
+        }
+
         return { success: true };
     } catch (error: any) {
         if (runConfig.debug || runConfig.verbose) {
