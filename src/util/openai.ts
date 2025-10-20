@@ -154,7 +154,17 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         });
 
         const modelToUse = options.model || "gpt-4o-mini";
-        logger.info('🤖 Making request to OpenAI using model: %s', modelToUse);
+
+        // Calculate request size
+        const requestSize = JSON.stringify(messages).length;
+        const requestSizeKB = (requestSize / 1024).toFixed(2);
+
+        // Log model, reasoning level, and request size
+        const reasoningInfo = options.openaiReasoning ? ` | Reasoning: ${options.openaiReasoning}` : '';
+        logger.info('🤖 Making request to OpenAI');
+        logger.info('   Model: %s%s', modelToUse, reasoningInfo);
+        logger.info('   Request size: %s KB (%s bytes)', requestSizeKB, requestSize.toLocaleString());
+
         logger.debug('Sending prompt to OpenAI: %j', messages);
 
         // Use openaiMaxOutputTokens if specified (highest priority), otherwise fall back to maxTokens, or default to 10000
@@ -185,7 +195,6 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         // Add reasoning parameter if specified and model supports it
         if (options.openaiReasoning && (modelToUse.includes('gpt-5') || modelToUse.includes('o3'))) {
             apiOptions.reasoning_effort = options.openaiReasoning;
-            logger.debug('Using OpenAI reasoning level: %s', options.openaiReasoning);
         }
 
         // Add timeout wrapper to the OpenAI API call
@@ -218,6 +227,20 @@ export async function createCompletion(messages: ChatCompletionMessageParam[], o
         const response = completion.choices[0]?.message?.content?.trim();
         if (!response) {
             throw new OpenAIError('No response received from OpenAI');
+        }
+
+        // Calculate and log response size
+        const responseSize = response.length;
+        const responseSizeKB = (responseSize / 1024).toFixed(2);
+        logger.info('   Response size: %s KB (%s bytes)', responseSizeKB, responseSize.toLocaleString());
+
+        // Log token usage if available
+        if (completion.usage) {
+            logger.info('   Token usage: %s prompt + %s completion = %s total',
+                completion.usage.prompt_tokens?.toLocaleString() || '?',
+                completion.usage.completion_tokens?.toLocaleString() || '?',
+                completion.usage.total_tokens?.toLocaleString() || '?'
+            );
         }
 
         logger.debug('Received response from OpenAI: %s...', response.substring(0, 30));

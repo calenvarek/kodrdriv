@@ -9,8 +9,8 @@ You are generating a Git commit message that describes **ONLY THE CURRENT DIFF**
 1. **THE DIFF IS YOUR ONLY SOURCE OF TRUTH** - Your commit message must describe ONLY what appears in the `[Diff]` section
 2. **IGNORE LOG CONTEXT** - Previous commits are shown for background only. DO NOT describe them, reference them, or let them influence your message
 3. **CITE SPECIFIC FILES** - Every change you mention must reference actual files from the diff (e.g., "Remove post-publish sync logic in src/commands/publish.ts")
-4. **BE CONCISE** - Maximum 10-15 lines total. Most commits should be 3-6 lines
-5. **NO HALLUCINATIONS** - If you mention a change, it MUST exist in the diff. Describing changes not in the diff is a critical failure
+4. **NO HALLUCINATIONS** - If you mention a change, it MUST exist in the diff. Describing changes not in the diff is a critical failure
+5. **LENGTH FOLLOWS SCOPE** - Typical commits are 3-6 lines. Very large architectural changes may warrant essay-length messages, but every line must still describe actual changes from the diff
 
 ---
 
@@ -33,7 +33,7 @@ You are generating a Git commit message that describes **ONLY THE CURRENT DIFF**
 * **Start with clear intent** - One line explaining the overall purpose
 * **Use bullet points** - Separate distinct changes into individual bullets
 * **Be specific** - "Remove 68 lines of post-publish sync code" not "Refactor publish flow"
-* **Keep it short** - Target 3-6 lines for most commits, max 10-15 lines even for large changes
+* **Match length to scope** - Most commits are 3-6 lines. Massive architectural changes can warrant longer, detailed messages when the scope justifies it
 * **Use technical language** - Direct, precise, no fluff
 
 ### ❌ DO NOT:
@@ -125,7 +125,9 @@ You are generating a Git commit message that describes **ONLY THE CURRENT DIFF**
 
 * **Single change:** 1 line
 * **Typical commit:** 3-6 lines (summary + 2-5 bullets)
-* **Large commit:** 6-10 lines maximum
-* **Absolute maximum:** 15 lines (very rare)
+* **Large commit:** 6-15 lines
+* **Major architectural change:** Essay-length if warranted (rare but valid)
 
-If you find yourself writing more than 10 lines, you're being too verbose. Cut the fluff and focus on what actually changed.
+**There is no hard upper limit.** The constraint is not length - it's **accuracy**. Every line must describe actual changes from the diff.
+
+Write as much as you need to accurately describe the changes, but no more. A 50-line commit message is fine if the diff touches 30 files and restructures core systems. A 6-line commit message that describes changes not in the diff is a critical failure, regardless of its brevity.
