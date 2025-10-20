@@ -32,7 +32,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm ci --verbose
+        run: npm ci --verbose --foreground-scripts
         timeout-minutes: 10
 
       - name: Build library
@@ -46,7 +46,7 @@ jobs:
         run: |
           # Change to docs directory and install dependencies
           cd docs
-          npm install --verbose
+          npm install --verbose --foreground-scripts
 
           # Copy README.md to public directory so it can be fetched
           cp ../README.md public/
