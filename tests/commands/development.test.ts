@@ -652,7 +652,486 @@ describe('development command', () => {
             expect(mockRun).toHaveBeenCalledWith('git checkout -b working');
         });
 
+        it('should handle being on development branch and merge into working', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValueOnce('development');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockCommitExecute.mockResolvedValue('committed');
 
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Merged development');
+        });
+
+        it('should handle custom increment level', async () => {
+            const runConfig = { dryRun: false, development: { targetVersion: 'minor' } };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            await Development.execute(runConfig);
+        });
+
+        it('should handle invalid target version', async () => {
+            const runConfig = { dryRun: false, development: { targetVersion: 'invalid' } };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('Invalid target version');
+        });
+
+        it('should handle fetch errors gracefully', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git fetch')) return Promise.reject(new Error('Network'));
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            await Development.execute(runConfig);
+        });
+
+        it('should handle already being on working branch', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.1-dev.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.1-dev.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.1-dev.0' });
+            mockGetCurrentBranch.mockResolvedValue('working');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Already on working');
+        });
+
+        it('should handle merge conflicts in git pull', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git pull')) {
+                    return Promise.reject(new Error('CONFLICT: merge conflict'));
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('Merge conflicts detected');
+        });
+
+        it('should handle development branch merge with npm install changes', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValueOnce('development');
+            mockLocalBranchExists.mockResolvedValue(true);
+            let statusCallCount = 0;
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git status --porcelain')) {
+                    statusCallCount++;
+                    return Promise.resolve({ stdout: statusCallCount === 1 ? 'M package-lock.json' : '' });
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Merged development');
+            expect(mockRun).toHaveBeenCalledWith('git add -A');
+        });
+
+        it('should handle merge conflicts when merging development branch', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockImplementation((branch: string) => {
+                return Promise.resolve(branch === 'working' || branch === 'development');
+            });
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git merge development')) {
+                    return Promise.reject(new Error('CONFLICT in file.txt'));
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('Merge conflicts detected');
+        });
+
+        it('should handle non-conflict errors when merging development', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockImplementation((branch: string) => {
+                return Promise.resolve(branch === 'working' || branch === 'development');
+            });
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git merge development')) {
+                    return Promise.reject(new Error('Git error'));
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('Git error');
+        });
+
+        it('should skip merge when development branch does not exist', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockImplementation((branch: string) => {
+                return Promise.resolve(branch === 'working');
+            });
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle major version increment', async () => {
+            const runConfig = { dryRun: false, development: { targetVersion: 'major' } };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            await Development.execute(runConfig);
+        });
+
+        it('should use branch config for development branch detection', async () => {
+            const runConfig = {
+                dryRun: false,
+                branches: {
+                    'feature': {
+                        developmentBranch: true,
+                        version: { type: 'prerelease' as const, tag: 'rc', incrementLevel: 'minor' as const }
+                    }
+                }
+            };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle remote branch not existing on initial push', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git ls-remote')) return Promise.reject(new Error('Not found'));
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle sync warning without conflict', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git pull')) return Promise.reject(new Error('Some other error'));
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should push new working branch to origin', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValueOnce(false);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Created working branch');
+        });
+
+        it('should handle explicit version string target', async () => {
+            const runConfig = { dryRun: false, development: { targetVersion: 'v3.0.0' } };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle version increment without existing development branch', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.5.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.5.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.5.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockImplementation((branch: string) => {
+                return Promise.resolve(branch === 'working');
+            });
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle switching to existing working branch', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('feature');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle development branch merge without npm changes', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValueOnce('development');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Merged development');
+        });
+
+        it('should handle dry run with working branch not existing', async () => {
+            const runConfig = { dryRun: true };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockLocalBranchExists.mockResolvedValueOnce(false);
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle dry run with working branch existing', async () => {
+            const runConfig = { dryRun: true };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockLocalBranchExists.mockResolvedValue(true);
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle no branch config provided', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle non-CONFLICT merge errors', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockImplementation((branch: string) => {
+                return Promise.resolve(branch === 'working' || branch === 'development');
+            });
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('git merge development')) {
+                    return Promise.reject(new Error('Some other git error'));
+                }
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+
+            await expect(Development.execute(runConfig)).rejects.toThrow('git error');
+        });
+
+        it('should handle git checkout branch creation', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "0.5.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '0.5.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '0.5.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValueOnce(false).mockResolvedValue(false);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Created working branch');
+            expect(mockRun).toHaveBeenCalledWith('git checkout -b working');
+        });
+
+        it('should log different messages based on action taken', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('feature');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Updated working branch');
+        });
+
+        it('should handle dry run for multiple scenarios', async () => {
+            const runConfig = { dryRun: true, development: { targetVersion: 'minor' } };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockLocalBranchExists.mockResolvedValueOnce(true);
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle version bump and commit flow', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.2.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.2.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.2.0' });
+            mockGetCurrentBranch.mockResolvedValue('main');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockImplementation((cmd: string) => {
+                if (cmd.includes('npm version')) return Promise.resolve({ stdout: 'v1.2.1-dev.0' });
+                return Promise.resolve({ stdout: '' });
+            });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
+
+        it('should handle development branch when already on development', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('development');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toContain('Merged development');
+        });
+
+        it('should handle switching from non-main branch', async () => {
+            const runConfig = { dryRun: false };
+            mockStorage.readFile.mockResolvedValue('{"version": "1.0.0"}');
+            mockSafeJsonParse.mockReturnValue({ version: '1.0.0' });
+            mockValidatePackageJson.mockReturnValue({ version: '1.0.0' });
+            mockGetCurrentBranch.mockResolvedValue('feature-123');
+            mockLocalBranchExists.mockResolvedValue(true);
+            mockRun.mockResolvedValue({ stdout: '' });
+            mockSafeSyncBranchWithRemote.mockResolvedValue({ success: true });
+            mockCommitExecute.mockResolvedValue('committed');
+
+            const result = await Development.execute(runConfig);
+
+            expect(result).toBeDefined();
+        });
     });
 });
 

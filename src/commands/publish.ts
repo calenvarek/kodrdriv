@@ -686,26 +686,29 @@ export const execute = async (runConfig: Config): Promise<void> => {
         }
 
         logger.info('Generating release notes...');
+
+        // Use the existing currentBranch variable for tag detection
+        logger.debug(`Current branch for release notes: ${currentBranch}`);
+
         // Create a modified config for release notes generation that includes the publish --from, --interactive, and --from-main options
         const releaseConfig = { ...runConfig };
-        if (runConfig.publish?.from || runConfig.publish?.interactive || runConfig.publish?.fromMain) {
-            // Pass the publish options to the release config
-            releaseConfig.release = {
-                ...runConfig.release,
-                ...(runConfig.publish.from && { from: runConfig.publish.from }),
-                ...(runConfig.publish.interactive && { interactive: runConfig.publish.interactive }),
-                ...(runConfig.publish.fromMain && { fromMain: runConfig.publish.fromMain })
-            };
-            if (runConfig.publish.from) {
-                logger.verbose(`Using custom 'from' reference for release notes: ${runConfig.publish.from}`);
-            }
-            if (runConfig.publish.interactive) {
-                logger.verbose('Interactive mode enabled for release notes generation');
-            }
-            if (runConfig.publish.fromMain) {
-                logger.verbose('Forcing comparison against main branch for release notes');
-            }
+        releaseConfig.release = {
+            ...runConfig.release,
+            currentBranch: currentBranch,  // Pass current branch
+            ...(runConfig.publish?.from && { from: runConfig.publish.from }),
+            ...(runConfig.publish?.interactive && { interactive: runConfig.publish.interactive }),
+            ...(runConfig.publish?.fromMain && { fromMain: runConfig.publish.fromMain })
+        };
+        if (runConfig.publish?.from) {
+            logger.verbose(`Using custom 'from' reference for release notes: ${runConfig.publish.from}`);
         }
+        if (runConfig.publish?.interactive) {
+            logger.verbose('Interactive mode enabled for release notes generation');
+        }
+        if (runConfig.publish?.fromMain) {
+            logger.verbose('Forcing comparison against main branch for release notes');
+        }
+
         const releaseSummary = await Release.execute(releaseConfig);
 
         if (isDryRun) {
