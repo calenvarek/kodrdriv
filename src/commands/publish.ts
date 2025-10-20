@@ -1149,8 +1149,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const sourceBranchConfig = runConfig.branches[currentBranch];
             if (sourceBranchConfig?.version) {
                 // Use configured version strategy for source branch
-                if (sourceBranchConfig.version.increment) {
-                    versionCommand = `pre${sourceBranchConfig.version.increment}`;
+                if (sourceBranchConfig.version.incrementLevel) {
+                    versionCommand = `pre${sourceBranchConfig.version.incrementLevel}`;
                 }
                 if (sourceBranchConfig.version.tag) {
                     versionTag = sourceBranchConfig.version.tag;
