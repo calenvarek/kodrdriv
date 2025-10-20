@@ -72,6 +72,9 @@ export const InputSchema = z.object({
     noMilestones: z.boolean().optional(), // Disable GitHub milestone integration
     subcommand: z.string().optional(), // Subcommand for versions command
     scope: z.string().optional(), // Scope for updates command
+    tagWorkingBranch: z.boolean().optional(), // Tag working branch with release version before bumping to dev
+    createRetroactiveTags: z.boolean().optional(), // Create tags for past releases found in git history
+    workingTagPrefix: z.string().optional(), // Tag prefix for working branch tags
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -154,10 +157,13 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'development' options
-    if (commandName === 'development' && (finalCliArgs.targetVersion !== undefined || finalCliArgs.noMilestones !== undefined)) {
+    if (commandName === 'development' && (finalCliArgs.targetVersion !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.tagWorkingBranch !== undefined || finalCliArgs.createRetroactiveTags !== undefined || finalCliArgs.workingTagPrefix !== undefined)) {
         transformedCliArgs.development = {};
         if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.development.targetVersion = finalCliArgs.targetVersion;
         if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.development.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.tagWorkingBranch !== undefined) transformedCliArgs.development.tagWorkingBranch = finalCliArgs.tagWorkingBranch;
+        if (finalCliArgs.createRetroactiveTags !== undefined) transformedCliArgs.development.createRetroactiveTags = finalCliArgs.createRetroactiveTags;
+        if (finalCliArgs.workingTagPrefix !== undefined) transformedCliArgs.development.workingTagPrefix = finalCliArgs.workingTagPrefix;
         // Mirror targetVersion into publish; mirror noMilestones into publish and release to match test expectations
         transformedCliArgs.publish = {
             ...(transformedCliArgs.publish || {}),
@@ -303,10 +309,13 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'development' options
-    if (commandName === 'development' && (finalCliArgs.targetVersion !== undefined || finalCliArgs.noMilestones !== undefined)) {
+    if (commandName === 'development' && (finalCliArgs.targetVersion !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.tagWorkingBranch !== undefined || finalCliArgs.createRetroactiveTags !== undefined || finalCliArgs.workingTagPrefix !== undefined)) {
         transformedCliArgs.development = {};
         if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.development.targetVersion = finalCliArgs.targetVersion;
         if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.development.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.tagWorkingBranch !== undefined) transformedCliArgs.development.tagWorkingBranch = finalCliArgs.tagWorkingBranch;
+        if (finalCliArgs.createRetroactiveTags !== undefined) transformedCliArgs.development.createRetroactiveTags = finalCliArgs.createRetroactiveTags;
+        if (finalCliArgs.workingTagPrefix !== undefined) transformedCliArgs.development.workingTagPrefix = finalCliArgs.workingTagPrefix;
     }
 
     // Nested mappings for 'versions' options
@@ -845,6 +854,10 @@ export async function getCliConfig(
         .command('development')
         .option('--target-version <targetVersion>', 'target version bump type (patch, minor, major) or explicit version (e.g., "2.1.0")', 'patch')
         .option('--no-milestones', 'disable GitHub milestone integration')
+        .option('--tag-working-branch', 'tag working branch with release version before bumping to dev (default: true)')
+        .option('--no-tag-working-branch', 'skip tagging working branch')
+        .option('--create-retroactive-tags', 'create tags for past releases found in git history (one-time operation)')
+        .option('--working-tag-prefix <prefix>', 'tag prefix for working branch tags (default: "working/")')
         .description('Switch to working branch and set up development version');
     addSharedOptions(developmentCommand);
 

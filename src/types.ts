@@ -153,6 +153,9 @@ export const ConfigSchema = z.object({
     development: z.object({
         targetVersion: z.string().optional(),
         noMilestones: z.boolean().optional(),
+        tagWorkingBranch: z.boolean().optional(),
+        createRetroactiveTags: z.boolean().optional(),
+        workingTagPrefix: z.string().optional(),
     }).optional(),
     versions: z.object({
         subcommand: z.string().optional(),
@@ -336,6 +339,10 @@ export type TreeConfig = {
 
 export type DevelopmentConfig = {
     targetVersion?: string; // 'patch', 'minor', 'major', or explicit version like '2.1.0' (default: 'patch')
+    noMilestones?: boolean; // Disable GitHub milestone integration
+    tagWorkingBranch?: boolean; // Tag working branch with release version before bumping to dev (default: true)
+    createRetroactiveTags?: boolean; // Create tags for past releases found in git history (default: false)
+    workingTagPrefix?: string; // Tag prefix for working branch tags (default: 'working/')
 }
 
 export type VersionsConfig = {

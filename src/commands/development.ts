@@ -22,6 +22,102 @@ import { findDevelopmentBranch } from '../util/general';
 import { KODRDRIV_DEFAULTS } from '../constants';
 
 /**
+ * Create retroactive working branch tags for past releases
+ * Scans git history for X.X.X-dev.0 commits and tags them
+ */
+async function createRetroactiveTags(
+    workingBranch: string,
+    isDryRun: boolean,
+    logger: any,
+    tagPrefix: string = 'working/'
+): Promise<void> {
+    logger.info('');
+    logger.info('🔍 Scanning git history for past release points to tag...');
+    logger.info('   (Looking for X.X.X-dev.0 version bump commits)');
+    logger.info('');
+
+    try {
+        // Get all commits on working branch with oneline format
+        const { stdout } = await run(`git log ${workingBranch} --oneline --all`);
+        const commits = stdout.trim().split('\n');
+
+        // Find commits that are version bumps to -dev.0 (these mark release points)
+        const devCommits = commits.filter(line => {
+            // Match patterns like: "4.4.52-dev.0" or "chore: bump version to 4.4.52-dev.0"
+            return /\b\d+\.\d+\.\d+-dev\.0\b/.test(line);
+        });
+
+        logger.info(`📊 Found ${devCommits.length} potential dev version commits`);
+
+        const tagsCreated: string[] = [];
+        const tagsSkipped: string[] = [];
+
+        for (const commitLine of devCommits) {
+            const [sha, ...messageParts] = commitLine.split(' ');
+            const message = messageParts.join(' ');
+
+            // Extract version from message (e.g., "4.4.52-dev.0" → "4.4.52")
+            const versionMatch = message.match(/(\d+\.\d+\.\d+)-dev\.0/);
+            if (!versionMatch) continue;
+
+            const releaseVersion = versionMatch[1]; // e.g., "4.4.52"
+            const workingTagName = `${tagPrefix}v${releaseVersion}`;
+
+            // Check if tag already exists
+            const tagExistsResult = await run(`git tag -l "${workingTagName}"`);
+            const tagExists = tagExistsResult.stdout.trim() !== '';
+
+            if (tagExists) {
+                tagsSkipped.push(workingTagName);
+                logger.verbose(`   Skip: ${workingTagName} (already exists)`);
+                continue;
+            }
+
+            if (!isDryRun) {
+                // Tag the commit that represents the dev version bump
+                // This is the commit AFTER the release, which marks the starting point
+                logger.verbose(`   Create: ${workingTagName} at ${sha.substring(0, 7)}`);
+                await run(`git tag ${workingTagName} ${sha}`);
+                tagsCreated.push(workingTagName);
+            } else {
+                logger.info(`   Would create: ${workingTagName} at ${sha.substring(0, 7)}`);
+                tagsCreated.push(workingTagName);
+            }
+        }
+
+        logger.info('');
+
+        if (tagsCreated.length > 0 && !isDryRun) {
+            logger.info(`📤 Pushing ${tagsCreated.length} new retroactive tags to origin...`);
+            await run('git push origin --tags');
+            logger.info('');
+            logger.info(`✅ Created and pushed ${tagsCreated.length} retroactive tags:`);
+            tagsCreated.forEach(tag => logger.info(`   - ${tag}`));
+        } else if (tagsCreated.length > 0 && isDryRun) {
+            logger.info(`Would create and push ${tagsCreated.length} retroactive tags:`);
+            tagsCreated.forEach(tag => logger.info(`   - ${tag}`));
+        }
+
+        if (tagsSkipped.length > 0) {
+            logger.verbose('');
+            logger.verbose(`Skipped ${tagsSkipped.length} existing tags:`);
+            tagsSkipped.forEach(tag => logger.verbose(`   - ${tag}`));
+        }
+
+        if (tagsCreated.length === 0 && tagsSkipped.length === 0) {
+            logger.info('ℹ️  No dev version commits found in history');
+        }
+
+        logger.info('');
+
+    } catch (error: any) {
+        logger.warn(`⚠️  Could not create retroactive tags: ${error.message}`);
+        logger.warn('   You can tag past releases manually if needed');
+        // Don't throw - retroactive tagging is optional
+    }
+}
+
+/**
  * Execute the development command
  */
 export const execute = async (runConfig: Config): Promise<string> => {
@@ -229,6 +325,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info('Would commit any changes from npm install (e.g., package-lock.json)');
         }
 
+        // Step 4.5: Create retroactive tags if requested (one-time operation)
+        if (runConfig.development?.createRetroactiveTags) {
+            const tagPrefix = runConfig.development?.workingTagPrefix || 'working/';
+            await createRetroactiveTags(workingBranch, isDryRun, logger, tagPrefix);
+        }
+
         // Step 5: Check if we already have a proper development version
         if (alreadyOnBranch && !mergedDevelopmentIntoWorking) {
             // Check if current version is already a development version with the right tag
@@ -242,12 +344,74 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     logger.info(`✅ Already on working branch with development version ${currentVersion}`);
                     return 'Already on working branch with development version';
                 }
-            } catch (error) {
+            } catch {
                 logger.debug('Could not check current version, proceeding with version bump');
             }
         }
 
-        // Step 5: Run npm version to bump version with increment level
+        // Step 5.5: Tag working branch with current release version BEFORE bumping
+        if (runConfig.development?.tagWorkingBranch !== false) {
+            try {
+                const fs = await import('fs/promises');
+                const packageJson = JSON.parse(await fs.readFile('package.json', 'utf-8'));
+                const currentVersion = packageJson.version;
+
+                // Only tag if current version is a release version (not already a dev version)
+                const isReleaseVersion = currentVersion &&
+                                        !currentVersion.includes('-dev.') &&
+                                        !currentVersion.includes('-alpha.') &&
+                                        !currentVersion.includes('-beta.') &&
+                                        !currentVersion.includes('-rc.');
+
+                if (isReleaseVersion) {
+                    const tagPrefix = runConfig.development?.workingTagPrefix || 'working/';
+                    const workingTagName = `${tagPrefix}v${currentVersion}`;
+
+                    if (!isDryRun) {
+                        logger.info(`🏷️  Current version is ${currentVersion} (release version)`);
+                        logger.verbose(`Checking if tag ${workingTagName} exists...`);
+
+                        // Check if tag already exists
+                        const tagExistsResult = await run(`git tag -l "${workingTagName}"`);
+                        const tagExists = tagExistsResult.stdout.trim() !== '';
+
+                        if (tagExists) {
+                            logger.info(`ℹ️  Tag ${workingTagName} already exists, skipping tag creation`);
+                        } else {
+                            // Create tag on current commit (working branch at release version)
+                            logger.verbose(`Creating tag ${workingTagName} at current HEAD...`);
+                            await run(`git tag ${workingTagName}`);
+
+                            // Push tag to remote
+                            logger.verbose(`Pushing tag ${workingTagName} to origin...`);
+                            await run(`git push origin ${workingTagName}`);
+
+                            logger.info(`✅ Tagged working branch: ${workingTagName}`);
+                            logger.info(`   📝 Release notes for v${currentVersion} can be generated from:`);
+                            logger.info(`      kodrdriv release --from {previous-tag} --to ${workingTagName}`);
+                        }
+                    } else {
+                        logger.info(`Would tag working branch with ${workingTagName} (current version: ${currentVersion})`);
+                    }
+                } else if (currentVersion) {
+                    logger.verbose(`Current version is ${currentVersion} (prerelease), skipping tag creation`);
+                } else {
+                    logger.debug('Could not determine current version, skipping tag creation');
+                }
+            } catch (error: any) {
+                if (!isDryRun) {
+                    logger.warn(`⚠️  Could not tag working branch: ${error.message}`);
+                    logger.warn('   This is not critical - you can tag manually later');
+                } else {
+                    logger.info('Would tag working branch with current release version if applicable');
+                }
+                // Don't throw - tagging is optional, continue with version bump
+            }
+        } else if (isDryRun) {
+            logger.info('Tagging disabled (--no-tag-working-branch)');
+        }
+
+        // Step 6: Run npm version to bump version with increment level
         let versionCommand: string;
         if (['patch', 'minor', 'major'].includes(incrementLevel)) {
             versionCommand = `pre${incrementLevel}`;
