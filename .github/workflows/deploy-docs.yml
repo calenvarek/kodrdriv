@@ -21,6 +21,7 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +32,8 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --verbose
+        timeout-minutes: 10
 
       - name: Build library
         run: npm run build
@@ -40,10 +42,11 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Build documentation site
+        timeout-minutes: 10
         run: |
           # Change to docs directory and install dependencies
           cd docs
-          npm install
+          npm install --verbose
 
           # Copy README.md to public directory so it can be fetched
           cp ../README.md public/
