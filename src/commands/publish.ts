@@ -1127,18 +1127,24 @@ export const execute = async (runConfig: Config): Promise<void> => {
     await runWithDryRunSupport(`git checkout ${currentBranch}`, isDryRun);
 
     if (!isDryRun) {
-        // Merge target into source (should be fast-forward since PR just merged)
+        // Merge target into source
+        // Note: With squash merging, fast-forward will fail because commit histories diverge
         logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
-        try {
-            await run(`git merge ${targetBranch} --ff-only`);
-            logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
-        } catch (error: any) {
-            // If ff-only fails, something is wrong - source diverged somehow
-            logger.error(`❌ Failed to fast-forward merge ${targetBranch} into ${currentBranch}`);
-            logger.error('   This suggests the source branch has commits not in target.');
-            logger.error('   This should not happen after a successful PR merge.');
-            logger.warn('⚠️  Attempting regular merge...');
+
+        // Try fast-forward first (works with merge/rebase methods)
+        const fastForwardResult = await run(`git merge ${targetBranch} --ff-only`).catch(() => null);
+
+        if (fastForwardResult) {
+            logger.info(`✅ Fast-forward merged ${targetBranch} into ${currentBranch}`);
+        } else {
+            // Fast-forward failed - expected when using squash merge method
+            if (mergeMethod === 'squash') {
+                logger.verbose('Fast-forward not possible (expected with squash merge), performing regular merge...');
+            } else {
+                logger.warn(`⚠️  Fast-forward merge failed, performing regular merge...`);
+            }
             await run(`git merge ${targetBranch} --no-edit`);
+            logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
         }
 
         // Determine version bump based on branch configuration
