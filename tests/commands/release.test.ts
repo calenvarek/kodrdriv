@@ -66,14 +66,14 @@ vi.mock('@eldrforge/git-tools', () => ({
     isValidGitRef: vi.fn(),
     findPreviousReleaseTag: vi.fn(),
     getCurrentVersion: vi.fn(),
-    getDefaultFromRef: vi.fn(),
+    getDefaultFromRef: vi.fn().mockResolvedValue('main'),
     getRemoteDefaultBranch: vi.fn(),
     localBranchExists: vi.fn(),
     remoteBranchExists: vi.fn(),
     getBranchCommitSha: vi.fn(),
     isBranchInSyncWithRemote: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
-    getCurrentBranch: vi.fn(),
+    getCurrentBranch: vi.fn().mockResolvedValue('working'),
     getGitStatusSummary: vi.fn(),
     getGloballyLinkedPackages: vi.fn(),
     getLinkedDependencies: vi.fn(),
@@ -147,10 +147,7 @@ vi.mock('@riotprompt/riotprompt', () => ({
     }
 }));
 
-vi.mock('../../src/util/git', () => ({
-    getDefaultFromRef: vi.fn().mockResolvedValue('main'),
-    getCurrentBranch: vi.fn().mockResolvedValue('working')
-}));
+// git-tools mock above already includes getDefaultFromRef and getCurrentBranch
 
 describe('release command', () => {
     let Release: any;
