@@ -7,7 +7,7 @@ import { getLogger } from "./logging";
 const logger = getLogger();
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
 import * as Storage from "./util/storage";
-import { safeJsonParse } from './util/validation';
+import { safeJsonParse } from '@eldrforge/git-tools';
 import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({

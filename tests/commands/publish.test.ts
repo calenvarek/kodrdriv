@@ -35,17 +35,7 @@ vi.mock('../../src/logging', () => ({
     }))
 }));
 
-vi.mock('../../src/util/child', () => ({
-    run: vi.fn(),
-    runSecure: vi.fn(),
-    runWithDryRunSupport: vi.fn(),
-    runSecureWithDryRunSupport: vi.fn(),
-    runWithInheritedStdio: vi.fn(),
-    runSecureWithInheritedStdio: vi.fn(),
-    validateGitRef: vi.fn(),
-    validateFilePath: vi.fn(),
-    escapeShellArg: vi.fn()
-}));
+// git-tools mock is defined below to avoid duplicate
 
 vi.mock('../../src/util/github', () => ({
     getCurrentBranchName: vi.fn(),
@@ -87,10 +77,40 @@ vi.mock('../../src/util/general', () => ({
     getOutputPath: vi.fn()
 }));
 
-vi.mock('../../src/util/git', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
+    // Process execution
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn(),
+    getRemoteDefaultBranch: vi.fn(),
+    localBranchExists: vi.fn(),
+    remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
     isBranchInSyncWithRemote: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
-    localBranchExists: vi.fn()
+    getCurrentBranch: vi.fn(),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn(),
+    // Validation
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text)),
+    validateString: vi.fn(),
+    validateHasProperty: vi.fn(),
+    validatePackageJson: vi.fn().mockImplementation((data: any) => data)
 }));
 
 describe('publish command', () => {
@@ -124,11 +144,11 @@ describe('publish command', () => {
         Commit = await import('../../src/commands/commit');
         Release = await import('../../src/commands/release');
         Diff = await import('../../src/content/diff');
-        Child = await import('../../src/util/child');
+        Child = await import('@eldrforge/git-tools');
         GitHub = await import('../../src/util/github');
         Storage = await import('../../src/util/storage');
         General = await import('../../src/util/general');
-        Git = await import('../../src/util/git');
+        Git = await import('@eldrforge/git-tools');
         Publish = await import('../../src/commands/publish');
 
         // Setup default mocks

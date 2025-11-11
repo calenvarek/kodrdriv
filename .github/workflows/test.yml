@@ -7,9 +7,13 @@ on:
   push:
     branches:
       - main
+      - working
       - 'release/**'
       - 'feature/**'
       - 'dependabot/**'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write

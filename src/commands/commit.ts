@@ -11,15 +11,15 @@ import { CommandError, ValidationError, ExternalDependencyError } from '../error
 import { getDryRunLogger } from '../logging';
 import * as CommitPrompt from '../prompt/commit';
 import { Config } from '../types';
-import { run } from '../util/child';
-import { validateString, sanitizeDirection } from '../util/validation';
+import { run, validateString } from '@eldrforge/git-tools';
+import { sanitizeDirection } from '../util/validation';
 import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { createCompletionWithRetry, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
 import { getRecentClosedIssuesForCommit } from '../util/github';
-import { safeJsonParse, validatePackageJson } from '../util/validation';
+import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import {
     getUserChoice,
     editContentInEditor,

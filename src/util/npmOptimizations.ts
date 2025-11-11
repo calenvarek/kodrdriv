@@ -1,5 +1,5 @@
 import { getLogger } from '../logging';
-import { run } from './child';
+import { run } from '@eldrforge/git-tools';
 import { PerformanceTimer } from './performance';
 
 // Check if npm install is needed by examining lock file and node_modules

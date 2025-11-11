@@ -31,7 +31,7 @@ vi.mock('../../src/prompt/commit', () => ({
     createPrompt: vi.fn().mockResolvedValue('mock prompt')
 }));
 
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
@@ -130,8 +130,41 @@ vi.mock('../../src/util/safety', () => ({
     logFileDependencySuggestions: vi.fn()
 }));
 
-vi.mock('../../src/util/validation', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
     validateString: vi.fn((str) => str),
+    validateHasProperty: vi.fn(),
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text)),
+    validatePackageJson: vi.fn().mockImplementation((data: any) => data),
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn(),
+    getRemoteDefaultBranch: vi.fn(),
+    localBranchExists: vi.fn(),
+    remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
+    isBranchInSyncWithRemote: vi.fn(),
+    safeSyncBranchWithRemote: vi.fn(),
+    getCurrentBranch: vi.fn(),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn()
+}));
+
+vi.mock('../../src/util/validation', () => ({
     sanitizeDirection: vi.fn((val) => val)
 }));
 
@@ -240,7 +273,7 @@ describe('commit', () => {
         CommitPrompt = await import('../../src/prompt/commit');
         Diff = await import('../../src/content/diff');
         Files = await import('../../src/content/files');
-        Child = await import('../../src/util/child');
+        Child = await import('@eldrforge/git-tools');
         OpenAI = await import('../../src/util/openai');
         MinorPrompt = await import('@riotprompt/riotprompt');
         Log = await import('../../src/content/log');
@@ -286,7 +319,7 @@ describe('commit', () => {
         // @ts-ignore
         Safety.checkForFileDependencies.mockClear?.();
         // @ts-ignore
-        Validation.validateString.mockClear?.();
+        Child.validateString.mockClear?.();
         mockExit.mockClear();
 
         // Reset the default mocks for new functions
@@ -299,7 +332,7 @@ describe('commit', () => {
         // @ts-ignore
         OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
         // @ts-ignore
-        Validation.validateString.mockImplementation((str) => str);
+        Child.validateString.mockImplementation((str) => str);
 
         // Set up default Child.run mock for git commands
         // @ts-ignore
@@ -1025,7 +1058,7 @@ describe('commit', () => {
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
             OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
-            Validation.validateString.mockReturnValue(mockSummary);
+            Child.validateString.mockReturnValue(mockSummary);
             Child.run.mockResolvedValue({ stdout: 'Success' });
             shellescape.mockReturnValue("'test: add feature'");
 
@@ -1034,7 +1067,7 @@ describe('commit', () => {
 
             // Assert
             expect(result).toBe(mockSummary);
-            expect(Validation.validateString).toHaveBeenCalledWith(mockSummary, 'commit summary');
+            expect(Child.validateString).toHaveBeenCalledWith(mockSummary, 'commit summary');
         });
 
         it('should handle validation error', async () => {
@@ -1052,7 +1085,7 @@ describe('commit', () => {
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
             OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
-            Validation.validateString.mockImplementation(() => {
+            Child.validateString.mockImplementation(() => {
                 throw new Error('Invalid commit message');
             });
 
@@ -1338,7 +1371,7 @@ describe('commit', () => {
             // @ts-ignore
             Safety.checkForFileDependencies.mockClear?.();
             // @ts-ignore
-            Validation.validateString.mockClear?.();
+            Child.validateString.mockClear?.();
 
             // Reset mock return values to defaults
             // @ts-ignore
@@ -1350,7 +1383,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
             // @ts-ignore
-            Validation.validateString.mockImplementation((str) => str);
+            Child.validateString.mockImplementation((str) => str);
         });
 
         it('should show message when sendit is enabled but no actual changes to commit', async () => {
@@ -2138,7 +2171,7 @@ describe('commit', () => {
             // @ts-ignore
             Safety.checkForFileDependencies.mockClear?.();
             // @ts-ignore
-            Validation.validateString.mockClear?.();
+            Child.validateString.mockClear?.();
 
             // Default mocks for interactive tests
             // @ts-ignore
@@ -2156,7 +2189,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
             // @ts-ignore
-            Validation.validateString.mockImplementation((str) => str);
+            Child.validateString.mockImplementation((str) => str);
             // @ts-ignore
             shellescape.mockImplementation((args) => args.join(' '));
 
@@ -2671,10 +2704,11 @@ describe('commit', () => {
 
             // Assert
             expect(mockStorage.readFile).toHaveBeenCalledWith('package.json', 'utf-8');
-            // The version is being read but the validation is failing, so it falls back to undefined
-            expect(getRecentClosedIssuesForCommit).toHaveBeenCalledWith(undefined, 10);
-            expect(mockLogger.debug).toHaveBeenCalledWith('Could not determine current version, fetching recent issues without milestone filtering...');
-            expect(mockLogger.debug).toHaveBeenCalledWith(`Fetched general GitHub issues context (${mockGithubIssues.length} characters)`);
+            // With git-tools mocks working, the version is now properly extracted
+            expect(getRecentClosedIssuesForCommit).toHaveBeenCalledWith('1.2.3', 10);
+            expect(mockLogger.debug).toHaveBeenCalledWith('Found current version: 1.2.3, fetching related GitHub issues...');
+            // Check for the issues context message (without "general" since version was found)
+            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Fetched GitHub issues context'));
         });
 
         it('should fetch general GitHub issues when no version is available', async () => {

@@ -4,7 +4,7 @@ import * as Storage from './storage';
 import { getLogger } from '../logging';
 import { archiveAudio } from './general';
 import { Config } from '../types';
-import { safeJsonParse } from './validation';
+import { safeJsonParse } from '@eldrforge/git-tools';
 // eslint-disable-next-line no-restricted-imports
 import fs from 'fs';
 

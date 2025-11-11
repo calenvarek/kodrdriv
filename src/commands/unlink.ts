@@ -1,11 +1,11 @@
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { run, runSecure } from '../util/child';
+import { run, runSecure } from '@eldrforge/git-tools';
 import {
     findAllPackageJsonFiles
 } from '../util/performance';
-import { safeJsonParse, validatePackageJson } from '../util/validation';
+import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import fs from 'fs/promises';
 import path from 'path';
 

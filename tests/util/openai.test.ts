@@ -17,7 +17,7 @@ vi.mock('../../src/util/general', () => ({
 }));
 
 // Mock the safeJsonParse function
-vi.mock('../../src/util/validation', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     safeJsonParse: vi.fn().mockImplementation((json, context) => {
         try {
             return JSON.parse(json);

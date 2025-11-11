@@ -3,7 +3,7 @@ import { ExitError } from '../../src/error/ExitError';
 import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../../src/constants';
 
 // Mock ESM modules
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
@@ -32,7 +32,7 @@ describe('diff', () => {
 
     beforeEach(async () => {
         // Import modules after mocking
-        run = await import('../../src/util/child');
+        run = await import('@eldrforge/git-tools');
         getLogger = await import('../../src/logging');
         Diff = await import('../../src/content/diff');
     });
