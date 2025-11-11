@@ -172,14 +172,15 @@ const updateInterProjectDependencies = async (
         for (const publishedVersion of publishedVersions) {
             const { packageName, version } = publishedVersion;
 
-            // Do not propagate prerelease versions to consumers (often not available on registry)
-            if (typeof version === 'string' && version.includes('-')) {
-                packageLogger.verbose(`Skipping prerelease version for ${packageName}: ${version}`);
+            // Only update if this is an inter-project dependency (exists in our build tree)
+            if (!allPackageNames.has(packageName)) {
                 continue;
             }
 
-            // Only update if this is an inter-project dependency (exists in our build tree)
-            if (!allPackageNames.has(packageName)) {
+            // Skip prerelease versions (e.g., 1.0.0-beta.1, 2.0.0-alpha.3)
+            // Prerelease versions should not be automatically propagated to consumers
+            if (version.includes('-')) {
+                packageLogger.verbose(`Skipping prerelease version ${packageName}@${version} - not updating dependencies`);
                 continue;
             }
 
