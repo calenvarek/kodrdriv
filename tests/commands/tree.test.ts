@@ -149,7 +149,7 @@ import { exec } from 'child_process';
 import { execute, __resetGlobalState } from '../../src/commands/tree';
 import { getLogger, getDryRunLogger } from '../../src/logging';
 import { create as createStorage } from '../../src/util/storage';
-import { 
+import {
     run,
     runSecure,
     safeJsonParse,
@@ -249,11 +249,11 @@ describe('tree', () => {
         // Setup git-tools mock behavior
         const mockSafeJsonParse = vi.mocked(safeJsonParse);
         const mockValidatePackageJson = vi.mocked(validatePackageJson);
-        
+
         // Reset and configure git-tools mocks
         mockSafeJsonParse.mockClear();
         mockValidatePackageJson.mockClear();
-        
+
         // Ensure safeJsonParse returns parsed JSON
         mockSafeJsonParse.mockImplementation((text: string, context?: string) => {
             // eslint-disable-next-line no-console
@@ -265,7 +265,7 @@ describe('tree', () => {
                 throw new Error(`Failed to parse JSON${context ? ` (${context})` : ''}: ${e}`);
             }
         });
-        
+
         // Ensure validatePackageJson returns the data
         mockValidatePackageJson.mockImplementation((data: any) => {
             // eslint-disable-next-line no-console
@@ -357,7 +357,7 @@ describe('tree', () => {
         // Mock file reading to return appropriate package.json content
         const fileReadImplementation = (filePath: any) => {
             // eslint-disable-next-line no-console
-            
+
             // Match package by checking if the path ends with /<packagename>/package.json
             for (const pkg of packages) {
                 const expectedPath = `/${pkg.name}/package.json`;
