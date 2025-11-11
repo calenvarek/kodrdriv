@@ -19,7 +19,7 @@ vi.mock('../../src/logging', () => ({
     getLogger: vi.fn(() => mockLogger)
 }));
 
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
@@ -172,7 +172,7 @@ describe('npmOptimizations', () => {
 
     describe('optimizedNpmInstall', () => {
         test('should run install when needed', async () => {
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
@@ -185,7 +185,7 @@ describe('npmOptimizations', () => {
         });
 
         test('should use verbose flag when verbose is true', async () => {
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
@@ -195,7 +195,7 @@ describe('npmOptimizations', () => {
         });
 
         test('should not use cache when useCache is false', async () => {
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
@@ -205,7 +205,7 @@ describe('npmOptimizations', () => {
         });
 
         test('should throw error when npm install fails', async () => {
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockRejectedValueOnce(new Error('npm install failed'));
 
@@ -223,7 +223,7 @@ describe('npmOptimizations', () => {
             });
             mockCreate.mockReturnValueOnce(mockStorage);
 
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
 
             const result = await tryNpmCi();
@@ -240,7 +240,7 @@ describe('npmOptimizations', () => {
             });
             mockCreate.mockReturnValueOnce(mockStorage);
 
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
@@ -258,7 +258,7 @@ describe('npmOptimizations', () => {
             });
             mockCreate.mockReturnValueOnce(mockStorage);
 
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockRejectedValueOnce(new Error('npm ci failed'));
 
@@ -279,7 +279,7 @@ describe('npmOptimizations', () => {
             });
             mockCreate.mockReturnValueOnce(mockStorage);
 
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' }); // npm ci succeeds
 
@@ -301,7 +301,7 @@ describe('npmOptimizations', () => {
             });
             mockCreate.mockReturnValueOnce(mockStorage);
 
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' });
 
@@ -320,7 +320,7 @@ describe('npmOptimizations', () => {
             });
             mockCreate.mockReturnValueOnce(mockStorage);
 
-            const { run } = await import('../../src/util/child');
+            const { run } = await import('@eldrforge/git-tools');
             const mockRun = vi.mocked(run);
             mockRun.mockResolvedValueOnce({ stdout: '', stderr: '' });
 

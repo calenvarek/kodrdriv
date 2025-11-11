@@ -1,6 +1,14 @@
 import { describe, test, expect } from 'vitest';
 import { beforeEach, afterEach, vi } from 'vitest';
 
+// Mock git-tools functions used by general.ts
+vi.mock('@eldrforge/git-tools', () => ({
+    runSecure: vi.fn(),
+    validateGitRef: vi.fn(),
+    safeJsonParse: vi.fn(),
+    validatePackageJson: vi.fn()
+}));
+
 // Mock getVersionFromBranch function
 vi.mock('../../src/util/general', async () => {
     const actual = await vi.importActual('../../src/util/general') as any;
@@ -741,9 +749,9 @@ describe('checkIfTagExists', () => {
     let mockRun: any;
 
     beforeEach(async () => {
-        // Mock the dynamic import of child module
+        // Mock the dynamic import of git-tools module
         mockRun = vi.fn();
-        vi.doMock('../../src/util/child', () => ({
+        vi.doMock('@eldrforge/git-tools', () => ({
             run: mockRun,
             runSecure: mockRun, // Use the same mock for both since we're testing the same behavior
             validateGitRef: vi.fn(() => true),
@@ -752,13 +760,15 @@ describe('checkIfTagExists', () => {
             runSecureWithInheritedStdio: vi.fn(),
             runWithInheritedStdio: vi.fn(),
             runWithDryRunSupport: vi.fn(),
-            runSecureWithDryRunSupport: vi.fn()
+            runSecureWithDryRunSupport: vi.fn(),
+            safeJsonParse: vi.fn(),
+            validatePackageJson: vi.fn()
         }));
     });
 
     afterEach(() => {
         vi.clearAllMocks();
-        vi.doUnmock('../../src/util/child');
+        vi.doUnmock('@eldrforge/git-tools');
     });
 
     test('should return true when tag exists', async () => {

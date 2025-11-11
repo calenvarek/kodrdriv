@@ -44,7 +44,7 @@ vi.mock('../../src/util/storage', () => ({
     }))
 }));
 
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn()
 }));
 
@@ -68,7 +68,7 @@ vi.mock('../../src/commands/unlink', () => ({
     execute: vi.fn()
 }));
 
-vi.mock('../../src/util/git', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     getGitStatusSummary: vi.fn(),
     isNpmLinked: vi.fn(),
     getGloballyLinkedPackages: vi.fn(),
@@ -86,13 +86,13 @@ import { exec } from 'child_process';
 import { execute, __resetGlobalState } from '../../src/commands/tree';
 import { getLogger, getDryRunLogger } from '../../src/logging';
 import { create as createStorage } from '../../src/util/storage';
-import { run } from '../../src/util/child';
+import { run } from '@eldrforge/git-tools';
 import * as Commit from '../../src/commands/commit';
 import * as Publish from '../../src/commands/publish';
 import * as Release from '../../src/commands/release';
 import * as Link from '../../src/commands/link';
 import * as Unlink from '../../src/commands/unlink';
-import { getGitStatusSummary, isNpmLinked, getGloballyLinkedPackages, getLinkedDependencies, getLinkProblems, getLinkCompatibilityProblems } from '../../src/util/git';
+import { getGitStatusSummary, isNpmLinked, getGloballyLinkedPackages, getLinkedDependencies, getLinkProblems, getLinkCompatibilityProblems } from '@eldrforge/git-tools';
 import type { Config } from '../../src/types';
 
 // Get the mocked fs module

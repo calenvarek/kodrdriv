@@ -15,8 +15,8 @@ vi.mock('../../src/logging', () => ({
     getLogger: () => mockLogger
 }));
 
-// Mock validation functions
-vi.mock('../../src/util/validation', () => ({
+// Mock validation functions from git-tools
+vi.mock('@eldrforge/git-tools', () => ({
     safeJsonParse: vi.fn(),
     validatePackageJson: vi.fn()
 }));
@@ -30,7 +30,7 @@ import {
 
 // Import mocked modules to get references to mock functions
 import { getLogger } from '../../src/logging';
-import { safeJsonParse, validatePackageJson } from '../../src/util/validation';
+import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 
 describe('safety.ts', () => {
     let mockSafeJsonParse: any;

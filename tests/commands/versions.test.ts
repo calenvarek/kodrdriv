@@ -53,7 +53,7 @@ vi.mock('../../src/util/storage', () => ({
     }))
 }));
 
-vi.mock('../../src/util/validation', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     safeJsonParse: vi.fn(),
     validatePackageJson: vi.fn(),
 }));
@@ -65,7 +65,7 @@ vi.mock('../../src/util/general', () => ({
 import { execute } from '../../src/commands/versions';
 import { getLogger } from '../../src/logging';
 import { create as createStorage } from '../../src/util/storage';
-import { safeJsonParse, validatePackageJson } from '../../src/util/validation';
+import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import fs from 'fs/promises';
 import path from 'path';
 import { Config } from '../../src/types';

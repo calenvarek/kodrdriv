@@ -35,7 +35,7 @@ vi.mock('../../src/logging', () => ({
     }))
 }));
 
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
     runWithDryRunSupport: vi.fn(),
@@ -87,7 +87,7 @@ vi.mock('../../src/util/general', () => ({
     getOutputPath: vi.fn()
 }));
 
-vi.mock('../../src/util/git', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     isBranchInSyncWithRemote: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
     localBranchExists: vi.fn()
@@ -124,11 +124,11 @@ describe('publish command', () => {
         Commit = await import('../../src/commands/commit');
         Release = await import('../../src/commands/release');
         Diff = await import('../../src/content/diff');
-        Child = await import('../../src/util/child');
+        Child = await import('@eldrforge/git-tools');
         GitHub = await import('../../src/util/github');
         Storage = await import('../../src/util/storage');
         General = await import('../../src/util/general');
-        Git = await import('../../src/util/git');
+        Git = await import('@eldrforge/git-tools');
         Publish = await import('../../src/commands/publish');
 
         // Setup default mocks

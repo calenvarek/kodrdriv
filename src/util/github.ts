@@ -1,7 +1,7 @@
 import { Octokit } from '@octokit/rest';
 import { getLogger } from '../logging';
 import { PullRequest, MergeMethod } from '../types';
-import { run } from './child';
+import { run } from '@eldrforge/git-tools';
 import { promptConfirmation } from './stdin';
 
 export const getOctokit = (): Octokit => {

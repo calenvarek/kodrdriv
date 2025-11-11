@@ -29,16 +29,14 @@ vi.mock('../../src/util/storage', () => ({
     })
 }));
 
-// Mock the validation module
-vi.mock('../../src/util/validation', () => ({
-    safeJsonParse: vi.fn(),
-    validatePackageJson: vi.fn(),
-}));
-
-// Mock the child process module
-vi.mock('../../src/util/child', () => ({
+// Mock git-tools (includes child, git, and validation functions)
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
+    localBranchExists: vi.fn(),
+    getCurrentBranch: vi.fn(),
+    safeJsonParse: vi.fn(),
+    validatePackageJson: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
     runWithInheritedStdio: vi.fn(),
     runWithDryRunSupport: vi.fn(),
@@ -49,7 +47,7 @@ vi.mock('../../src/util/child', () => ({
 }));
 
 // Mock the git utilities
-vi.mock('../../src/util/git', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     localBranchExists: vi.fn(),
     remoteBranchExists: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
@@ -97,9 +95,7 @@ describe('development command', () => {
         // Import modules after mocking
         const { getDryRunLogger } = await import('../../src/logging');
         const { create: createStorage } = await import('../../src/util/storage');
-        const { run, runSecure, validateGitRef } = await import('../../src/util/child');
-        const { localBranchExists, safeSyncBranchWithRemote, getCurrentBranch } = await import('../../src/util/git');
-        const { safeJsonParse, validatePackageJson } = await import('../../src/util/validation');
+        const { run, runSecure, validateGitRef, localBranchExists, safeSyncBranchWithRemote, getCurrentBranch, safeJsonParse, validatePackageJson } = await import('@eldrforge/git-tools');
         const { execute: commitExecute } = await import('../../src/commands/commit');
         Development = await import('../../src/commands/development');
 

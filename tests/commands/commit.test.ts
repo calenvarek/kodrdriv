@@ -31,7 +31,7 @@ vi.mock('../../src/prompt/commit', () => ({
     createPrompt: vi.fn().mockResolvedValue('mock prompt')
 }));
 
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
@@ -130,8 +130,21 @@ vi.mock('../../src/util/safety', () => ({
     logFileDependencySuggestions: vi.fn()
 }));
 
-vi.mock('../../src/util/validation', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
     validateString: vi.fn((str) => str),
+    safeJsonParse: vi.fn(),
+    validatePackageJson: vi.fn()
+}));
+
+vi.mock('../../src/util/validation', () => ({
     sanitizeDirection: vi.fn((val) => val)
 }));
 
@@ -240,7 +253,7 @@ describe('commit', () => {
         CommitPrompt = await import('../../src/prompt/commit');
         Diff = await import('../../src/content/diff');
         Files = await import('../../src/content/files');
-        Child = await import('../../src/util/child');
+        Child = await import('@eldrforge/git-tools');
         OpenAI = await import('../../src/util/openai');
         MinorPrompt = await import('@riotprompt/riotprompt');
         Log = await import('../../src/content/log');

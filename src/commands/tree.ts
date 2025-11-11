@@ -33,18 +33,16 @@
 import path from 'path';
 import fs from 'fs/promises';
 import child_process, { exec } from 'child_process';
-import { runSecure } from '../util/child';
+import { runSecure, safeJsonParse, validatePackageJson, getGitStatusSummary, getGloballyLinkedPackages, getLinkedDependencies, getLinkCompatibilityProblems } from '@eldrforge/git-tools';
 import util from 'util';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { safeJsonParse, validatePackageJson } from '../util/validation';
 import { getOutputPath } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Commit from './commit';
 import * as Link from './link';
 import * as Unlink from './unlink';
-import { getGitStatusSummary, getGloballyLinkedPackages, getLinkedDependencies, getLinkCompatibilityProblems } from '../util/git';
 
 // Track published versions during tree publish
 interface PublishedVersion {

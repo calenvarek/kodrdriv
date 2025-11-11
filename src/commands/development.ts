@@ -16,8 +16,7 @@
 
 import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
-import { run } from '../util/child';
-import { localBranchExists, getCurrentBranch } from '../util/git';
+import { run, localBranchExists, getCurrentBranch } from '@eldrforge/git-tools';
 import { findDevelopmentBranch } from '../util/general';
 import { KODRDRIV_DEFAULTS } from '../constants';
 

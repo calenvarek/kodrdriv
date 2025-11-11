@@ -69,6 +69,7 @@ export default defineConfig({
         },
         rollupOptions: {
             external: [
+                '@eldrforge/git-tools',
                 '@theunwalked/dreadcabinet',
                 '@theunwalked/cardigantime',
                 '@theunwalked/unplayable',

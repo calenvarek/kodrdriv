@@ -12,8 +12,8 @@
     "url": "git+https://github.com/calenvarek/kodrdriv.git"
   },
   "scripts": {
-    "build": "npm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist && chmod 755 ./dist/main.js",
-    "start": "dist/main.js",
+    "build": "npm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist/kodrdriv && chmod 755 ./dist/kodrdriv/src/main.js",
+    "start": "dist/kodrdriv/src/main.js",
     "dev": "vite",
     "watch": "vite build --watch",
     "test": "vitest run --coverage",

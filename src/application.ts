@@ -20,6 +20,7 @@ import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMA
 import { UserCancellationError } from './error/CommandErrors';
 import { getLogger, setLogLevel } from './logging';
 import { Config, SecureConfig } from './types';
+import { setLogger as setGitToolsLogger } from '@eldrforge/git-tools';
 
 /**
  * Print debug information about the command being executed when debug flag is enabled.
@@ -97,6 +98,9 @@ export async function runApplication(): Promise<void> {
 
     const logger = getLogger();
     cardigantime.setLogger(logger);
+    
+    // Configure git-tools to use kodrdriv's logger
+    setGitToolsLogger(logger);
 
     // Display version information
     logger.info('🚀 kodrdriv %s', VERSION);

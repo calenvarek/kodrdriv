@@ -51,9 +51,14 @@ vi.mock('../../src/logging', () => ({
     })
 }));
 
-vi.mock('../../src/util/validation', () => ({
-    validateReleaseSummary: vi.fn().mockImplementation((data) => data),
+vi.mock('@eldrforge/git-tools', () => ({
+    getDefaultFromRef: vi.fn(),
+    getCurrentBranch: vi.fn(),
     safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text))
+}));
+
+vi.mock('../../src/util/validation', () => ({
+    validateReleaseSummary: vi.fn().mockImplementation((data) => data)
 }));
 
 vi.mock('../../src/util/github', () => ({

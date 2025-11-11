@@ -7,7 +7,7 @@ vi.mock('../../src/util/storage', () => ({
     create: vi.fn()
 }));
 
-vi.mock('../../src/util/child', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
     run: vi.fn(),
     runSecure: vi.fn(),
     runWithDryRunSupport: vi.fn(),
@@ -26,7 +26,9 @@ vi.mock('../../src/logging', () => ({
 
 vi.mock('../../src/util/performance');
 
-vi.mock('../../src/util/validation', () => ({
+vi.mock('@eldrforge/git-tools', () => ({
+    run: vi.fn(),
+    runSecure: vi.fn(),
     safeJsonParse: vi.fn(),
     validatePackageJson: vi.fn()
 }));
@@ -90,7 +92,7 @@ describe('Link Command', () => {
         (Storage.create as any).mockReturnValue(mockStorage);
 
         // child
-        const Child = await import('../../src/util/child');
+        const Child = await import('@eldrforge/git-tools');
         mockRun = vi.mocked(Child.run);
         mockRunSecure = vi.mocked(Child.runSecure);
 
@@ -98,8 +100,8 @@ describe('Link Command', () => {
         const { findAllPackageJsonFiles } = await import('../../src/util/performance');
         mockFindAllPackageJsonFiles = vi.mocked(findAllPackageJsonFiles);
 
-        // validation
-        const { safeJsonParse, validatePackageJson } = await import('../../src/util/validation');
+        // validation from git-tools
+        const { safeJsonParse, validatePackageJson } = await import('@eldrforge/git-tools');
         mockSafeJsonParse = vi.mocked(safeJsonParse);
         mockValidatePackageJson = vi.mocked(validatePackageJson);
 
