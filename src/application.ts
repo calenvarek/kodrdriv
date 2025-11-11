@@ -98,7 +98,7 @@ export async function runApplication(): Promise<void> {
 
     const logger = getLogger();
     cardigantime.setLogger(logger);
-    
+
     // Configure git-tools to use kodrdriv's logger
     setGitToolsLogger(logger);
 

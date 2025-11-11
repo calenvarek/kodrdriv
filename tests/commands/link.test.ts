@@ -27,9 +27,38 @@ vi.mock('../../src/logging', () => ({
 vi.mock('../../src/util/performance');
 
 vi.mock('@eldrforge/git-tools', () => ({
+    // Process execution
     run: vi.fn(),
     runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn(),
+    getRemoteDefaultBranch: vi.fn(),
+    localBranchExists: vi.fn(),
+    remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
+    isBranchInSyncWithRemote: vi.fn(),
+    safeSyncBranchWithRemote: vi.fn(),
+    getCurrentBranch: vi.fn(),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn(),
+    // Validation
     safeJsonParse: vi.fn(),
+    validateString: vi.fn(),
+    validateHasProperty: vi.fn(),
     validatePackageJson: vi.fn()
 }));
 

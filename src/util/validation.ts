@@ -1,7 +1,7 @@
 /**
  * Runtime validation utilities for safe type handling
- * 
- * Note: Generic validation functions (safeJsonParse, validateString, etc.) 
+ *
+ * Note: Generic validation functions (safeJsonParse, validateString, etc.)
  * have been moved to @eldrforge/git-tools
  */
 

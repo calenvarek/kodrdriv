@@ -281,7 +281,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Determine target branch from config
             const targetBranch = allBranchConfig && (allBranchConfig as any)[workingBranch]?.targetBranch || 'main';
             const targetBranchExists = await localBranchExists(targetBranch);
-            
+
             if (targetBranchExists) {
                 logger.info(`🔄 Syncing ${workingBranch} with target branch '${targetBranch}'...`);
                 try {
@@ -295,11 +295,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
                         try {
                             await run(`git merge ${targetBranch} --no-ff -m "Merge ${targetBranch} into ${workingBranch} for sync"`);
                             logger.info(`✅ Merged ${targetBranch} into ${workingBranch}`);
-                            
+
                             // Run npm install after merge
                             logger.info('📦 Running npm install after merge...');
                             await run('npm install');
-                            
+
                             // Check if npm install created changes
                             const gitStatus = await run('git status --porcelain');
                             if (gitStatus.stdout.trim()) {

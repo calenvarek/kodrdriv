@@ -139,9 +139,29 @@ vi.mock('@eldrforge/git-tools', () => ({
     runSecureWithInheritedStdio: vi.fn(),
     validateGitRef: vi.fn(),
     validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
     validateString: vi.fn((str) => str),
+    validateHasProperty: vi.fn(),
     safeJsonParse: vi.fn(),
-    validatePackageJson: vi.fn()
+    validatePackageJson: vi.fn(),
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn(),
+    getRemoteDefaultBranch: vi.fn(),
+    localBranchExists: vi.fn(),
+    remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
+    isBranchInSyncWithRemote: vi.fn(),
+    safeSyncBranchWithRemote: vi.fn(),
+    getCurrentBranch: vi.fn(),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn()
 }));
 
 vi.mock('../../src/util/validation', () => ({
@@ -299,7 +319,7 @@ describe('commit', () => {
         // @ts-ignore
         Safety.checkForFileDependencies.mockClear?.();
         // @ts-ignore
-        Validation.validateString.mockClear?.();
+        Child.validateString.mockClear?.();
         mockExit.mockClear();
 
         // Reset the default mocks for new functions
@@ -312,7 +332,7 @@ describe('commit', () => {
         // @ts-ignore
         OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
         // @ts-ignore
-        Validation.validateString.mockImplementation((str) => str);
+        Child.validateString.mockImplementation((str) => str);
 
         // Set up default Child.run mock for git commands
         // @ts-ignore
@@ -1038,7 +1058,7 @@ describe('commit', () => {
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
             OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
-            Validation.validateString.mockReturnValue(mockSummary);
+            Child.validateString.mockReturnValue(mockSummary);
             Child.run.mockResolvedValue({ stdout: 'Success' });
             shellescape.mockReturnValue("'test: add feature'");
 
@@ -1047,7 +1067,7 @@ describe('commit', () => {
 
             // Assert
             expect(result).toBe(mockSummary);
-            expect(Validation.validateString).toHaveBeenCalledWith(mockSummary, 'commit summary');
+            expect(Child.validateString).toHaveBeenCalledWith(mockSummary, 'commit summary');
         });
 
         it('should handle validation error', async () => {
@@ -1065,7 +1085,7 @@ describe('commit', () => {
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
             OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
-            Validation.validateString.mockImplementation(() => {
+            Child.validateString.mockImplementation(() => {
                 throw new Error('Invalid commit message');
             });
 
@@ -1351,7 +1371,7 @@ describe('commit', () => {
             // @ts-ignore
             Safety.checkForFileDependencies.mockClear?.();
             // @ts-ignore
-            Validation.validateString.mockClear?.();
+            Child.validateString.mockClear?.();
 
             // Reset mock return values to defaults
             // @ts-ignore
@@ -1363,7 +1383,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
             // @ts-ignore
-            Validation.validateString.mockImplementation((str) => str);
+            Child.validateString.mockImplementation((str) => str);
         });
 
         it('should show message when sendit is enabled but no actual changes to commit', async () => {
@@ -2151,7 +2171,7 @@ describe('commit', () => {
             // @ts-ignore
             Safety.checkForFileDependencies.mockClear?.();
             // @ts-ignore
-            Validation.validateString.mockClear?.();
+            Child.validateString.mockClear?.();
 
             // Default mocks for interactive tests
             // @ts-ignore
@@ -2169,7 +2189,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
             // @ts-ignore
-            Validation.validateString.mockImplementation((str) => str);
+            Child.validateString.mockImplementation((str) => str);
             // @ts-ignore
             shellescape.mockImplementation((args) => args.join(' '));
 

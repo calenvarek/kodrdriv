@@ -31,12 +31,9 @@ vi.mock('../../src/util/storage', () => ({
 
 // Mock git-tools (includes child, git, and validation functions)
 vi.mock('@eldrforge/git-tools', () => ({
+    // Process execution
     run: vi.fn(),
     runSecure: vi.fn(),
-    localBranchExists: vi.fn(),
-    getCurrentBranch: vi.fn(),
-    safeJsonParse: vi.fn(),
-    validatePackageJson: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
     runWithInheritedStdio: vi.fn(),
     runWithDryRunSupport: vi.fn(),
@@ -44,15 +41,32 @@ vi.mock('@eldrforge/git-tools', () => ({
     validateGitRef: vi.fn(),
     validateFilePath: vi.fn(),
     escapeShellArg: vi.fn(),
-}));
-
-// Mock the git utilities
-vi.mock('@eldrforge/git-tools', () => ({
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn(),
+    getRemoteDefaultBranch: vi.fn(),
     localBranchExists: vi.fn(),
     remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
+    isBranchInSyncWithRemote: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
     getCurrentBranch: vi.fn(),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn(),
+    // Validation
+    safeJsonParse: vi.fn(),
+    validateString: vi.fn(),
+    validateHasProperty: vi.fn(),
+    validatePackageJson: vi.fn()
 }));
+
+// git-tools mock is already defined above
 
 // Mock the GitHub utilities
 vi.mock('../../src/util/github', () => ({
