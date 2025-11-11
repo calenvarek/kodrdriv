@@ -2704,10 +2704,11 @@ describe('commit', () => {
 
             // Assert
             expect(mockStorage.readFile).toHaveBeenCalledWith('package.json', 'utf-8');
-            // The version is being read but the validation is failing, so it falls back to undefined
-            expect(getRecentClosedIssuesForCommit).toHaveBeenCalledWith(undefined, 10);
-            expect(mockLogger.debug).toHaveBeenCalledWith('Could not determine current version, fetching recent issues without milestone filtering...');
-            expect(mockLogger.debug).toHaveBeenCalledWith(`Fetched general GitHub issues context (${mockGithubIssues.length} characters)`);
+            // With git-tools mocks working, the version is now properly extracted
+            expect(getRecentClosedIssuesForCommit).toHaveBeenCalledWith('1.2.3', 10);
+            expect(mockLogger.debug).toHaveBeenCalledWith('Found current version: 1.2.3, fetching related GitHub issues...');
+            // Check for the issues context message (without "general" since version was found)
+            expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('Fetched GitHub issues context'));
         });
 
         it('should fetch general GitHub issues when no version is available', async () => {
