@@ -142,8 +142,8 @@ vi.mock('@eldrforge/git-tools', () => ({
     escapeShellArg: vi.fn(),
     validateString: vi.fn((str) => str),
     validateHasProperty: vi.fn(),
-    safeJsonParse: vi.fn(),
-    validatePackageJson: vi.fn(),
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text)),
+    validatePackageJson: vi.fn().mockImplementation((data: any) => data),
     // Git operations
     isValidGitRef: vi.fn(),
     findPreviousReleaseTag: vi.fn(),

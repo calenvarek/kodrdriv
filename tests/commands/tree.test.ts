@@ -74,10 +74,26 @@ vi.mock('@eldrforge/git-tools', () => ({
     getLinkProblems: vi.fn(),
     isNpmLinked: vi.fn(),
     // Validation
-    safeJsonParse: vi.fn(),
-    validateString: vi.fn(),
-    validateHasProperty: vi.fn(),
-    validatePackageJson: vi.fn()
+    safeJsonParse: vi.fn().mockImplementation((text: string, context?: string) => {
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            throw new Error(`Failed to parse JSON${context ? ` (${context})` : ''}: ${e}`);
+        }
+    }),
+    validateString: vi.fn().mockImplementation((val: any, name: string) => {
+        if (typeof val !== 'string') throw new Error(`${name} must be a string`);
+        return val;
+    }),
+    validateHasProperty: vi.fn().mockImplementation((obj: any, prop: string) => {
+        if (!obj || !(prop in obj)) throw new Error(`Missing property: ${prop}`);
+    }),
+    validatePackageJson: vi.fn().mockImplementation((data: any, context?: string) => {
+        if (!data || typeof data !== 'object') {
+            throw new Error(`Invalid package.json${context ? ` (${context})` : ''}`);
+        }
+        return data;
+    })
 }));
 
 vi.mock('../../src/commands/commit', () => ({

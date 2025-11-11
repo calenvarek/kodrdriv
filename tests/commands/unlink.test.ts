@@ -75,10 +75,10 @@ vi.mock('@eldrforge/git-tools', () => ({
     getLinkProblems: vi.fn(),
     isNpmLinked: vi.fn(),
     // Validation
-    safeJsonParse: vi.fn(),
-    validateString: vi.fn(),
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text)),
+    validateString: vi.fn().mockImplementation((val: any) => val),
     validateHasProperty: vi.fn(),
-    validatePackageJson: vi.fn()
+    validatePackageJson: vi.fn().mockImplementation((data: any) => data)
 }));
 
 // Mock fs/promises
