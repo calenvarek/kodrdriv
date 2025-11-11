@@ -29,14 +29,9 @@ vi.mock('../../src/util/storage', () => ({
     })
 }));
 
-// Mock the validation module
-vi.mock('../../src/util/validation', () => ({
-    safeJsonParse: vi.fn(),
-    validatePackageJson: vi.fn(),
-}));
-
-// Mock the child process module
-vi.mock('../../src/util/child', () => ({
+// Mock git-tools (includes child, git, and validation functions)
+vi.mock('@eldrforge/git-tools', () => ({
+    // Process execution
     run: vi.fn(),
     runSecure: vi.fn(),
     runSecureWithInheritedStdio: vi.fn(),
@@ -46,15 +41,32 @@ vi.mock('../../src/util/child', () => ({
     validateGitRef: vi.fn(),
     validateFilePath: vi.fn(),
     escapeShellArg: vi.fn(),
-}));
-
-// Mock the git utilities
-vi.mock('../../src/util/git', () => ({
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn(),
+    getRemoteDefaultBranch: vi.fn(),
     localBranchExists: vi.fn(),
     remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
+    isBranchInSyncWithRemote: vi.fn(),
     safeSyncBranchWithRemote: vi.fn(),
     getCurrentBranch: vi.fn(),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn(),
+    // Validation
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text)),
+    validateString: vi.fn().mockImplementation((val: any) => val),
+    validateHasProperty: vi.fn(),
+    validatePackageJson: vi.fn().mockImplementation((data: any) => data)
 }));
+
+// git-tools mock is already defined above
 
 // Mock the GitHub utilities
 vi.mock('../../src/util/github', () => ({
@@ -97,9 +109,7 @@ describe('development command', () => {
         // Import modules after mocking
         const { getDryRunLogger } = await import('../../src/logging');
         const { create: createStorage } = await import('../../src/util/storage');
-        const { run, runSecure, validateGitRef } = await import('../../src/util/child');
-        const { localBranchExists, safeSyncBranchWithRemote, getCurrentBranch } = await import('../../src/util/git');
-        const { safeJsonParse, validatePackageJson } = await import('../../src/util/validation');
+        const { run, runSecure, validateGitRef, localBranchExists, safeSyncBranchWithRemote, getCurrentBranch, safeJsonParse, validatePackageJson } = await import('@eldrforge/git-tools');
         const { execute: commitExecute } = await import('../../src/commands/commit');
         Development = await import('../../src/commands/development');
 

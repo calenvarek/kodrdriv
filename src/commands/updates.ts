@@ -15,7 +15,7 @@
 
 import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
-import { run } from '../util/child';
+import { run } from '@eldrforge/git-tools';
 
 /**
  * Execute the updates command

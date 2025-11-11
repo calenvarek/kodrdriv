@@ -1,6 +1,6 @@
 import path from 'path';
 import { getLogger } from '../logging';
-import { safeJsonParse, validatePackageJson } from './validation';
+import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 
 interface PackageJson {
     name?: string;

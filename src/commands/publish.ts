@@ -6,13 +6,11 @@ import * as Release from './release';
 
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
-import { run, runWithDryRunSupport, runSecure, validateGitRef } from '../util/child';
+import { run, runWithDryRunSupport, runSecure, validateGitRef, safeJsonParse, validatePackageJson, isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '@eldrforge/git-tools';
 import * as GitHub from '../util/github';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
-import { safeJsonParse, validatePackageJson } from '../util/validation';
-import { isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '../util/git';
 import fs from 'fs/promises';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {

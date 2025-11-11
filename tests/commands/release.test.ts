@@ -51,9 +51,44 @@ vi.mock('../../src/logging', () => ({
     })
 }));
 
+vi.mock('@eldrforge/git-tools', () => ({
+    // Process execution
+    run: vi.fn(),
+    runSecure: vi.fn(),
+    runSecureWithInheritedStdio: vi.fn(),
+    runWithInheritedStdio: vi.fn(),
+    runWithDryRunSupport: vi.fn(),
+    runSecureWithDryRunSupport: vi.fn(),
+    validateGitRef: vi.fn(),
+    validateFilePath: vi.fn(),
+    escapeShellArg: vi.fn(),
+    // Git operations
+    isValidGitRef: vi.fn(),
+    findPreviousReleaseTag: vi.fn(),
+    getCurrentVersion: vi.fn(),
+    getDefaultFromRef: vi.fn().mockResolvedValue('main'),
+    getRemoteDefaultBranch: vi.fn(),
+    localBranchExists: vi.fn(),
+    remoteBranchExists: vi.fn(),
+    getBranchCommitSha: vi.fn(),
+    isBranchInSyncWithRemote: vi.fn(),
+    safeSyncBranchWithRemote: vi.fn(),
+    getCurrentBranch: vi.fn().mockResolvedValue('working'),
+    getGitStatusSummary: vi.fn(),
+    getGloballyLinkedPackages: vi.fn(),
+    getLinkedDependencies: vi.fn(),
+    getLinkCompatibilityProblems: vi.fn(),
+    getLinkProblems: vi.fn(),
+    isNpmLinked: vi.fn(),
+    // Validation
+    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text)),
+    validateString: vi.fn(),
+    validateHasProperty: vi.fn(),
+    validatePackageJson: vi.fn()
+}));
+
 vi.mock('../../src/util/validation', () => ({
-    validateReleaseSummary: vi.fn().mockImplementation((data) => data),
-    safeJsonParse: vi.fn().mockImplementation((text: string) => JSON.parse(text))
+    validateReleaseSummary: vi.fn().mockImplementation((data) => data)
 }));
 
 vi.mock('../../src/util/github', () => ({
@@ -112,10 +147,7 @@ vi.mock('@riotprompt/riotprompt', () => ({
     }
 }));
 
-vi.mock('../../src/util/git', () => ({
-    getDefaultFromRef: vi.fn().mockResolvedValue('main'),
-    getCurrentBranch: vi.fn().mockResolvedValue('working')
-}));
+// git-tools mock above already includes getDefaultFromRef and getCurrentBranch
 
 describe('release command', () => {
     let Release: any;

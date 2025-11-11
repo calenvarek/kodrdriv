@@ -15,7 +15,7 @@ import fs from 'fs/promises';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import { create as createStorage } from '../util/storage';
-import { safeJsonParse, validatePackageJson } from '../util/validation';
+import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 
 
 interface PackageInfo {

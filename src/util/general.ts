@@ -289,8 +289,7 @@ export const convertToReleaseVersion = (version: string): string => {
  * Get version from a specific branch's package.json
  */
 export const getVersionFromBranch = async (branchName: string): Promise<string | null> => {
-    const { runSecure, validateGitRef } = await import('./child');
-    const { safeJsonParse, validatePackageJson } = await import('./validation');
+    const { runSecure, validateGitRef, safeJsonParse, validatePackageJson } = await import('@eldrforge/git-tools');
 
     try {
         // Validate branch name to prevent injection
@@ -468,7 +467,7 @@ export const haveSamePrereleaseTag = (version1: string, version2: string): boole
 };
 
 export const checkIfTagExists = async (tagName: string): Promise<boolean> => {
-    const { runSecure, validateGitRef } = await import('./child');
+    const { runSecure, validateGitRef } = await import('@eldrforge/git-tools');
     try {
         // Validate tag name to prevent injection
         if (!validateGitRef(tagName)) {
