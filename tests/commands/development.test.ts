@@ -69,7 +69,7 @@ vi.mock('@eldrforge/git-tools', () => ({
 // git-tools mock is already defined above
 
 // Mock the GitHub utilities
-vi.mock('../../src/util/github', () => ({
+vi.mock('@eldrforge/github-tools', () => ({
     ensureMilestoneForVersion: vi.fn(),
     closeMilestoneForVersion: vi.fn(),
     findMilestoneByTitle: vi.fn(),
@@ -452,7 +452,7 @@ describe('development command', () => {
             await Development.execute(runConfig);
 
             // Should not call milestone management
-            const GitHubModule = await import('../../src/util/github');
+            const GitHubModule = await import('@eldrforge/github-tools');
             expect(GitHubModule.ensureMilestoneForVersion).not.toHaveBeenCalled();
         });
 

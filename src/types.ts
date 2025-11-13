@@ -187,7 +187,7 @@ export type MergeMethod = 'merge' | 'squash' | 'rebase';
 export interface PullRequest {
     html_url: string;
     number: number;
-    labels: {
+    labels?: {
         name: string;
     }[];
 }

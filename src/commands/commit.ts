@@ -18,7 +18,7 @@ import { createCompletionWithRetry, getModelForCommand, getOpenAIReasoningForCom
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
-import { getRecentClosedIssuesForCommit } from '../util/github';
+import { getRecentClosedIssuesForCommit } from '@eldrforge/github-tools';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import {
     getUserChoice,

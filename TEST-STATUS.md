@@ -138,7 +138,7 @@ To verify core functionality works:
 
 ```bash
 # Build
-cd /Users/tobrien/gitw/calenvarek/kodrdriv
+cd kodrdriv
 npm run build
 
 # Test basic commands
