@@ -26,12 +26,31 @@ export const getCurrentBranchName = async (): Promise<string> => {
 export const getRepoDetails = async (): Promise<{ owner: string; repo: string }> => {
     const { stdout } = await run('git remote get-url origin');
     const url = stdout.trim();
-    // git@github.com:owner/repo.git or https://github.com/owner/repo.git
-    const match = url.match(/github\.com[/:]([\w-]+)\/([\w.-]+)\.git/);
+
+    // Extract owner/repo from the URL - just look for the pattern owner/repo at the end
+    // Works with any hostname or SSH alias:
+    // - git@github.com:owner/repo.git
+    // - git@github.com-fjell:owner/repo.git
+    // - https://github.com/owner/repo.git
+    // - ssh://git@host/owner/repo.git
+    // Two cases:
+    // 1. SSH format: :owner/repo (after colon)
+    // 2. HTTPS format: //hostname/owner/repo (need at least 2 path segments)
+    const match = url.match(/(?::([^/:]+)\/([^/:]+)|\/\/[^/]+\/([^/:]+)\/([^/:]+))(?:\.git)?$/);
     if (!match) {
-        throw new Error(`Could not parse repository owner and name from origin URL: "${url}". Expected format: git@github.com:owner/repo.git or https://github.com/owner/repo.git`);
+        throw new Error(`Could not parse repository owner and name from origin URL: "${url}". Expected format: git@host:owner/repo.git or https://host/owner/repo.git`);
     }
-    return { owner: match[1], repo: match[2] };
+
+    // Match groups: either [1,2] for SSH or [3,4] for HTTPS
+    const owner = match[1] || match[3];
+    let repo = match[2] || match[4];
+
+    // Strip .git extension if present
+    if (repo.endsWith('.git')) {
+        repo = repo.slice(0, -4);
+    }
+
+    return { owner, repo };
 };
 
 // GitHub API limit for pull request titles

@@ -163,7 +163,7 @@ describe('GitHub Utilities', () => {
         it('should throw an error for an invalid url', async () => {
             mockRun.mockResolvedValue({ stdout: 'invalid-url' });
             await expect(GitHub.getRepoDetails()).rejects.toThrow(
-                'Could not parse repository owner and name from origin URL: "invalid-url". Expected format: git@github.com:owner/repo.git or https://github.com/owner/repo.git'
+                'Could not parse repository owner and name from origin URL: "invalid-url". Expected format: git@host:owner/repo.git or https://host/owner/repo.git'
             );
         });
 
@@ -187,9 +187,8 @@ describe('GitHub Utilities', () => {
 
         it('should handle URLs without .git extension', async () => {
             mockRun.mockResolvedValue({ stdout: 'https://github.com/owner/repo' });
-            await expect(GitHub.getRepoDetails()).rejects.toThrow(
-                'Could not parse repository owner and name from origin URL'
-            );
+            const details = await GitHub.getRepoDetails();
+            expect(details).toEqual({ owner: 'owner', repo: 'repo' });
         });
 
         it('should handle URLs with whitespace and newlines', async () => {
@@ -200,16 +199,14 @@ describe('GitHub Utilities', () => {
 
         it('should handle ssh URLs with custom ports', async () => {
             mockRun.mockResolvedValue({ stdout: 'ssh://git@github.com:2222/owner/repo.git' });
-            await expect(GitHub.getRepoDetails()).rejects.toThrow(
-                'Could not parse repository owner and name from origin URL'
-            );
+            const details = await GitHub.getRepoDetails();
+            expect(details).toEqual({ owner: 'owner', repo: 'repo' });
         });
 
         it('should handle non-GitHub URLs', async () => {
             mockRun.mockResolvedValue({ stdout: 'git@gitlab.com:owner/repo.git' });
-            await expect(GitHub.getRepoDetails()).rejects.toThrow(
-                'Could not parse repository owner and name from origin URL'
-            );
+            const details = await GitHub.getRepoDetails();
+            expect(details).toEqual({ owner: 'owner', repo: 'repo' });
         });
 
         it('should handle empty git output', async () => {
@@ -221,9 +218,20 @@ describe('GitHub Utilities', () => {
 
         it('should handle GitHub Enterprise URLs', async () => {
             mockRun.mockResolvedValue({ stdout: 'git@github.enterprise.com:owner/repo.git' });
-            await expect(GitHub.getRepoDetails()).rejects.toThrow(
-                'Could not parse repository owner and name from origin URL'
-            );
+            const details = await GitHub.getRepoDetails();
+            expect(details).toEqual({ owner: 'owner', repo: 'repo' });
+        });
+
+        it('should handle SSH host aliases (e.g., github.com-fjell)', async () => {
+            mockRun.mockResolvedValue({ stdout: 'git@github.com-fjell:owner/repo.git' });
+            const details = await GitHub.getRepoDetails();
+            expect(details).toEqual({ owner: 'owner', repo: 'repo' });
+        });
+
+        it('should handle any custom hostname', async () => {
+            mockRun.mockResolvedValue({ stdout: 'git@my-custom-host:owner/repo.git' });
+            const details = await GitHub.getRepoDetails();
+            expect(details).toEqual({ owner: 'owner', repo: 'repo' });
         });
     });
 

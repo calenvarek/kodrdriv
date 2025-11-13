@@ -39,6 +39,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@eldrforge/git-tools": "^0.1.1",
+    "@eldrforge/github-tools": "file:../github-tools",
     "@octokit/rest": "^22.0.0",
     "@riotprompt/riotprompt": "^0.0.8",
     "@theunwalked/cardigantime": "^0.0.16",
