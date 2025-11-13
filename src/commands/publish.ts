@@ -7,7 +7,7 @@ import * as Release from './release';
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
 import { run, runWithDryRunSupport, runSecure, validateGitRef, safeJsonParse, validatePackageJson, isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '@eldrforge/git-tools';
-import * as GitHub from '../util/github';
+import * as GitHub from '@eldrforge/github-tools';
 import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';

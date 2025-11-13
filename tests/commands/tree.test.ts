@@ -2582,6 +2582,18 @@ describe('tree', () => {
             // Mock second publish succeeds
             mockExecPromise.mockResolvedValueOnce({ stdout: 'Published', stderr: '' });
 
+            // Mock git tag commands to extract published versions
+            // extractPublishedVersion calls run('git tag --sort=-version:refname', { cwd: packageDir })
+            // We'll return a simple version tag for any git tag command
+            mockRun.mockImplementation((cmd: string, options?: any) => {
+                if (cmd.includes('git tag')) {
+                    // Return a simple version tag (matches package version from package.json)
+                    // The cwd tells us which package, but we'll just return generic tags
+                    return Promise.resolve({ stdout: 'v2.0.0', stderr: '' });
+                }
+                return Promise.resolve({ stdout: '', stderr: '' });
+            });
+
             // Mock commit failure
             mockCommitExecute.mockRejectedValue(new Error('Commit failed'));
 

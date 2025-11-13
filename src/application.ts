@@ -1,5 +1,8 @@
 import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
+import { setLogger as setGitLogger } from '@eldrforge/git-tools';
+import { setLogger as setGitHubLogger, setPromptFunction } from '@eldrforge/github-tools';
+import { promptConfirmation } from './util/stdin';
 import { CommandConfig } from 'types';
 import * as Arguments from './arguments';
 import * as AudioCommit from './commands/audio-commit';
@@ -20,7 +23,6 @@ import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMA
 import { UserCancellationError } from './error/CommandErrors';
 import { getLogger, setLogLevel } from './logging';
 import { Config, SecureConfig } from './types';
-import { setLogger as setGitToolsLogger } from '@eldrforge/git-tools';
 
 /**
  * Print debug information about the command being executed when debug flag is enabled.
@@ -99,8 +101,10 @@ export async function runApplication(): Promise<void> {
     const logger = getLogger();
     cardigantime.setLogger(logger);
 
-    // Configure git-tools to use kodrdriv's logger
-    setGitToolsLogger(logger);
+    // Configure external packages to use our logger and prompt
+    setGitLogger(logger);
+    setGitHubLogger(logger);
+    setPromptFunction(promptConfirmation);
 
     // Display version information
     logger.info('🚀 kodrdriv %s', VERSION);

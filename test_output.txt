@@ -3,7 +3,7 @@
 > vitest run --coverage tests/commands/tree.test.ts
 
 
- RUN  v3.2.4 /Users/tobrien/gitw/calenvarek/kodrdriv
+ RUN  v3.2.4 kodrdriv
       Coverage enabled with v8
 
  ❯ tests/commands/tree.test.ts (60 tests | 6 failed) 57ms
@@ -105,12 +105,12 @@ Error: Failed to analyze workspace: Command failed in package package-a
  FAIL  tests/commands/tree.test.ts > tree > built-in command execution > should propagate global options to built-in commands
 AssertionError: expected "spy" to be called at least once
  ❯ tests/commands/tree.test.ts:1105:37
-    1103| 
+    1103|
     1104|             // Verify the command was executed (basic check)
     1105|             expect(mockExecPromise).toHaveBeenCalled();
        |                                     ^
     1106|         });
-    1107| 
+    1107|
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
 

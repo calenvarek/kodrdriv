@@ -70,6 +70,7 @@ export default defineConfig({
         rollupOptions: {
             external: [
                 '@eldrforge/git-tools',
+                '@eldrforge/github-tools',
                 '@theunwalked/dreadcabinet',
                 '@theunwalked/cardigantime',
                 '@theunwalked/unplayable',
@@ -82,6 +83,7 @@ export default defineConfig({
                 format: 'esm',
                 entryFileNames: '[name].js',
                 preserveModules: true,
+                preserveModulesRoot: 'src',
                 exports: 'named',
             },
             plugins: [

@@ -1,4 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
+import { getRecentClosedIssuesForCommit } from '@eldrforge/github-tools';
 
 vi.mock('../../src/prompt/prompts', () => ({
     // @ts-ignore
@@ -52,8 +53,8 @@ vi.mock('../../src/util/openai', () => ({
     getOpenAIMaxOutputTokensForCommand: vi.fn()
 }));
 
-vi.mock('../../src/util/github', () => ({
-    // @ts-ignore
+// Mock github-tools package
+vi.mock('@eldrforge/github-tools', () => ({
     getRecentClosedIssuesForCommit: vi.fn()
 }));
 
@@ -333,6 +334,8 @@ describe('commit', () => {
         OpenAI.getModelForCommand.mockReturnValue('gpt-3.5-turbo');
         // @ts-ignore
         Child.validateString.mockImplementation((str) => str);
+        // Reset github-tools mock to return empty string by default
+        vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue('');
 
         // Set up default Child.run mock for git commands
         // @ts-ignore
@@ -641,7 +644,7 @@ describe('commit', () => {
         // Assert
         expect(promptSpy).toHaveBeenCalledWith(
             { overridePaths: [], overrides: false },
-            { diffContent: mockDiffContent, userDirection: undefined, isFileContent: false },
+            { diffContent: mockDiffContent, userDirection: undefined, isFileContent: false, githubIssuesContext: '' },
             { context: mockContext, logContext: mockLogContent, directories: undefined }
         );
     });
@@ -2696,7 +2699,6 @@ describe('commit', () => {
 
             // @ts-ignore
             Storage.create.mockReturnValue(mockStorage);
-            const { getRecentClosedIssuesForCommit } = await import('../../src/util/github');
             vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue(mockGithubIssues);
 
             // Act
@@ -2726,7 +2728,6 @@ describe('commit', () => {
 
             // @ts-ignore
             Storage.create.mockReturnValue(mockStorage);
-            const { getRecentClosedIssuesForCommit } = await import('../../src/util/github');
             vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue(mockGithubIssues);
 
             // Act
@@ -2752,7 +2753,6 @@ describe('commit', () => {
 
             // @ts-ignore
             Storage.create.mockReturnValue(mockStorage);
-            const { getRecentClosedIssuesForCommit } = await import('../../src/util/github');
             vi.mocked(getRecentClosedIssuesForCommit).mockRejectedValue(new Error('GitHub API error'));
 
             // Act
@@ -2778,7 +2778,7 @@ describe('commit', () => {
 
             // @ts-ignore
             Storage.create.mockReturnValue(mockStorage);
-            const { getRecentClosedIssuesForCommit } = await import('../../src/util/github');
+                const { getRecentClosedIssuesForCommit } = await import('@eldrforge/github-tools');
             vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue('');
 
             // Act

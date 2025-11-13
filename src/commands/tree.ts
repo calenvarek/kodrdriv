@@ -33,7 +33,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import child_process, { exec } from 'child_process';
-import { runSecure, safeJsonParse, validatePackageJson, getGitStatusSummary, getGloballyLinkedPackages, getLinkedDependencies, getLinkCompatibilityProblems } from '@eldrforge/git-tools';
+import { run, runSecure, safeJsonParse, validatePackageJson, getGitStatusSummary, getGloballyLinkedPackages, getLinkedDependencies, getLinkCompatibilityProblems } from '@eldrforge/git-tools';
 import util from 'util';
 import { getLogger } from '../logging';
 import { Config } from '../types';
@@ -387,7 +387,9 @@ const validateScripts = async (
     return { valid, missingScripts };
 };
 
-// Extract published version from package.json after successful publish
+// Extract published version from git tags after successful publish
+// After kodrdriv publish, the release version is captured in the git tag,
+// while package.json contains the next dev version
 const extractPublishedVersion = async (
     packageDir: string,
     packageLogger: any
@@ -396,13 +398,45 @@ const extractPublishedVersion = async (
     const packageJsonPath = path.join(packageDir, 'package.json');
 
     try {
+        // Get package name from package.json
         const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
         const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
         const packageJson = validatePackageJson(parsed, packageJsonPath);
 
+        // Get the most recently created tag (by creation date, not version number)
+        // This ensures we get the tag that was just created by the publish, not an older tag with a higher version
+        const { stdout: tagOutput } = await run('git tag --sort=-creatordate', { cwd: packageDir });
+        const tags = tagOutput.trim().split('\n').filter(Boolean);
+
+        if (tags.length === 0) {
+            packageLogger.warn('No git tags found after publish');
+            return null;
+        }
+
+        // Get the most recently created tag (first in the list)
+        const latestTag = tags[0];
+
+        // Extract version from tag, handling various formats:
+        // - v1.2.3 -> 1.2.3
+        // - working/v1.2.3 -> 1.2.3
+        // - main/v1.2.3 -> 1.2.3
+        let version = latestTag;
+
+        // If tag contains a slash (branch prefix), extract everything after it
+        if (version.includes('/')) {
+            version = version.split('/').pop() || version;
+        }
+
+        // Remove 'v' prefix if present
+        if (version.startsWith('v')) {
+            version = version.substring(1);
+        }
+
+        packageLogger.verbose(`Extracted published version from tag: ${latestTag} -> ${version}`);
+
         return {
             packageName: packageJson.name,
-            version: packageJson.version,
+            version: version,
             publishTime: new Date()
         };
     } catch (error: any) {

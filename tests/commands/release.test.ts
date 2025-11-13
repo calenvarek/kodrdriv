@@ -91,7 +91,7 @@ vi.mock('../../src/util/validation', () => ({
     validateReleaseSummary: vi.fn().mockImplementation((data) => data)
 }));
 
-vi.mock('../../src/util/github', () => ({
+vi.mock('@eldrforge/github-tools', () => ({
     getMilestoneIssuesForRelease: vi.fn().mockResolvedValue('')
 }));
 
@@ -171,7 +171,7 @@ describe('release command', () => {
         mockLog = await import('../../src/content/log');
         mockDiff = await import('../../src/content/diff');
         mockReleasePrompt = await import('../../src/prompt/release');
-        mockGithub = await import('../../src/util/github');
+        mockGithub = await import('@eldrforge/github-tools');
     });
 
     beforeEach(async () => {
