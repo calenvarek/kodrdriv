@@ -15,7 +15,7 @@ import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFil
 import { create as createStorage } from '../util/storage';
 import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
 import { safeJsonParse } from '@eldrforge/git-tools';
-import * as GitHub from '../util/github';
+import * as GitHub from '@eldrforge/github-tools';
 import {
     getUserChoice,
     editContentInEditor,

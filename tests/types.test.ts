@@ -323,7 +323,7 @@ describe('Type definitions', () => {
         expect(pr.html_url).toBe('https://github.com/user/repo/pull/123');
         expect(pr.number).toBe(123);
         expect(pr.labels).toHaveLength(2);
-        expect(pr.labels[0].name).toBe('bug');
+        expect(pr.labels?.[0].name).toBe('bug');
     });
 
     it('should have correct ReleaseSummary interface structure', () => {

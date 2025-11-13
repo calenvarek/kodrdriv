@@ -122,7 +122,7 @@ All tests passing in:
 
 ### Build Verification
 ```bash
-cd /Users/tobrien/gitw/calenvarek/kodrdriv
+cd kodrdriv
 npm run clean
 npm run build
 # ✅ SUCCESS - No errors

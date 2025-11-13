@@ -9,8 +9,7 @@ import { createCompletion, getModelForCommand, getOpenAIReasoningForCommand, get
 import * as ReviewPrompt from '../prompt/review';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
-import * as ReleaseNotes from '../content/releaseNotes';
-import * as Issues from '../content/issues';
+import { getReleaseNotesContent, getIssuesContent, handleIssueCreation, type Issue, type ReviewResult } from '@eldrforge/github-tools';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
@@ -281,7 +280,7 @@ const openEditorWithTimeout = async (editorCmd: string, filePath: string, timeou
 };
 
 // Validate API response format before use
-const validateReviewResult = (data: any): Issues.ReviewResult => {
+const validateReviewResult = (data: any): ReviewResult => {
     if (!data || typeof data !== 'object') {
         throw new Error('Invalid API response: expected object, got ' + typeof data);
     }
@@ -314,7 +313,7 @@ const validateReviewResult = (data: any): Issues.ReviewResult => {
         }
     }
 
-    return data as Issues.ReviewResult;
+    return data as ReviewResult;
 };
 
 // Enhanced TTY detection with fallback handling
@@ -377,7 +376,7 @@ const safeWriteFile = async (filePath: string, content: string, encoding: Buffer
 };
 
 // Helper function to process a single review note
-const processSingleReview = async (reviewNote: string, runConfig: Config, outputDirectory: string): Promise<Issues.ReviewResult> => {
+const processSingleReview = async (reviewNote: string, runConfig: Config, outputDirectory: string): Promise<ReviewResult> => {
     const logger = getLogger();
 
     // Gather additional context based on configuration with improved error handling
@@ -430,7 +429,7 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
     if (runConfig.review?.includeReleaseNotes) {
         try {
             logger.debug('Fetching recent release notes from GitHub...');
-            const releaseNotesContent = await ReleaseNotes.get({
+            const releaseNotesContent = await getReleaseNotesContent({
                 limit: runConfig.review.releaseNotesLimit || 3
             });
             if (releaseNotesContent.trim()) {
@@ -448,7 +447,7 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
     if (runConfig.review?.includeGithubIssues) {
         try {
             logger.debug('Fetching open GitHub issues...');
-            issuesContext = await Issues.get({
+            issuesContext = await getIssuesContent({
                 limit: runConfig.review.githubIssuesLimit || 20
             });
             if (issuesContext.trim()) {
@@ -502,7 +501,7 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
     const modelToUse = getModelForCommand(runConfig, 'review');
     const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
 
-    let analysisResult: Issues.ReviewResult;
+    let analysisResult: ReviewResult;
     try {
         const rawResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
             model: modelToUse,
@@ -744,7 +743,7 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
 
     // Phase 2: Process selected files in order
     logger.info(`\n📝 Starting analysis phase...`);
-    const results: Issues.ReviewResult[] = [];
+    const results: ReviewResult[] = [];
     const processedFiles: string[] = [];
 
     if (runConfig.review?.directory) {
@@ -784,7 +783,7 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
     }
 
     // Combine results if we processed multiple files
-    let analysisResult: Issues.ReviewResult;
+    let analysisResult: ReviewResult;
     if (results.length === 1) {
         analysisResult = results[0];
     } else {
@@ -820,7 +819,7 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
 
     // Handle GitHub issue creation using the issues module
     const senditMode = runConfig.review?.sendit || false;
-    return await Issues.handleIssueCreation(analysisResult, senditMode);
+    return await handleIssueCreation(analysisResult, senditMode);
 };
 
 export const execute = async (runConfig: Config): Promise<string> => {

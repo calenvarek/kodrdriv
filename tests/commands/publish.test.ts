@@ -37,7 +37,7 @@ vi.mock('../../src/logging', () => ({
 
 // git-tools mock is defined below to avoid duplicate
 
-vi.mock('../../src/util/github', () => ({
+vi.mock('@eldrforge/github-tools', () => ({
     getCurrentBranchName: vi.fn(),
     findOpenPullRequestByHeadRef: vi.fn(),
     createPullRequest: vi.fn(),
@@ -145,7 +145,7 @@ describe('publish command', () => {
         Release = await import('../../src/commands/release');
         Diff = await import('../../src/content/diff');
         Child = await import('@eldrforge/git-tools');
-        GitHub = await import('../../src/util/github');
+        GitHub = await import('@eldrforge/github-tools');
         Storage = await import('../../src/util/storage');
         General = await import('../../src/util/general');
         Git = await import('@eldrforge/git-tools');

@@ -64,16 +64,37 @@ vi.mock('../../src/content/diff', () => ({
     getReviewExcludedPatterns: mockDiffGetReviewExcludedPatterns
 }));
 
-const mockReleaseNotesGet = vi.fn().mockResolvedValue('mock release notes');
-vi.mock('../../src/content/releaseNotes', () => ({
-    get: mockReleaseNotesGet
-}));
+// Mock github-tools package functions
+const mockGetReleaseNotesContent = vi.fn().mockResolvedValue('mock release notes');
+const mockGetIssuesContent = vi.fn().mockResolvedValue('mock issues content');
+const mockHandleIssueCreation = vi.fn().mockImplementation((result) => {
+    // Return formatted review results matching the actual implementation
+    let output = `📝 Review Results\n\n`;
+    output += `📋 Summary: ${result.summary}\n`;
+    output += `📊 Total Issues Found: ${result.totalIssues}\n\n`;
 
-const mockIssuesGet = vi.fn().mockResolvedValue('mock issues content');
-const mockIssuesHandleIssueCreation = vi.fn().mockResolvedValue('Issues created successfully');
-vi.mock('../../src/content/issues', () => ({
-    get: mockIssuesGet,
-    handleIssueCreation: mockIssuesHandleIssueCreation
+    if (result.issues && result.issues.length > 0) {
+        output += `📝 Issues Identified:\n\n`;
+
+        result.issues.forEach((issue: any, index: number) => {
+            const priorityEmoji = issue.priority === 'high' ? '🔴' :
+                issue.priority === 'medium' ? '🟡' : '🟢';
+
+            output += `${index + 1}. ${priorityEmoji} ${issue.title}\n`;
+            output += `   🔧 Category: ${issue.category} | Priority: ${issue.priority}\n`;
+            output += `   📖 Description: ${issue.description}\n\n`;
+        });
+    }
+
+    output += `🚀 Next Steps: Review the identified issues and prioritize them for your development workflow.`;
+
+    return Promise.resolve(output);
+});
+
+vi.mock('@eldrforge/github-tools', () => ({
+    getReleaseNotesContent: mockGetReleaseNotesContent,
+    getIssuesContent: mockGetIssuesContent,
+    handleIssueCreation: mockHandleIssueCreation
 }));
 
 const mockCreateCompletion = vi.fn().mockResolvedValue({
@@ -203,8 +224,8 @@ describe('review command', () => {
         mockCreatePrompt.mockResolvedValue('mock prompt');
         mockLogGet.mockResolvedValue('mock log content');
         mockDiffGetRecentDiffsForReview.mockResolvedValue('mock diff content');
-        mockReleaseNotesGet.mockResolvedValue('mock release notes');
-        mockIssuesGet.mockResolvedValue('mock issues content');
+        mockGetReleaseNotesContent.mockResolvedValue('mock release notes');
+        mockGetIssuesContent.mockResolvedValue('mock issues content');
         mockCreateCompletion.mockResolvedValue({
             summary: 'Review analysis summary',
             totalIssues: 3,
@@ -214,7 +235,29 @@ describe('review command', () => {
                 { title: 'Issue 3', priority: 'low' }
             ]
         });
-        mockIssuesHandleIssueCreation.mockResolvedValue('Issues created successfully');
+        // Reset mockHandleIssueCreation to use the default implementation
+        mockHandleIssueCreation.mockImplementation((result) => {
+            let output = `📝 Review Results\n\n`;
+            output += `📋 Summary: ${result.summary}\n`;
+            output += `📊 Total Issues Found: ${result.totalIssues}\n\n`;
+
+            if (result.issues && result.issues.length > 0) {
+                output += `📝 Issues Identified:\n\n`;
+
+                result.issues.forEach((issue: any, index: number) => {
+                    const priorityEmoji = issue.priority === 'high' ? '🔴' :
+                        issue.priority === 'medium' ? '🟡' : '🟢';
+
+                    output += `${index + 1}. ${priorityEmoji} ${issue.title}\n`;
+                    output += `   🔧 Category: ${issue.category} | Priority: ${issue.priority}\n`;
+                    output += `   📖 Description: ${issue.description}\n\n`;
+                });
+            }
+
+            output += `🚀 Next Steps: Review the identified issues and prioritize them for your development workflow.`;
+
+            return Promise.resolve(output);
+        });
         mockStorage.ensureDirectory.mockResolvedValue(undefined);
         mockStorage.writeFile.mockResolvedValue(undefined);
         mockDiffGetReviewExcludedPatterns.mockReturnValue(['*.test.ts', '*.spec.ts']);
@@ -354,7 +397,9 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.error).not.toHaveBeenCalled();
         });
     });
@@ -528,7 +573,7 @@ describe('review command', () => {
 
             await Review.execute(runConfig);
 
-            expect(mockReleaseNotesGet).toHaveBeenCalledWith({ limit: 3 });
+            expect(mockGetReleaseNotesContent).toHaveBeenCalledWith({ limit: 3 });
             expect(mockLogger.debug).toHaveBeenCalledWith('Fetching recent release notes from GitHub...');
         });
 
@@ -545,15 +590,15 @@ describe('review command', () => {
 
             await Review.execute(runConfig);
 
-            expect(mockIssuesGet).toHaveBeenCalledWith({ limit: 20 });
+            expect(mockGetIssuesContent).toHaveBeenCalledWith({ limit: 20 });
             expect(mockLogger.debug).toHaveBeenCalledWith('Fetching open GitHub issues...');
         });
 
         it('should handle errors in context gathering gracefully', async () => {
             mockLogGet.mockRejectedValue(new Error('Git log failed'));
             mockDiffGetRecentDiffsForReview.mockRejectedValue(new Error('Diff failed'));
-            mockReleaseNotesGet.mockRejectedValue(new Error('Release notes failed'));
-            mockIssuesGet.mockRejectedValue(new Error('Issues failed'));
+            mockGetReleaseNotesContent.mockRejectedValue(new Error('Release notes failed'));
+            mockGetIssuesContent.mockRejectedValue(new Error('Issues failed'));
 
             const runConfig = {
                 model: 'gpt-4',
@@ -635,7 +680,9 @@ describe('review command', () => {
                 })
             );
 
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle debug mode with debug files', async () => {
@@ -732,8 +779,8 @@ describe('review command', () => {
         it('should include all context sections in review notes file', async () => {
             mockLogGet.mockResolvedValue('commit history content');
             mockDiffGetRecentDiffsForReview.mockResolvedValue('diff content');
-            mockReleaseNotesGet.mockResolvedValue('release notes content');
-            mockIssuesGet.mockResolvedValue('issues content');
+            mockGetReleaseNotesContent.mockResolvedValue('release notes content');
+            mockGetIssuesContent.mockResolvedValue('issues content');
 
             const runConfig = {
                 model: 'gpt-4',
@@ -786,7 +833,9 @@ describe('review command', () => {
 
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save review notes: %s', expect.any(String));
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save timestamped review analysis: %s', expect.any(String));
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should use custom output directory', async () => {
@@ -844,7 +893,7 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(mockIssuesHandleIssueCreation).toHaveBeenCalledWith({
+            expect(mockHandleIssueCreation).toHaveBeenCalledWith({
                 summary: 'Review analysis summary',
                 totalIssues: 3,
                 issues: [
@@ -853,7 +902,9 @@ describe('review command', () => {
                     { title: 'Issue 3', priority: 'low' }
                 ]
             }, true);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle issue creation in interactive mode', async () => {
@@ -879,7 +930,7 @@ describe('review command', () => {
 
                 const result = await Review.execute(runConfig);
 
-                expect(mockIssuesHandleIssueCreation).toHaveBeenCalledWith({
+                expect(mockHandleIssueCreation).toHaveBeenCalledWith({
                     summary: 'Review analysis summary',
                     totalIssues: 3,
                     issues: [
@@ -888,7 +939,9 @@ describe('review command', () => {
                         { title: 'Issue 3', priority: 'low' }
                     ]
                 }, false);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             } finally {
                 process.stdin = originalStdin;
             }
@@ -970,17 +1023,19 @@ describe('review command', () => {
                 limit: 10,
                 baseExcludedPatterns: ['*.spec.ts']
             });
-            expect(mockReleaseNotesGet).toHaveBeenCalledWith({ limit: 5 });
-            expect(mockIssuesGet).toHaveBeenCalledWith({ limit: 25 });
+            expect(mockGetReleaseNotesContent).toHaveBeenCalledWith({ limit: 5 });
+            expect(mockGetIssuesContent).toHaveBeenCalledWith({ limit: 25 });
             expect(mockStorage.ensureDirectory).toHaveBeenCalledWith('custom-output');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle empty context content gracefully', async () => {
             mockLogGet.mockResolvedValue('');
             mockDiffGetRecentDiffsForReview.mockResolvedValue('');
-            mockReleaseNotesGet.mockResolvedValue('');
-            mockIssuesGet.mockResolvedValue('');
+            mockGetReleaseNotesContent.mockResolvedValue('');
+            mockGetIssuesContent.mockResolvedValue('');
 
             const runConfig = {
                 model: 'gpt-4',
@@ -996,12 +1051,14 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             // The context gathering should complete successfully even with empty content
             expect(mockLogGet).toHaveBeenCalled();
             expect(mockDiffGetRecentDiffsForReview).toHaveBeenCalled();
-            expect(mockReleaseNotesGet).toHaveBeenCalled();
-            expect(mockIssuesGet).toHaveBeenCalled();
+            expect(mockGetReleaseNotesContent).toHaveBeenCalled();
+            expect(mockGetIssuesContent).toHaveBeenCalled();
         });
 
         it('should handle analysis with no issues found', async () => {
@@ -1023,15 +1080,17 @@ describe('review command', () => {
 
             expect(mockLogger.debug).toHaveBeenCalledWith('Total issues found: %d', 0);
             expect(mockLogger.debug).toHaveBeenCalledWith('Issues array length: %d', 0);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle maxContextErrors configuration', async () => {
             // Mock multiple context gathering failures
             mockLogGet.mockRejectedValue(new Error('Log context failed'));
             mockDiffGetRecentDiffsForReview.mockRejectedValue(new Error('Diff context failed'));
-            mockReleaseNotesGet.mockRejectedValue(new Error('Release notes context failed'));
-            mockIssuesGet.mockRejectedValue(new Error('Issues context failed'));
+            mockGetReleaseNotesContent.mockRejectedValue(new Error('Release notes context failed'));
+            mockGetIssuesContent.mockRejectedValue(new Error('Issues context failed'));
 
             // Mock fs.readdir to return a file so that the directory processing logic is used
             mockFs.readdir.mockResolvedValue([
@@ -1071,7 +1130,9 @@ describe('review command', () => {
              };
 
              const result = await Review.execute(runConfig);
-             expect(result).toBe('Issues created successfully');
+             expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
          });
     });
 
@@ -1193,7 +1254,9 @@ describe('review command', () => {
                 };
 
                 const result = await Review.execute(runConfig);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
 
                 // Test that editorTimeout was correctly passed through as undefined
                 expect(runConfig.review.editorTimeout).toBeUndefined();
@@ -1333,7 +1396,9 @@ describe('review command', () => {
 
                 // Should still succeed but log warnings about file saves
                 const result = await Review.execute(runConfig);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
                 expect(mockLogger.warn).toHaveBeenCalledWith(
                     'Failed to save review notes: %s',
                     expect.any(String)
@@ -1364,7 +1429,9 @@ describe('review command', () => {
 
                 // Should still succeed but log warnings
                 const result = await Review.execute(runConfig);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
                 expect(mockLogger.warn).toHaveBeenCalledWith(
                     'Failed to save review notes: %s',
                     expect.any(String)
@@ -1393,7 +1460,9 @@ describe('review command', () => {
                     };
 
                     const result = await Review.execute(runConfig);
-                    expect(result).toBe('Issues created successfully');
+                    expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
                 } finally {
                     process.stdin = originalStdin;
                     process.stdout = originalStdout;
@@ -1414,7 +1483,9 @@ describe('review command', () => {
                  };
 
                  const result = await Review.execute(runConfig);
-                 expect(result).toBe('Issues created successfully');
+                 expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
                  // The function should work regardless of TTY detection issues
              });
         });
@@ -1446,7 +1517,9 @@ describe('review command', () => {
 
             // Should not throw despite cleanup error
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             // ENOENT errors should be silently ignored in cleanup
             expect(mockLogger.warn).not.toHaveBeenCalledWith(
                 expect.stringContaining('Failed to cleanup temp file')
@@ -1476,7 +1549,9 @@ describe('review command', () => {
 
             // Should complete successfully despite file system errors for test files
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should validate review note content properly', async () => {
@@ -1490,7 +1565,9 @@ describe('review command', () => {
             };
 
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
 
             // Verify the note was processed
             expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -1503,8 +1580,8 @@ describe('review command', () => {
             // Mix of success and failure
             mockLogGet.mockResolvedValue('successful log content');
             mockDiffGetRecentDiffsForReview.mockRejectedValue(new Error('Diff failed'));
-            mockReleaseNotesGet.mockResolvedValue('successful release notes');
-            mockIssuesGet.mockRejectedValue(new Error('Issues failed'));
+            mockGetReleaseNotesContent.mockResolvedValue('successful release notes');
+            mockGetIssuesContent.mockRejectedValue(new Error('Issues failed'));
 
             const runConfig = {
                 model: 'gpt-4',
@@ -1520,7 +1597,9 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.warn).toHaveBeenCalledWith('Context gathering completed with 2 error(s):');
             expect(mockLogger.warn).toHaveBeenCalledWith('  - Failed to fetch recent diffs: Diff failed');
             expect(mockLogger.warn).toHaveBeenCalledWith('  - Failed to fetch GitHub issues: Issues failed');
@@ -1538,7 +1617,9 @@ describe('review command', () => {
             };
 
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.debug).toHaveBeenCalledWith('Review note length: %d characters', 100000);
         });
 
@@ -1555,7 +1636,9 @@ describe('review command', () => {
             };
 
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
 
             // Verify that the configuration was processed
             expect(mockLogger.debug).toHaveBeenCalledWith(
@@ -1585,7 +1668,9 @@ describe('review command', () => {
                 expect.any(Object),
                 expect.any(Object)
             );
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         // New tests to cover uncovered lines
@@ -1609,7 +1694,9 @@ describe('review command', () => {
                 };
 
                 const result = await Review.execute(runConfig);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             } finally {
                 process.stdin = originalStdin;
                 process.stdout = originalStdout;
@@ -1637,7 +1724,9 @@ describe('review command', () => {
                 };
 
                 const result = await Review.execute(runConfig);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             } finally {
                 process.stdin = originalStdin;
                 process.stdout = originalStdout;
@@ -1665,7 +1754,9 @@ describe('review command', () => {
                 };
 
                 const result = await Review.execute(runConfig);
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
                 expect(mockLogger.debug).toHaveBeenCalledWith(
                     'TTY detection failed: Error: TTY detection failed, assuming non-interactive'
                 );
@@ -1696,7 +1787,9 @@ describe('review command', () => {
 
             // Should still succeed but log warnings
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.warn).toHaveBeenCalledWith(
                 'Failed to save review notes: %s',
                 expect.any(String)
@@ -1719,7 +1812,9 @@ describe('review command', () => {
             };
 
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle validateReviewResult with empty issues array', async () => {
@@ -1738,7 +1833,9 @@ describe('review command', () => {
             };
 
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle validateReviewResult with issues containing null values', async () => {
@@ -1835,8 +1932,8 @@ describe('review command', () => {
             // Mock multiple context gathering failures
             mockLogGet.mockRejectedValue(new Error('Log context failed'));
             mockDiffGetRecentDiffsForReview.mockRejectedValue(new Error('Diff context failed'));
-            mockReleaseNotesGet.mockRejectedValue(new Error('Release notes context failed'));
-            mockIssuesGet.mockRejectedValue(new Error('Issues context failed'));
+            mockGetReleaseNotesContent.mockRejectedValue(new Error('Release notes context failed'));
+            mockGetIssuesContent.mockRejectedValue(new Error('Issues context failed'));
 
             const runConfig = {
                 model: 'gpt-4',
@@ -1851,7 +1948,9 @@ describe('review command', () => {
             };
 
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.warn).toHaveBeenCalledWith('Context gathering completed with 4 error(s):');
         });
 
@@ -1924,7 +2023,9 @@ describe('review command', () => {
             const result = await Review.execute(runConfig);
 
             expect(mockLogger.info).toHaveBeenCalledWith('✅ Successfully processed 2 review files');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
 
             // Verify combined results were saved
             const fs = await import('fs/promises');
@@ -2004,7 +2105,9 @@ describe('review command', () => {
 
             // Should still succeed since exit code is 0
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle editor exit with non-zero code', async () => {
@@ -2078,7 +2181,9 @@ describe('review command', () => {
 
             // Should still succeed but log warnings about file saves
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.warn).toHaveBeenCalledWith(
                 'Failed to save review notes: %s',
                 expect.any(String)
@@ -2107,7 +2212,9 @@ describe('review command', () => {
 
             // Should still succeed but log warnings
             const result = await Review.execute(runConfig);
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             expect(mockLogger.warn).toHaveBeenCalledWith(
                 'Failed to save review notes: %s',
                 expect.any(String)
@@ -2137,7 +2244,9 @@ describe('review command', () => {
             expect(mockLogger.info).toHaveBeenCalledWith('📁 Processing review files in directory: test-reviews');
             expect(mockLogger.info).toHaveBeenCalledWith('📁 Found 3 files to process');
             expect(mockLogger.info).toHaveBeenCalledWith('Auto-selecting all 3 files for processing (--sendit mode)');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should throw error when directory contains no files', async () => {
@@ -2204,7 +2313,9 @@ describe('review command', () => {
             const result = await Review.execute(runConfig);
 
             expect(mockLogger.info).toHaveBeenCalledWith('📁 Found 2 files to process');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should sort files alphabetically', async () => {
@@ -2255,7 +2366,9 @@ describe('review command', () => {
             expect(mockLogger.info).toHaveBeenCalledWith('Found 2 files to review. Select which ones to process:');
             expect(mockLogger.info).toHaveBeenCalledWith('✅ File selected for processing: test-directory/file1.md');
             expect(mockLogger.info).toHaveBeenCalledWith('⏭️  File skipped: test-directory/file2.md');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle abort during file selection', async () => {
@@ -2318,7 +2431,9 @@ describe('review command', () => {
 
             // In sendit mode, the warning about non-interactive environment is not shown
             // because sendit mode auto-selects all files
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle non-interactive environment without sendit', async () => {
@@ -2377,7 +2492,9 @@ describe('review command', () => {
             expect(mockLogger.info).toHaveBeenCalledWith('✅ Successfully processed 2 review files');
             expect(mockLogger.info).toHaveBeenCalledWith('📝 Processing file 1/2: test-directory/file1.md');
             expect(mockLogger.info).toHaveBeenCalledWith('📝 Processing file 2/2: test-directory/file2.md');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
 
             // Verify combined results were saved
             const fs = await import('fs/promises');
@@ -2415,7 +2532,9 @@ describe('review command', () => {
             const result = await Review.execute(runConfig);
 
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to process file test-directory/file2.md: Review analysis failed: Processing failed');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should throw error when no files are processed successfully', async () => {
@@ -2479,7 +2598,9 @@ describe('review command', () => {
 
             expect(mockLogger.info).toHaveBeenCalledWith('📁 Reading review note from file: test-review.md');
             expect(mockLogger.debug).toHaveBeenCalledWith('Successfully read review note from file: test-review.md (29 characters)');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should throw error when review file is empty', async () => {
@@ -2645,8 +2766,8 @@ describe('review command', () => {
         it('should handle empty context content gracefully', async () => {
             mockLogGet.mockResolvedValue('');
             mockDiffGetRecentDiffsForReview.mockResolvedValue('');
-            mockReleaseNotesGet.mockResolvedValue('');
-            mockIssuesGet.mockResolvedValue('');
+            mockGetReleaseNotesContent.mockResolvedValue('');
+            mockGetIssuesContent.mockResolvedValue('');
 
             const runConfig = {
                 model: 'gpt-4',
@@ -2662,12 +2783,14 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             // The context gathering should complete successfully even with empty content
             expect(mockLogGet).toHaveBeenCalled();
             expect(mockDiffGetRecentDiffsForReview).toHaveBeenCalled();
-            expect(mockReleaseNotesGet).toHaveBeenCalled();
-            expect(mockIssuesGet).toHaveBeenCalled();
+            expect(mockGetReleaseNotesContent).toHaveBeenCalled();
+            expect(mockGetIssuesContent).toHaveBeenCalled();
         });
 
         it('should handle context gathering with custom limits', async () => {
@@ -2694,8 +2817,8 @@ describe('review command', () => {
                 limit: 15,
                 baseExcludedPatterns: ['node_modules', '*.test.ts']
             });
-            expect(mockReleaseNotesGet).toHaveBeenCalledWith({ limit: 8 });
-            expect(mockIssuesGet).toHaveBeenCalledWith({ limit: 30 });
+            expect(mockGetReleaseNotesContent).toHaveBeenCalledWith({ limit: 8 });
+            expect(mockGetIssuesContent).toHaveBeenCalledWith({ limit: 30 });
         });
     });
 
@@ -2727,7 +2850,9 @@ describe('review command', () => {
             const result = await Review.execute(runConfig);
 
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save combined review analysis: %s', 'Failed to write file output/review-123456.md: Failed to save combined results');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
 
         it('should handle review notes file saving errors', async () => {
@@ -2751,7 +2876,9 @@ describe('review command', () => {
             const result = await Review.execute(runConfig);
 
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to save review notes: %s', 'Failed to write file output/review-notes-123456.md: Failed to save review notes');
-            expect(result).toBe('Issues created successfully');
+            expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
         });
     });
 
@@ -2783,7 +2910,9 @@ describe('review command', () => {
 
                 const result = await Review.execute(runConfig);
 
-                expect(result).toBe('Issues created successfully');
+                expect(result).toContain('📝 Review Results');
+            expect(result).toContain('📋 Summary:');
+            expect(result).toContain('📊 Total Issues Found:');
             } finally {
                 process.stdin = originalStdin;
             }
