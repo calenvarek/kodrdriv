@@ -1310,6 +1310,10 @@ describe('Branch-dependent version targeting', () => {
         });
 
         test('should increment prerelease version', async () => {
+            // Spy on getVersionFromBranch to return null (simulates branch not existing)
+            const spy = vi.spyOn(await import('../../src/util/general'), 'getVersionFromBranch')
+                .mockResolvedValue(null);
+
             const targetsConfig = {
                 working: {
                     targetBranch: 'development'
@@ -1319,9 +1323,6 @@ describe('Branch-dependent version targeting', () => {
                 }
             };
 
-            // Mock getVersionFromBranch to return null (no existing version in target)
-            vi.mocked(getVersionFromBranch).mockResolvedValue(null);
-
             const result = await calculateBranchDependentVersion(
                 '1.2.3-dev.0',
                 'working',
@@ -1330,6 +1331,8 @@ describe('Branch-dependent version targeting', () => {
 
             expect(result.targetBranch).toBe('development');
             expect(result.version).toBe('1.2.3-dev.1');
+
+            spy.mockRestore();
         });
     });
 
