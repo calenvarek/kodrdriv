@@ -561,6 +561,7 @@ You can configure the publish command behavior in your `.kodrdriv/config.json` f
   "publish": {
     "mergeMethod": "squash",
     "dependencyUpdatePatterns": ["@mycompany/*", "@utils/*"],
+    "scopedDependencyUpdates": ["@mycompany"],
     "requiredEnvVars": ["NPM_TOKEN", "GITHUB_TOKEN"],
     "checksTimeout": 300000,
     "skipUserConfirmation": false,
@@ -573,6 +574,7 @@ You can configure the publish command behavior in your `.kodrdriv/config.json` f
 **Configuration Options:**
 - `mergeMethod`: Default merge method for pull requests ('merge', 'squash', 'rebase')
 - `dependencyUpdatePatterns`: Array of patterns to match dependencies for updating (if not specified, all dependencies are updated)
+- `scopedDependencyUpdates`: Array of npm scopes to check for updates before publish (defaults to package's own scope if not specified)
 - `requiredEnvVars`: Array of environment variables that must be set before publishing
 - `checksTimeout`: Maximum time in milliseconds to wait for PR checks (default: 300000 = 5 minutes)
 - `skipUserConfirmation`: Skip user confirmation when no checks are configured (default: false, useful for CI/CD environments)

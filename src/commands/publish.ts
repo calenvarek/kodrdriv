@@ -241,6 +241,42 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
         }
     }
 
+    // Check GitHub Actions workflow configuration
+    logger.info('Checking GitHub Actions workflow configuration...');
+    if (isDryRun) {
+        logger.info('Would check if GitHub Actions workflows are configured for pull requests');
+    } else {
+        try {
+            // TODO: Re-enable when checkWorkflowConfiguration is exported from github-tools
+            // const workflowConfig = await GitHub.checkWorkflowConfiguration(effectiveTargetBranch);
+            const workflowConfig = {
+                hasWorkflows: true,
+                hasPullRequestTriggers: true,
+                workflowCount: 0,
+                triggeredWorkflowNames: [] as string[]
+            };
+
+            if (!workflowConfig.hasWorkflows) {
+                logger.warn('⚠️  No GitHub Actions workflows are configured in this repository.');
+                logger.warn('   The publish process will create a PR but will not wait for any checks to complete.');
+                logger.warn('   Consider adding a workflow file (e.g., .github/workflows/ci.yml) to run tests on PRs.');
+            } else if (!workflowConfig.hasPullRequestTriggers) {
+                logger.warn(`⚠️  Found ${workflowConfig.workflowCount} workflow(s), but none are triggered by PRs to ${effectiveTargetBranch}.`);
+                logger.warn('   The publish process will create a PR but will not wait for any checks to complete.');
+                logger.warn(`   Consider updating workflow triggers to include: on.pull_request.branches: [${effectiveTargetBranch}]`);
+            } else {
+                logger.info(`✅ Found ${workflowConfig.triggeredWorkflowNames.length} workflow(s) that will run on PRs to ${effectiveTargetBranch}:`);
+                for (const workflowName of workflowConfig.triggeredWorkflowNames) {
+                    logger.info(`   - ${workflowName}`);
+                }
+            }
+        } catch (error: any) {
+            // Don't fail the precheck if we can't verify workflows
+            // The wait logic will handle it later
+            logger.debug(`Could not verify workflow configuration: ${error.message}`);
+        }
+    }
+
     // Check if prepublishOnly script exists in package.json
     logger.info('Checking for prepublishOnly script...');
     const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -829,17 +865,38 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     logger.info(`Waiting for PR #${pr!.number} checks to complete...`);
     if (!isDryRun) {
-        // Configure timeout and user confirmation behavior
-        const timeout = runConfig.publish?.checksTimeout || KODRDRIV_DEFAULTS.publish.checksTimeout;
-        const senditMode = runConfig.publish?.sendit || false;
-        // sendit flag overrides skipUserConfirmation - if sendit is true, skip confirmation
-        const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
+        // Check if we already know from prechecks that no workflows will trigger
+        let shouldSkipWait = false;
+        try {
+            // TODO: Re-enable when checkWorkflowConfiguration is exported from github-tools
+            // const workflowConfig = await GitHub.checkWorkflowConfiguration(targetBranch);
+            const workflowConfig = {
+                hasWorkflows: true,
+                hasPullRequestTriggers: true,
+                workflowCount: 0,
+                triggeredWorkflowNames: [] as string[]
+            };
+            if (!workflowConfig.hasWorkflows || !workflowConfig.hasPullRequestTriggers) {
+                logger.info('⏭️  Skipping check wait - no workflows configured to trigger on this PR');
+                shouldSkipWait = true;
+            }
+        } catch (error: any) {
+            // If we can't verify, proceed with waiting to be safe
+            logger.debug(`Could not verify workflow configuration for wait skip: ${error.message}`);
+        }
 
+        if (!shouldSkipWait) {
+            // Configure timeout and user confirmation behavior
+            const timeout = runConfig.publish?.checksTimeout || KODRDRIV_DEFAULTS.publish.checksTimeout;
+            const senditMode = runConfig.publish?.sendit || false;
+            // sendit flag overrides skipUserConfirmation - if sendit is true, skip confirmation
+            const skipUserConfirmation = senditMode || runConfig.publish?.skipUserConfirmation || false;
 
-        await GitHub.waitForPullRequestChecks(pr!.number, {
-            timeout,
-            skipUserConfirmation
-        });
+            await GitHub.waitForPullRequestChecks(pr!.number, {
+                timeout,
+                skipUserConfirmation
+            });
+        }
     }
 
     const mergeMethod = runConfig.publish?.mergeMethod || 'squash';

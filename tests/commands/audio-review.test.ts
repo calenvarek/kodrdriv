@@ -4,14 +4,16 @@ import { Config } from '../../src/types';
 import { getLogger } from '../../src/logging';
 import { execute as executeReview } from '../../src/commands/review';
 import { processAudio } from '@theunwalked/unplayable';
-import { transcribeAudio } from '../../src/util/openai';
+import { transcribeAudio } from '@eldrforge/ai-service';
 import { getTimestampedAudioFilename } from '../../src/util/general';
 import * as Storage from '../../src/util/storage';
+import * as StorageAdapter from '../../src/util/storageAdapter';
+import * as LoggerAdapter from '../../src/util/loggerAdapter';
 import path from 'path';
 import * as Logging from '../../src/logging';
 import * as ReviewCommand from '../../src/commands/review';
 import * as Unplayable from '@theunwalked/unplayable';
-import * as OpenAI from '../../src/util/openai';
+import * as AIService from '@eldrforge/ai-service';
 import * as Countdown from '../../src/util/countdown';
 
 // Mock the logging module
@@ -21,9 +23,11 @@ vi.mock('../../src/logging', () => ({
 }));
 vi.mock('../../src/commands/review');
 vi.mock('@theunwalked/unplayable');
-vi.mock('../../src/util/openai');
+vi.mock('@eldrforge/ai-service');
 vi.mock('../../src/util/general');
 vi.mock('../../src/util/storage');
+vi.mock('../../src/util/storageAdapter');
+vi.mock('../../src/util/loggerAdapter');
 vi.mock('../../src/util/countdown');
 
 // Mock storage that matches the Storage.Utility interface
@@ -67,7 +71,17 @@ describe('audio-review command', () => {
         vi.mocked(Logging.getDryRunLogger).mockReturnValue(mockLogger as any);
 
         vi.mocked(Storage.create).mockReturnValue(mockStorage);
-        vi.mocked(OpenAI.transcribeAudio).mockResolvedValue({ text: 'Mock transcription' } as any);
+
+        // Mock adapter functions
+        vi.mocked(StorageAdapter.createStorageAdapter).mockReturnValue({} as any);
+        vi.mocked(LoggerAdapter.createLoggerAdapter).mockReturnValue({
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+            debug: vi.fn()
+        } as any);
+
+        vi.mocked(AIService.transcribeAudio).mockResolvedValue({ text: 'Mock transcription' } as any);
         vi.mocked(ReviewCommand.execute).mockResolvedValue('Mock review result');
         vi.mocked(Unplayable.processAudio).mockResolvedValue({
             audioFilePath: '/mock/audio.wav'
@@ -237,23 +251,25 @@ describe('audio-review command', () => {
                 const mockTranscription = { text: 'Transcribed content' };
                 const mockReviewResult = 'Review result';
 
-                (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockProcessAudioResult);
-                (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
-                (executeReview as MockedFunction<typeof executeReview>).mockResolvedValue(mockReviewResult);
+                vi.mocked(Unplayable.processAudio).mockResolvedValue(mockProcessAudioResult);
+                vi.mocked(AIService.transcribeAudio).mockResolvedValue(mockTranscription);
+                vi.mocked(ReviewCommand.execute).mockResolvedValue(mockReviewResult);
 
                 const result = await execute(config);
 
-                expect(processAudio).toHaveBeenCalledWith({
+                expect(vi.mocked(Unplayable.processAudio)).toHaveBeenCalledWith({
                     file: '/test/audio.wav',
                     maxRecordingTime: undefined,
                     outputDirectory: 'output',
                     debug: false
                 });
-                expect(transcribeAudio).toHaveBeenCalledWith('/test/audio.wav', {
+                expect(vi.mocked(AIService.transcribeAudio)).toHaveBeenCalledWith('/test/audio.wav', expect.objectContaining({
                     model: "whisper-1",
                     debug: false,
-                    outputDirectory: path.join('output', 'kodrdriv')
-                });
+                    storage: expect.any(Object),
+                    logger: expect.any(Object),
+                    onArchive: expect.any(Function)
+                }));
                 expect(result).toBe(mockReviewResult);
             });
 
@@ -281,10 +297,10 @@ describe('audio-review command', () => {
                 const config = baseConfig;
                 const error = new Error('Audio processing failed');
 
-                (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(error);
+                vi.mocked(Unplayable.processAudio).mockRejectedValue(error);
 
                 const mockReviewResult = 'Review result without audio';
-                (executeReview as MockedFunction<typeof executeReview>).mockResolvedValue(mockReviewResult);
+                vi.mocked(ReviewCommand.execute).mockResolvedValue(mockReviewResult);
 
                 const result = await execute(config);
 
@@ -302,9 +318,9 @@ describe('audio-review command', () => {
                 const mockTranscription = { text: '' };
                 const mockReviewResult = 'Review result';
 
-                (processAudio as MockedFunction<typeof processAudio>).mockResolvedValue(mockProcessAudioResult);
-                (transcribeAudio as MockedFunction<typeof transcribeAudio>).mockResolvedValue(mockTranscription);
-                (executeReview as MockedFunction<typeof executeReview>).mockResolvedValue(mockReviewResult);
+                vi.mocked(Unplayable.processAudio).mockResolvedValue(mockProcessAudioResult);
+                vi.mocked(AIService.transcribeAudio).mockResolvedValue(mockTranscription);
+                vi.mocked(ReviewCommand.execute).mockResolvedValue(mockReviewResult);
 
                 const result = await execute(config);
 
