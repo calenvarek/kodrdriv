@@ -869,7 +869,7 @@ cache=\${CACHE_DIR}/npm
             expect(GitHub.findOpenPullRequestByHeadRef).toHaveBeenCalledWith(mockBranchName);
             expect(mockStorage.rename).not.toHaveBeenCalled();
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', false);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', false);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json', false);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', false, {}, true);
             expect(Diff.hasStagedChanges).toHaveBeenCalled();
             expect(Commit.execute).toHaveBeenCalledWith(mockConfig);
@@ -2038,7 +2038,7 @@ cache=\${CACHE_DIR}/npm
             expect(Child.run).not.toHaveBeenCalledWith('git rev-parse --git-dir');
             // In dry run mode, runWithDryRunSupport should be called but with isDryRun=true
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm update', true);
-            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json package-lock.json', true);
+            expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git add package.json', true);
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('npm run prepublishOnly', true, {}, true);
 
             expect(Child.runWithDryRunSupport).toHaveBeenCalledWith('git push origin release/1.0.0', true);

@@ -604,7 +604,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         // STEP 2: Commit dependency updates if any (still no version bump)
         logger.verbose('Staging dependency updates for commit');
-        await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
+        // Check if package-lock.json exists before trying to stage it
+        const packageLockExists = await storage.exists('package-lock.json');
+        const filesToStage = packageLockExists ? 'package.json package-lock.json' : 'package.json';
+        await runWithDryRunSupport(`git add ${filesToStage}`, isDryRun);
 
         logger.verbose('Checking for staged dependency updates...');
         if (isDryRun) {
@@ -711,7 +714,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
                             const { stdout: mergeChangesStatus } = await run('git status --porcelain');
                             if (mergeChangesStatus.trim()) {
                                 logger.verbose('Staging post-merge changes for commit');
-                                await run('git add package.json package-lock.json');
+                                // Check if package-lock.json exists before trying to stage it
+                                const packageLockExistsPostMerge = await storage.exists('package-lock.json');
+                                const filesToStagePostMerge = packageLockExistsPostMerge ? 'package.json package-lock.json' : 'package.json';
+                                await run(`git add ${filesToStagePostMerge}`);
 
                                 if (await Diff.hasStagedChanges()) {
                                     logger.verbose('Committing post-merge changes...');
@@ -791,7 +797,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         // STEP 5: Commit version bump as a separate commit
         logger.verbose('Staging version bump for commit');
-        await runWithDryRunSupport('git add package.json package-lock.json', isDryRun);
+        // Check if package-lock.json exists before trying to stage it
+        const packageLockExistsVersionBump = await storage.exists('package-lock.json');
+        const filesToStageVersionBump = packageLockExistsVersionBump ? 'package.json package-lock.json' : 'package.json';
+        await runWithDryRunSupport(`git add ${filesToStageVersionBump}`, isDryRun);
 
         if (isDryRun) {
             logger.verbose('Would create version bump commit');
