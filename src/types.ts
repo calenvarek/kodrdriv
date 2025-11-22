@@ -98,6 +98,7 @@ export const ConfigSchema = z.object({
         targetVersion: z.string().optional(),
         interactive: z.boolean().optional(),
         dependencyUpdatePatterns: z.array(z.string()).optional(),
+        scopedDependencyUpdates: z.array(z.string()).optional(),
         requiredEnvVars: z.array(z.string()).optional(),
         linkWorkspacePackages: z.boolean().optional(),
         unlinkWorkspacePackages: z.boolean().optional(),
@@ -297,6 +298,7 @@ export type PublishConfig = {
     targetVersion?: string;
     interactive?: boolean;
     dependencyUpdatePatterns?: string[];
+    scopedDependencyUpdates?: string[];
     requiredEnvVars?: string[];
     linkWorkspacePackages?: boolean;
     unlinkWorkspacePackages?: boolean;

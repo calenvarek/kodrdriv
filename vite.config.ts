@@ -69,6 +69,7 @@ export default defineConfig({
         },
         rollupOptions: {
             external: [
+                '@eldrforge/ai-service',
                 '@eldrforge/git-tools',
                 '@eldrforge/github-tools',
                 '@theunwalked/dreadcabinet',

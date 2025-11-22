@@ -1285,6 +1285,140 @@ describe('tree', () => {
         });
     });
 
+    describe('scoped dependency updates', () => {
+        it('should use configured scopes when scopedDependencyUpdates is set', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                },
+                publish: {
+                    scopedDependencyUpdates: ['@mycompany', '@utils']
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: '@mycompany/package-a' }
+            ]);
+
+            // Mock package.json with various scopes
+            mockStorage.readFile.mockResolvedValue(JSON.stringify({
+                name: '@mycompany/package-a',
+                version: '1.0.0',
+                dependencies: {
+                    '@mycompany/core': '^1.0.0',
+                    '@utils/logger': '^2.0.0',
+                    '@other/package': '^3.0.0'  // This scope should be ignored
+                }
+            }));
+
+            mockExecPromise.mockResolvedValue({ stdout: 'Published', stderr: '' });
+            mockRun.mockResolvedValue({ stdout: 'All dependencies match the latest package versions :)', stderr: '' });
+
+            await execute(config);
+
+            // Should have called npm-check-updates for configured scopes
+            expect(mockRun).toHaveBeenCalledWith(expect.stringContaining('@mycompany'));
+            expect(mockRun).toHaveBeenCalledWith(expect.stringContaining('@utils'));
+            // Should NOT have called for @other scope
+            expect(mockRun).not.toHaveBeenCalledWith(expect.stringContaining('@other'));
+        });
+
+        it('should default to package own scope when scopedDependencyUpdates not configured', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                }
+                // No scopedDependencyUpdates configured
+            });
+
+            setupBasicFilesystemMocks([
+                { name: '@fjell/core' }
+            ]);
+
+            // Mock package.json for a @fjell package
+            mockStorage.readFile.mockResolvedValue(JSON.stringify({
+                name: '@fjell/core',
+                version: '4.4.60',
+                dependencies: {
+                    '@fjell/logging': '^4.4.57',
+                    '@types/node': '^20.0.0'  // This scope should be ignored by default
+                }
+            }));
+
+            mockExecPromise.mockResolvedValue({ stdout: 'Published', stderr: '' });
+            mockRun.mockResolvedValue({ stdout: 'All dependencies match the latest package versions :)', stderr: '' });
+
+            await execute(config);
+
+            // Should have called npm-check-updates only for @fjell scope
+            expect(mockRun).toHaveBeenCalledWith(expect.stringContaining('@fjell'));
+            // Should NOT have called for @types scope (not the package's own scope)
+            expect(mockRun).not.toHaveBeenCalledWith(expect.stringContaining('@types'));
+        });
+
+        it('should skip scoped updates for non-scoped packages when not configured', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                }
+                // No scopedDependencyUpdates configured
+            });
+
+            setupBasicFilesystemMocks([
+                { name: 'express' }  // Non-scoped package
+            ]);
+
+            // Mock package.json for a non-scoped package
+            mockStorage.readFile.mockResolvedValue(JSON.stringify({
+                name: 'express',
+                version: '4.18.0',
+                dependencies: {
+                    '@types/node': '^20.0.0'
+                }
+            }));
+
+            mockExecPromise.mockResolvedValue({ stdout: 'Published', stderr: '' });
+            mockRun.mockResolvedValue({ stdout: 'All dependencies match the latest package versions :)', stderr: '' });
+
+            await execute(config);
+
+            // Should NOT have called npm-check-updates at all (package is not scoped and no config)
+            expect(mockRun).not.toHaveBeenCalledWith(expect.stringContaining('npm-check-updates'));
+        });
+
+        it('should disable scoped updates when scopedDependencyUpdates is empty array', async () => {
+            const config = createBaseConfig({
+                tree: {
+                    builtInCommand: 'publish'
+                },
+                publish: {
+                    scopedDependencyUpdates: []  // Explicitly disabled
+                }
+            });
+
+            setupBasicFilesystemMocks([
+                { name: '@fjell/core' }
+            ]);
+
+            // Mock package.json
+            mockStorage.readFile.mockResolvedValue(JSON.stringify({
+                name: '@fjell/core',
+                version: '4.4.60',
+                dependencies: {
+                    '@fjell/logging': '^4.4.57'
+                }
+            }));
+
+            mockExecPromise.mockResolvedValue({ stdout: 'Published', stderr: '' });
+            mockRun.mockResolvedValue({ stdout: 'All dependencies match the latest package versions :)', stderr: '' });
+
+            await execute(config);
+
+            // Should NOT have called npm-check-updates (explicitly disabled)
+            expect(mockRun).not.toHaveBeenCalledWith(expect.stringContaining('npm-check-updates'));
+        });
+    });
+
     describe('error handling edge cases', () => {
         it('should handle working directory restoration failure', async () => {
             const config = createBaseConfig({
@@ -2600,7 +2734,7 @@ describe('tree', () => {
             await execute(config);
 
             // Should continue with publish even if commit fails
-            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to commit inter-project dependency updates'));
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to commit dependency updates'));
             expect(mockLogger.info).toHaveBeenCalledWith('All 2 packages completed successfully! 🎉');
         });
     });

@@ -2,10 +2,12 @@ import { vi, describe, it, expect, beforeEach, afterEach, MockedFunction } from 
 import { execute } from '../../src/commands/audio-commit';
 import { Config } from '../../src/types';
 import { processAudio } from '@theunwalked/unplayable';
-import { transcribeAudio } from '../../src/util/openai';
+import { transcribeAudio } from '@eldrforge/ai-service';
 import { execute as executeCommit } from '../../src/commands/commit';
 import { createAudioRecordingCountdown } from '../../src/util/countdown';
 import { getTimestampedAudioFilename } from '../../src/util/general';
+import * as StorageAdapter from '../../src/util/storageAdapter';
+import * as LoggerAdapter from '../../src/util/loggerAdapter';
 import path from 'path';
 
 // Mock the logging module
@@ -30,9 +32,11 @@ vi.mock('../../src/logging', () => ({
 
 vi.mock('../../src/commands/commit');
 vi.mock('@theunwalked/unplayable');
-vi.mock('../../src/util/openai');
+vi.mock('@eldrforge/ai-service');
 vi.mock('../../src/util/countdown');
 vi.mock('../../src/util/general');
+vi.mock('../../src/util/storageAdapter');
+vi.mock('../../src/util/loggerAdapter');
 vi.mock('path');
 
 describe('audio-commit', () => {
@@ -60,6 +64,15 @@ describe('audio-commit', () => {
         const Logging = await import('../../src/logging');
         (Logging.getLogger as MockedFunction<typeof Logging.getLogger>).mockReturnValue(mockLogger);
         (Logging.getDryRunLogger as MockedFunction<typeof Logging.getDryRunLogger>).mockReturnValue(mockLogger);
+
+        // Setup adapter mocks
+        vi.mocked(StorageAdapter.createStorageAdapter).mockReturnValue({} as any);
+        vi.mocked(LoggerAdapter.createLoggerAdapter).mockReturnValue({
+            info: vi.fn(),
+            warn: vi.fn(),
+            error: vi.fn(),
+            debug: vi.fn()
+        } as any);
 
         // Setup countdown mock to return proper timer object
         (createAudioRecordingCountdown as MockedFunction<typeof createAudioRecordingCountdown>).mockReturnValue({
@@ -162,11 +175,13 @@ describe('audio-commit', () => {
                 outputDirectory: 'test-output',
                 debug: true
             });
-            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test-output/recorded-audio.wav', {
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test-output/recorded-audio.wav', expect.objectContaining({
                 model: 'whisper-1',
                 debug: true,
-                outputDirectory: 'test-output/kodrdriv'
-            });
+                storage: expect.any(Object),
+                logger: expect.any(Object),
+                onArchive: expect.any(Function)
+            }));
             expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
@@ -210,11 +225,13 @@ describe('audio-commit', () => {
                 outputDirectory: 'test-output',
                 debug: false
             });
-            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('existing-audio.wav', {
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('existing-audio.wav', expect.objectContaining({
                 model: 'whisper-1',
                 debug: false,
-                outputDirectory: 'test-output/kodrdriv'
-            });
+                storage: expect.any(Object),
+                logger: expect.any(Object),
+                onArchive: expect.any(Function)
+            }));
             expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
@@ -748,11 +765,13 @@ describe('audio-commit', () => {
                 outputDirectory: 'output',
                 debug: undefined
             });
-            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test.wav', {
+            expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test.wav', expect.objectContaining({
                 model: 'whisper-1',
                 debug: undefined,
-                outputDirectory: 'output/kodrdriv'
-            });
+                storage: expect.any(Object),
+                logger: expect.any(Object),
+                onArchive: expect.any(Function)
+            }));
             expect(result).toBe('no output dir commit');
         });
 

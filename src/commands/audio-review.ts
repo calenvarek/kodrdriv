@@ -4,8 +4,10 @@ import { getLogger, getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { execute as executeReview } from './review';
 import { processAudio } from '@theunwalked/unplayable';
-import { transcribeAudio } from '../util/openai';
-import { getTimestampedAudioFilename } from '../util/general';
+import { transcribeAudio } from '@eldrforge/ai-service';
+import { createStorageAdapter } from '../util/storageAdapter';
+import { createLoggerAdapter } from '../util/loggerAdapter';
+import { getTimestampedAudioFilename, archiveAudio } from '../util/general';
 import { CancellationError } from '../error/CancellationError';
 import { create as createStorage } from '../util/storage';
 import { createAudioRecordingCountdown } from '../util/countdown';
@@ -54,10 +56,18 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
         // Use kodrdriv's transcription functionality
         logger.info('🤖 Transcribing audio using OpenAI Whisper...');
 
+        const aiStorageAdapter = createStorageAdapter();
+        const aiLogger = createLoggerAdapter(runConfig.dryRun || false);
+
         const transcription = await transcribeAudio(audioFilePath, {
             model: "whisper-1",
             debug: runConfig.debug,
-            outputDirectory: path.join(runConfig.outputDirectory || 'output', 'kodrdriv')
+            storage: aiStorageAdapter,
+            logger: aiLogger,
+            onArchive: async (audioPath: string, transcriptionText: string) => {
+                const outputDir = path.join(runConfig.outputDirectory || 'output', 'kodrdriv');
+                await archiveAudio(audioPath, transcriptionText, outputDir);
+            },
         });
 
         // Safely validate transcription result
@@ -242,10 +252,18 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Step 3: Use kodrdriv's transcription functionality
         logger.info('🤖 Transcribing audio locally using OpenAI Whisper...');
 
+        const aiStorageAdapter = createStorageAdapter();
+        const aiLogger = createLoggerAdapter(isDryRun);
+
         const transcription = await transcribeAudio(audioFilePath, {
             model: "whisper-1",
             debug: runConfig.debug,
-            outputDirectory: path.join(runConfig.outputDirectory || 'output', 'kodrdriv')
+            storage: aiStorageAdapter,
+            logger: aiLogger,
+            onArchive: async (audioPath: string, transcriptionText: string) => {
+                const outputDir = path.join(runConfig.outputDirectory || 'output', 'kodrdriv');
+                await archiveAudio(audioPath, transcriptionText, outputDir);
+            },
         });
 
         // Safely validate transcription result

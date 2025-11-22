@@ -43,6 +43,7 @@ import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Commit from './commit';
 import * as Link from './link';
 import * as Unlink from './unlink';
+import * as Updates from './updates';
 
 // Track published versions during tree publish
 interface PublishedVersion {
@@ -214,6 +215,101 @@ const updateInterProjectDependencies = async (
     }
 
     return hasChanges;
+};
+
+// Detect scoped dependencies from package.json and run updates for them
+const updateScopedDependencies = async (
+    packageDir: string,
+    packageLogger: any,
+    isDryRun: boolean,
+    runConfig: Config
+): Promise<boolean> => {
+    const storage = createStorage({ log: packageLogger.info });
+    const packageJsonPath = path.join(packageDir, 'package.json');
+
+    if (!await storage.exists(packageJsonPath)) {
+        packageLogger.verbose('No package.json found, skipping scoped dependency updates');
+        return false;
+    }
+
+    try {
+        // Read the package.json before updates
+        const beforeContent = await storage.readFile(packageJsonPath, 'utf-8');
+        const parsed = safeJsonParse(beforeContent, packageJsonPath);
+        const packageJson = validatePackageJson(parsed, packageJsonPath);
+
+        // Determine which scopes to update
+        let scopesToUpdate: Set<string>;
+
+        // Check if scopedDependencyUpdates is configured
+        const configuredScopes = runConfig.publish?.scopedDependencyUpdates;
+
+        if (configuredScopes !== undefined) {
+            // scopedDependencyUpdates is explicitly configured
+            if (configuredScopes.length > 0) {
+                // Use configured scopes
+                scopesToUpdate = new Set(configuredScopes);
+                packageLogger.verbose(`Using configured scopes: ${Array.from(scopesToUpdate).join(', ')}`);
+            } else {
+                // Empty array means explicitly disabled
+                packageLogger.verbose('Scoped dependency updates explicitly disabled');
+                return false;
+            }
+        } else {
+            // Not configured - use default behavior (package's own scope)
+            scopesToUpdate = new Set<string>();
+
+            if (packageJson.name && packageJson.name.startsWith('@')) {
+                const packageScope = packageJson.name.split('/')[0]; // e.g., "@fjell/core" -> "@fjell"
+                scopesToUpdate.add(packageScope);
+                packageLogger.verbose(`No scopes configured, defaulting to package's own scope: ${packageScope}`);
+            } else {
+                packageLogger.verbose('Package is not scoped and no scopes configured, skipping scoped dependency updates');
+                return false;
+            }
+        }
+
+        if (scopesToUpdate.size === 0) {
+            packageLogger.verbose('No scopes to update, skipping updates');
+            return false;
+        }
+
+        // Run updates for each scope
+        for (const scope of scopesToUpdate) {
+            packageLogger.info(`🔄 Checking for ${scope} dependency updates before publish...`);
+
+            try {
+                // Create a config for the updates command with the scope
+                const updatesConfig: Config = {
+                    ...runConfig,
+                    dryRun: isDryRun,
+                    updates: {
+                        scope: scope
+                    }
+                };
+
+                await Updates.execute(updatesConfig);
+            } catch (error: any) {
+                // Don't fail the publish if updates fails, just warn
+                packageLogger.warn(`Failed to update ${scope} dependencies: ${error.message}`);
+            }
+        }
+
+        // Check if package.json was modified
+        const afterContent = await storage.readFile(packageJsonPath, 'utf-8');
+        const hasChanges = beforeContent !== afterContent;
+
+        if (hasChanges) {
+            packageLogger.info('✅ Scoped dependencies updated successfully');
+        } else {
+            packageLogger.info('No scoped dependency updates needed');
+        }
+
+        return hasChanges;
+    } catch (error: any) {
+        packageLogger.warn(`Failed to detect scoped dependencies: ${error.message}`);
+        return false;
+    }
 };
 
 // Get the context file path
@@ -868,14 +964,25 @@ const executePackage = async (
                     packageLogger.debug(`Changed to directory: ${packageDir}`);
                 }
 
-                // Handle inter-project dependency updates for publish commands before executing (skip during dry run)
-                if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish') && publishedVersions.length > 0) {
-                    packageLogger.info('Updating inter-project dependencies based on previously published packages...');
-                    const hasUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+                // Handle dependency updates for publish commands before executing (skip during dry run)
+                if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish')) {
+                    let hasAnyUpdates = false;
 
-                    if (hasUpdates) {
+                    // First, update all scoped dependencies from npm registry
+                    const hasScopedUpdates = await updateScopedDependencies(packageDir, packageLogger, isDryRun, runConfig);
+                    hasAnyUpdates = hasAnyUpdates || hasScopedUpdates;
+
+                    // Then update inter-project dependencies based on previously published packages
+                    if (publishedVersions.length > 0) {
+                        packageLogger.info('Updating inter-project dependencies based on previously published packages...');
+                        const hasInterProjectUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+                        hasAnyUpdates = hasAnyUpdates || hasInterProjectUpdates;
+                    }
+
+                    // If either type of update occurred, commit the changes
+                    if (hasAnyUpdates) {
                         // Commit the dependency updates using kodrdriv commit
-                        packageLogger.info('Committing inter-project dependency updates...');
+                        packageLogger.info('Committing dependency updates...');
                         packageLogger.info('⏱️  This step may take a few minutes as it generates a commit message using AI...');
 
                         // Add timeout wrapper around commit execution
@@ -894,14 +1001,14 @@ const executePackage = async (
                             }, 30000); // Every 30 seconds
 
                             await Promise.race([commitPromise, timeoutPromise]);
-                            packageLogger.info('✅ Inter-project dependency updates committed successfully');
+                            packageLogger.info('✅ Dependency updates committed successfully');
                         } catch (commitError: any) {
                             if (commitError.message.includes('timed out')) {
                                 packageLogger.error(`❌ Commit operation timed out after ${commitTimeoutMs/1000} seconds`);
                                 packageLogger.error('This usually indicates an issue with the AI service or very large changes');
                                 packageLogger.error('You may need to manually commit the dependency updates');
                             } else {
-                                packageLogger.warn(`Failed to commit inter-project dependency updates: ${commitError.message}`);
+                                packageLogger.warn(`Failed to commit dependency updates: ${commitError.message}`);
                             }
                             // Continue with publish anyway - the updates are still in place
                         } finally {
@@ -909,8 +1016,6 @@ const executePackage = async (
                                 clearInterval(progressInterval);
                             }
                         }
-                    } else {
-                        packageLogger.info('No inter-project dependency updates needed');
                     }
                 }
 

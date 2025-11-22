@@ -1,14 +1,27 @@
 #!/usr/bin/env node
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
-import { ChatCompletionMessageParam } from 'openai/resources';
+import type { ChatCompletionMessageParam } from 'openai/resources';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getDefaultFromRef, getCurrentBranch } from '@eldrforge/git-tools';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
-import * as ReleasePrompt from '../prompt/release';
 import { Config } from '../types';
-import { createCompletionWithRetry, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
+import {
+    createCompletionWithRetry,
+    getUserChoice,
+    editContentInEditor,
+    getLLMFeedbackInEditor,
+    requireTTY,
+    STANDARD_CHOICES,
+    createReleasePrompt,
+    ReleaseContent,
+    ReleaseContext,
+} from '@eldrforge/ai-service';
+import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
+import { toAIConfig } from '../util/aiAdapter';
+import { createStorageAdapter } from '../util/storageAdapter';
+import { createLoggerAdapter } from '../util/loggerAdapter';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
@@ -16,15 +29,6 @@ import { create as createStorage } from '../util/storage';
 import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
 import { safeJsonParse } from '@eldrforge/git-tools';
 import * as GitHub from '@eldrforge/github-tools';
-import {
-    getUserChoice,
-    editContentInEditor,
-    improveContentWithLLM,
-    getLLMFeedbackInEditor,
-    requireTTY,
-    STANDARD_CHOICES,
-    LLMImprovementConfig
-} from '../util/interactive';
 
 // Helper function to edit release notes using editor
 async function editReleaseNotesInteractively(releaseSummary: ReleaseSummary): Promise<ReleaseSummary> {
@@ -72,25 +76,29 @@ Body: "${currentSummary.body}"
 
 Please revise the release notes according to the user's feedback while maintaining accuracy and following good release note practices.`,
             };
-            const promptResult = await ReleasePrompt.createPrompt(promptConfig, improvementPromptContent, promptContext);
+            const promptResult = await createReleasePrompt(promptConfig, improvementPromptContent, promptContext);
             // Format the prompt into a proper request with messages
-            const modelToUse = getModelForCommand(runConfig, 'release');
+            const aiConfig = toAIConfig(runConfig);
+            const modelToUse = aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o-mini';
             return Formatter.create({ logger: getDryRunLogger(false) }).formatPrompt(modelToUse as Model, promptResult.prompt);
         },
         callLLM: async (request, runConfig, outputDirectory) => {
-            const modelToUse = getModelForCommand(runConfig, 'release');
-            const openaiReasoning = getOpenAIReasoningForCommand(runConfig, 'release');
-            const openaiMaxOutputTokens = getOpenAIMaxOutputTokensForCommand(runConfig, 'release');
+            const aiConfig = toAIConfig(runConfig);
+            const aiStorageAdapter = createStorageAdapter();
+            const aiLogger = createLoggerAdapter(false);
+            const modelToUse = aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o-mini';
+            const openaiReasoning = aiConfig.commands?.release?.reasoning || aiConfig.reasoning;
             return await createCompletionWithRetry(
                 request.messages as ChatCompletionMessageParam[],
                 {
                     model: modelToUse,
                     openaiReasoning,
-                    openaiMaxOutputTokens,
                     responseFormat: { type: 'json_object' },
                     debug: runConfig.debug,
                     debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release-improve')),
                     debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release-improve')),
+                    storage: aiStorageAdapter,
+                    logger: aiLogger,
                 }
             );
         },
@@ -291,20 +299,25 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         logger.debug('Milestone integration disabled via --no-milestones');
     }
 
-    const promptContent = {
+    // Create adapters for ai-service
+    const aiConfig = toAIConfig(runConfig);
+    const aiStorageAdapter = createStorageAdapter();
+    const aiLogger = createLoggerAdapter(isDryRun);
+
+    const promptContent: ReleaseContent = {
         logContent,
         diffContent,
         releaseFocus: runConfig.release?.focus,
         milestoneIssues: milestoneIssuesContent,
     };
-    const promptContext = {
+    const promptContext: ReleaseContext = {
         context: runConfig.release?.context,
         directories: runConfig.contextDirectories,
     };
 
-    const promptResult = await ReleasePrompt.createPrompt(promptConfig, promptContent, promptContext);
+    const promptResult = await createReleasePrompt(promptConfig, promptContent, promptContext);
 
-    const modelToUse = getModelForCommand(runConfig, 'release');
+    const modelToUse = aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o-mini';
     const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, promptResult.prompt);
 
     // Always ensure output directory exists for request/response files
@@ -341,7 +354,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
             directories: runConfig.contextDirectories,
         };
 
-        const retryPromptResult = await ReleasePrompt.createPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
+        const retryPromptResult = await createReleasePrompt(promptConfig, reducedPromptContent, reducedPromptContext);
         const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPromptResult.prompt);
 
         return retryRequest.messages as ChatCompletionMessageParam[];
@@ -351,13 +364,14 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         request.messages as ChatCompletionMessageParam[],
         {
             model: modelToUse,
-            openaiReasoning: getOpenAIReasoningForCommand(runConfig, 'release'),
-            openaiMaxOutputTokens: getOpenAIMaxOutputTokensForCommand(runConfig, 'release'),
+            openaiReasoning: aiConfig.commands?.release?.reasoning || aiConfig.reasoning,
             maxTokens: promptResult.maxTokens, // Use calculated maxTokens for large release detection
             responseFormat: { type: 'json_object' },
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release')),
             debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
+            storage: aiStorageAdapter,
+            logger: aiLogger,
         },
         createRetryCallback(diffContent, logContent)
     );
