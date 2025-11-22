@@ -44,10 +44,18 @@ vi.mock('@riotprompt/riotprompt', () => {
     };
 });
 
-const mockCreatePrompt = vi.fn().mockResolvedValue('mock prompt');
-vi.mock('../../src/prompt/review', () => ({
-    createPrompt: mockCreatePrompt
-}));
+// Mocks for ai-service functions (defined before vi.mock since they're referenced in the mock)
+const mockCreatePrompt = vi.fn().mockResolvedValue({ messages: [] });
+const mockCreateCompletion = vi.fn().mockResolvedValue({
+    summary: 'Review analysis summary',
+    totalIssues: 3,
+    issues: [
+        { title: 'Issue 1', priority: 'high' },
+        { title: 'Issue 2', priority: 'medium' },
+        { title: 'Issue 3', priority: 'low' }
+    ]
+});
+const mockGetUserChoice = vi.fn().mockResolvedValue('c');
 
 const mockLogGet = vi.fn().mockResolvedValue('mock log content');
 const mockLogCreate = vi.fn().mockReturnValue({
@@ -97,26 +105,16 @@ vi.mock('@eldrforge/github-tools', () => ({
     handleIssueCreation: mockHandleIssueCreation
 }));
 
-const mockCreateCompletion = vi.fn().mockResolvedValue({
-    summary: 'Review analysis summary',
-    totalIssues: 3,
-    issues: [
-        { title: 'Issue 1', priority: 'high' },
-        { title: 'Issue 2', priority: 'medium' },
-        { title: 'Issue 3', priority: 'low' }
-    ]
+// Mock ai-service functions
+vi.mock('@eldrforge/ai-service', async () => {
+    const actual = await vi.importActual('@eldrforge/ai-service');
+    return {
+        ...actual,
+        createCompletion: mockCreateCompletion,
+        createReviewPrompt: mockCreatePrompt,
+        getUserChoice: mockGetUserChoice
+    };
 });
-vi.mock('../../src/util/openai', () => ({
-    createCompletion: mockCreateCompletion,
-    getModelForCommand: vi.fn().mockImplementation((config, commandName) => {
-        if (commandName === 'review' && config.review?.model) {
-            return config.review.model;
-        }
-        return config.model || 'gpt-4o-mini';
-    }),
-    getOpenAIReasoningForCommand: vi.fn().mockReturnValue('low'),
-    getOpenAIMaxOutputTokensForCommand: vi.fn().mockReturnValue(10000)
-}));
 
 const mockLogger = {
     info: vi.fn(),
@@ -125,7 +123,8 @@ const mockLogger = {
     error: vi.fn()
 };
 vi.mock('../../src/logging', () => ({
-    getLogger: vi.fn().mockReturnValue(mockLogger)
+    getLogger: vi.fn().mockReturnValue(mockLogger),
+    getDryRunLogger: vi.fn().mockReturnValue(mockLogger)
 }));
 
 vi.mock('../../src/util/general', () => ({
@@ -145,11 +144,7 @@ vi.mock('../../src/util/storage', () => ({
     create: mockCreateStorage
 }));
 
-// Mock interactive utilities
-const mockGetUserChoice = vi.fn().mockResolvedValue('c');
-vi.mock('../../src/util/interactive', () => ({
-    getUserChoice: mockGetUserChoice
-}));
+// getUserChoice mock is defined above with other ai-service mocks
 
 vi.mock('../../src/constants', () => ({
     DEFAULT_EXCLUDED_PATTERNS: ['node_modules', '*.test.ts'],

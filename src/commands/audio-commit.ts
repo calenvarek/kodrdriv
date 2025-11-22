@@ -5,10 +5,12 @@ import { CancellationError } from '../error/CancellationError';
 import { UserCancellationError } from '../error/CommandErrors';
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
-import { getTimestampedAudioFilename } from '../util/general';
-import { transcribeAudio } from '../util/openai';
+import { getTimestampedAudioFilename, archiveAudio } from '../util/general';
+import { transcribeAudio } from '@eldrforge/ai-service';
 import { execute as executeCommit } from './commit';
 import { createAudioRecordingCountdown } from '../util/countdown';
+import { createStorageAdapter } from '../util/storageAdapter';
+import { createLoggerAdapter } from '../util/loggerAdapter';
 
 const executeInternal = async (runConfig: Config): Promise<string> => {
     const isDryRun = runConfig.dryRun || false;
@@ -90,13 +92,21 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
             logger.warn('Note: This may not match the actual file created by unplayable');
         }
 
-        // Step 3: Use kodrdriv's transcription functionality
+        // Step 3: Use ai-service transcription functionality
         logger.info('🤖 Transcribing audio locally using OpenAI Whisper...');
+
+        const aiStorageAdapter = createStorageAdapter();
+        const aiLogger = createLoggerAdapter(isDryRun);
 
         const transcription = await transcribeAudio(audioFilePath, {
             model: "whisper-1",
             debug: runConfig.debug,
-            outputDirectory: path.join(runConfig.outputDirectory || 'output', 'kodrdriv')
+            storage: aiStorageAdapter,
+            logger: aiLogger,
+            onArchive: async (audioPath: string, transcriptionText: string) => {
+                const outputDir = path.join(runConfig.outputDirectory || 'output', 'kodrdriv');
+                await archiveAudio(audioPath, transcriptionText, outputDir);
+            },
         });
 
         audioContext = transcription.text;

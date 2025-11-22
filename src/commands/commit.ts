@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import 'dotenv/config';
-import { ChatCompletionMessageParam } from 'openai/resources';
+import type { ChatCompletionMessageParam } from 'openai/resources';
 import shellescape from 'shell-escape';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Diff from '../content/diff';
@@ -9,26 +9,30 @@ import * as Log from '../content/log';
 import * as Files from '../content/files';
 import { CommandError, ValidationError, ExternalDependencyError } from '../error/CommandErrors';
 import { getDryRunLogger } from '../logging';
-import * as CommitPrompt from '../prompt/commit';
 import { Config } from '../types';
 import { run, validateString } from '@eldrforge/git-tools';
 import { sanitizeDirection } from '../util/validation';
 import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
-import { createCompletionWithRetry, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
 import { create as createStorage } from '../util/storage';
 import { getRecentClosedIssuesForCommit } from '@eldrforge/github-tools';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import {
+    createCompletionWithRetry,
     getUserChoice,
     editContentInEditor,
-    improveContentWithLLM,
     getLLMFeedbackInEditor,
     requireTTY,
     STANDARD_CHOICES,
-    LLMImprovementConfig
-} from '../util/interactive';
+    createCommitPrompt,
+    CommitContent,
+    CommitContext,
+} from '@eldrforge/ai-service';
+import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
+import { toAIConfig } from '../util/aiAdapter';
+import { createStorageAdapter } from '../util/storageAdapter';
+import { createLoggerAdapter } from '../util/loggerAdapter';
 
 // Helper function to get current version from package.json
 async function getCurrentVersion(storage: any): Promise<string | undefined> {
@@ -66,10 +70,15 @@ async function improveCommitMessageWithLLM(
     // Get user feedback on what to improve using the editor
     const userFeedback = await getLLMFeedbackInEditor('commit message', commitMessage);
 
+    // Create AI config from kodrdriv config
+    const aiConfig = toAIConfig(runConfig);
+    const aiStorageAdapter = createStorageAdapter();
+    const aiLogger = createLoggerAdapter(false);
+
     const improvementConfig: LLMImprovementConfig = {
         contentType: 'commit message',
         createImprovedPrompt: async (promptConfig, currentMessage, promptContext) => {
-            const improvementPromptContent = {
+            const improvementPromptContent: CommitContent = {
                 diffContent: diffContent, // Include the original diff for context
                 userDirection: `Please improve this commit message based on the user's feedback: "${userFeedback}".
 
@@ -77,24 +86,22 @@ Current commit message: "${currentMessage}"
 
 Please revise the commit message according to the user's feedback while maintaining accuracy and following conventional commit standards if appropriate.`,
             };
-            const prompt = await CommitPrompt.createPrompt(promptConfig, improvementPromptContent, promptContext);
+            const prompt = await createCommitPrompt(promptConfig, improvementPromptContent, promptContext);
             // Format the prompt into a proper request with messages
-            const modelToUse = getModelForCommand(runConfig, 'commit');
+            const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
             return Formatter.create({ logger: getDryRunLogger(false) }).formatPrompt(modelToUse as Model, prompt);
         },
         callLLM: async (request, runConfig, outputDirectory) => {
-            const modelToUse = getModelForCommand(runConfig, 'commit');
-            const openaiReasoning = getOpenAIReasoningForCommand(runConfig, 'commit');
-            const openaiMaxOutputTokens = getOpenAIMaxOutputTokensForCommand(runConfig, 'commit');
             return await createCompletionWithRetry(
                 request.messages as ChatCompletionMessageParam[],
                 {
-                    model: modelToUse,
-                    openaiReasoning,
-                    openaiMaxOutputTokens,
+                    model: aiConfig.commands?.commit?.model || aiConfig.model,
+                    openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
                     debug: runConfig.debug,
                     debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('commit-improve')),
                     debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('commit-improve')),
+                    storage: aiStorageAdapter,
+                    logger: aiLogger,
                 }
             );
         }
@@ -475,21 +482,26 @@ const executeInternal = async (runConfig: Config) => {
         logger.debug('Using user direction: %s', userDirection);
     }
 
-    const promptContent = {
+    // Create adapters for ai-service
+    const aiConfig = toAIConfig(runConfig);
+    const aiStorageAdapter = createStorageAdapter();
+    const aiLogger = createLoggerAdapter(isDryRun);
+
+    const promptContent: CommitContent = {
         diffContent,
         userDirection,
         isFileContent: isUsingFileContent,
         githubIssuesContext,
     };
-    const promptContext = {
+    const promptContext: CommitContext = {
         logContext,
         context: runConfig.commit?.context,
         directories: runConfig.contextDirectories,
     };
-    const prompt = await CommitPrompt.createPrompt(promptConfig, promptContent, promptContext);
+    const prompt = await createCommitPrompt(promptConfig, promptContent, promptContext);
 
     // Get the appropriate model for the commit command
-    const modelToUse = getModelForCommand(runConfig, 'commit');
+    const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
 
     // Use consistent model for debug (fix hardcoded model)
     if (runConfig.debug) {
@@ -525,7 +537,7 @@ const executeInternal = async (runConfig: Config) => {
             directories: runConfig.contextDirectories,
         };
 
-        const retryPrompt = await CommitPrompt.createPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
+        const retryPrompt = await createCommitPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
         const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPrompt);
 
         return retryRequest.messages as ChatCompletionMessageParam[];
@@ -535,11 +547,12 @@ const executeInternal = async (runConfig: Config) => {
         request.messages as ChatCompletionMessageParam[],
         {
             model: modelToUse,
-            openaiReasoning: getOpenAIReasoningForCommand(runConfig, 'commit'),
-            openaiMaxOutputTokens: getOpenAIMaxOutputTokensForCommand(runConfig, 'commit'),
+            openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
             debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
+            storage: aiStorageAdapter,
+            logger: aiLogger,
         },
         createRetryCallback(diffContent)
     );

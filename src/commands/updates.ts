@@ -46,6 +46,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     try {
         if (isDryRun) {
             logger.info(`Would run: ${ncuCommand}`);
+            logger.info('Would run: npm install');
             return `Would update dependencies matching ${scope} scope`;
         }
 
@@ -68,6 +69,28 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     logger.info(`   ${line}`);
                 }
             });
+        }
+
+        // Check if package.json was actually modified
+        const hasUpdates = result.stdout && !result.stdout.includes('All dependencies match the latest package versions');
+
+        if (hasUpdates) {
+            logger.info('📦 Running npm install to update lock file...');
+            try {
+                const installResult = await run('npm install');
+                if (installResult.stdout) {
+                    logger.verbose('npm install output:');
+                    installResult.stdout.split('\n').forEach(line => {
+                        if (line.trim()) {
+                            logger.verbose(`   ${line}`);
+                        }
+                    });
+                }
+                logger.info('✅ Lock file updated successfully');
+            } catch (installError: any) {
+                logger.error(`Failed to run npm install: ${installError.message}`);
+                throw new Error(`Failed to update lock file after dependency updates: ${installError.message}`);
+            }
         }
 
         logger.info(`✅ Successfully updated dependencies matching ${scope} scope`);

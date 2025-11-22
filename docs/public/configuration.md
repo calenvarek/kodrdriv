@@ -513,6 +513,8 @@ publish:
   checksTimeout: 3600000        # Timeout in milliseconds for waiting for PR checks (default: 1 hour)
   dependencyUpdatePatterns:
     - "@company/*"
+  scopedDependencyUpdates:
+    - "@company"                # Scopes to check for updates before publish (defaults to package's own scope)
   requiredEnvVars:
     - NODE_AUTH_TOKEN
   linkWorkspacePackages: true
@@ -553,6 +555,13 @@ publish:
 - **`dependencyUpdatePatterns`**: Patterns for which dependencies to update during publish
   - Array of package name patterns (supports wildcards)
   - If not specified, all dependencies are updated
+  - **Note**: This controls the final `npm update` step, not the scoped updates
+
+- **`scopedDependencyUpdates`**: Scopes to check for updates using npm-check-updates before publish
+  - Array of npm scopes (e.g., `["@fjell", "@company"]`)
+  - **Default behavior**: If not specified, defaults to the package's own scope (e.g., `@fjell/core` will check `@fjell` scope)
+  - **Use Case**: For multi-scope projects, specify which scopes should be kept up-to-date. For single-scope projects like Fjell, you typically don't need to configure this.
+  - Set to an empty array `[]` to disable automatic scoped updates entirely
 
 - **`requiredEnvVars`**: Environment variables that must be set for publish to succeed
   - Array of environment variable names

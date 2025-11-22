@@ -1,19 +1,26 @@
 #!/usr/bin/env node
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
-import { ChatCompletionMessageParam } from 'openai/resources';
+import type { ChatCompletionMessageParam } from 'openai/resources';
 import { ValidationError, FileOperationError, CommandError } from '../error/CommandErrors';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { createCompletion, getModelForCommand, getOpenAIReasoningForCommand, getOpenAIMaxOutputTokensForCommand } from '../util/openai';
-import * as ReviewPrompt from '../prompt/review';
+import {
+    createCompletion,
+    getUserChoice,
+    createReviewPrompt,
+    ReviewContent,
+    ReviewContext,
+} from '@eldrforge/ai-service';
+import { toAIConfig } from '../util/aiAdapter';
+import { createStorageAdapter } from '../util/storageAdapter';
+import { createLoggerAdapter } from '../util/loggerAdapter';
 import * as Log from '../content/log';
 import * as Diff from '../content/diff';
 import { getReleaseNotesContent, getIssuesContent, handleIssueCreation, type Issue, type ReviewResult } from '@eldrforge/github-tools';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename } from '../util/general';
 import { create as createStorage } from '../util/storage';
-import { getUserChoice } from '../util/interactive';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
@@ -486,31 +493,37 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
         overridePaths: runConfig.discoveredConfigDirs || [],
         overrides: runConfig.overrides || false,
     };
-    const promptContent = {
+    // Create adapters for ai-service
+    const aiConfig = toAIConfig(runConfig);
+    const aiStorageAdapter = createStorageAdapter();
+    const aiLogger = createLoggerAdapter(runConfig.dryRun || false);
+
+    const promptContent: ReviewContent = {
         notes: reviewNote,
     };
-    const promptContext = {
+    const promptContext: ReviewContext = {
         context: runConfig.review?.context,
         logContext,
         diffContext,
         releaseNotesContext,
         issuesContext,
     };
-    const prompt = await ReviewPrompt.createPrompt(promptConfig, promptContent, promptContext);
+    const prompt = await createReviewPrompt(promptConfig, promptContent, promptContext);
 
-    const modelToUse = getModelForCommand(runConfig, 'review');
+    const modelToUse = aiConfig.commands?.review?.model || aiConfig.model || 'gpt-4o-mini';
     const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
 
     let analysisResult: ReviewResult;
     try {
         const rawResult = await createCompletion(request.messages as ChatCompletionMessageParam[], {
             model: modelToUse,
-            openaiReasoning: getOpenAIReasoningForCommand(runConfig, 'review'),
-            openaiMaxOutputTokens: getOpenAIMaxOutputTokensForCommand(runConfig, 'review'),
+            openaiReasoning: aiConfig.commands?.review?.reasoning || aiConfig.reasoning,
             responseFormat: { type: 'json_object' },
             debug: runConfig.debug,
             debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('review-analysis')),
             debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('review-analysis')),
+            storage: aiStorageAdapter,
+            logger: aiLogger,
         });
 
         // Validate the API response before using it
