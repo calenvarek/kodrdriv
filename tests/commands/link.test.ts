@@ -417,18 +417,30 @@ describe('Link Command', () => {
             mockStorage.readFile.mockImplementation((p: string) => {
                 if (p === '/ws/core/package.json') return Promise.resolve(JSON.stringify({ name: '@scope/core', dependencies: { '@ext/dep': '^1.0.0' } }));
                 if (p === '/ws/app/package.json') return Promise.resolve(JSON.stringify({ name: '@scope/app', dependencies: { '@scope/core': '^1.0.0' } }));
-                return Promise.reject(new Error('no file'));
+                return Promise.reject(new Error('no file: ' + p));
             });
             mockSafeJsonParse.mockImplementation((s: string) => JSON.parse(s));
             mockValidatePackageJson.mockImplementation((p: any) => p);
 
             // lstat: core has external linked dep
-            vi.mocked(mockFs.lstat)
-                .mockResolvedValueOnce({ isSymbolicLink: () => true } as any) // @ext/dep in core
-                .mockResolvedValueOnce({ isSymbolicLink: () => false } as any); // @scope/core in app
-            vi.mocked(mockFs.default.lstat)
-                .mockResolvedValueOnce({ isSymbolicLink: () => true } as any)
-                .mockResolvedValueOnce({ isSymbolicLink: () => false } as any);
+            const lstatImpl = (p: any) => {
+                const pathStr = p.toString();
+                if (pathStr.includes('@ext/dep')) {
+                    return Promise.resolve({ isSymbolicLink: () => true });
+                }
+                if (pathStr.includes('@scope/core')) {
+                    return Promise.resolve({ isSymbolicLink: () => false });
+                }
+                // Default behavior for other paths (e.g. during setup or other checks)
+                return Promise.reject(new Error('ENOENT'));
+            };
+
+            vi.mocked(mockFs.lstat).mockReset();
+            vi.mocked(mockFs.lstat).mockImplementation(lstatImpl);
+
+            vi.mocked(mockFs.default.lstat).mockReset();
+            vi.mocked(mockFs.default.lstat).mockImplementation(lstatImpl);
+
             vi.mocked(mockFs.readlink).mockResolvedValue('/external/path');
             vi.mocked(mockFs.default.readlink).mockResolvedValue('/external/path');
 

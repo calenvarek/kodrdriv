@@ -233,18 +233,31 @@ describe('tree', () => {
         (createStorage as Mock).mockReturnValue(mockStorage);
 
         mockRun = run as Mock;
+        mockRun.mockClear();
         mockExec = exec as unknown as Mock;
+        mockExec.mockClear();
         mockCommitExecute = Commit.execute as Mock;
+        mockCommitExecute.mockClear();
         mockPublishExecute = Publish.execute as Mock;
+        mockPublishExecute.mockClear();
         mockReleaseExecute = Release.execute as Mock;
+        mockReleaseExecute.mockClear();
         mockLinkExecute = Link.execute as Mock;
+        mockLinkExecute.mockClear();
         mockUnlinkExecute = Unlink.execute as Mock;
+        mockUnlinkExecute.mockClear();
         mockGetGitStatusSummary = getGitStatusSummary as Mock;
+        mockGetGitStatusSummary.mockClear();
         mockIsNpmLinked = isNpmLinked as Mock;
+        mockIsNpmLinked.mockClear();
         mockGetGloballyLinkedPackages = getGloballyLinkedPackages as Mock;
+        mockGetGloballyLinkedPackages.mockClear();
         mockGetLinkedDependencies = getLinkedDependencies as Mock;
+        mockGetLinkedDependencies.mockClear();
         mockGetLinkProblems = getLinkProblems as Mock;
+        mockGetLinkProblems.mockClear();
         mockGetLinkCompatibilityProblems = getLinkCompatibilityProblems as Mock;
+        mockGetLinkCompatibilityProblems.mockClear();
 
         // Setup git-tools mock behavior
         const mockSafeJsonParse = vi.mocked(safeJsonParse);
