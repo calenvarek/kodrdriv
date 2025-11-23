@@ -866,7 +866,7 @@ describe('Argument Parsing and Configuration', () => {
             } as unknown as Cardigantime<any>;
 
             // Mock Command constructor
-            vi.mocked(Command).mockImplementation(() => mockProgram);
+            vi.mocked(Command).mockImplementation(function(this: any) { return mockProgram; } as any);
 
             // Set up default storage mocks
             mockStorage.isDirectoryReadable.mockResolvedValue(true);
