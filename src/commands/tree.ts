@@ -44,6 +44,7 @@ import * as Commit from './commit';
 import * as Link from './link';
 import * as Unlink from './unlink';
 import * as Updates from './updates';
+import { runGitWithLock } from '../util/gitMutex';
 import type {
     PackageInfo
 } from '../util/dependencyGraph';
@@ -710,58 +711,61 @@ export const executePackage = async (
                 }
 
                 // Handle dependency updates for publish commands before executing (skip during dry run)
+                // Wrap in git lock to prevent parallel packages from conflicting with npm install and git operations
                 if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish')) {
-                    let hasAnyUpdates = false;
+                    await runGitWithLock(packageDir, async () => {
+                        let hasAnyUpdates = false;
 
-                    // First, update all scoped dependencies from npm registry
-                    const hasScopedUpdates = await updateScopedDependencies(packageDir, packageLogger, isDryRun, runConfig);
-                    hasAnyUpdates = hasAnyUpdates || hasScopedUpdates;
+                        // First, update all scoped dependencies from npm registry
+                        const hasScopedUpdates = await updateScopedDependencies(packageDir, packageLogger, isDryRun, runConfig);
+                        hasAnyUpdates = hasAnyUpdates || hasScopedUpdates;
 
-                    // Then update inter-project dependencies based on previously published packages
-                    if (publishedVersions.length > 0) {
-                        packageLogger.info('Updating inter-project dependencies based on previously published packages...');
-                        const hasInterProjectUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
-                        hasAnyUpdates = hasAnyUpdates || hasInterProjectUpdates;
-                    }
+                        // Then update inter-project dependencies based on previously published packages
+                        if (publishedVersions.length > 0) {
+                            packageLogger.info('Updating inter-project dependencies based on previously published packages...');
+                            const hasInterProjectUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+                            hasAnyUpdates = hasAnyUpdates || hasInterProjectUpdates;
+                        }
 
-                    // If either type of update occurred, commit the changes
-                    if (hasAnyUpdates) {
-                        // Commit the dependency updates using kodrdriv commit
-                        packageLogger.info('Committing dependency updates...');
-                        packageLogger.info('⏱️  This step may take a few minutes as it generates a commit message using AI...');
+                        // If either type of update occurred, commit the changes
+                        if (hasAnyUpdates) {
+                            // Commit the dependency updates using kodrdriv commit
+                            packageLogger.info('Committing dependency updates...');
+                            packageLogger.info('⏱️  This step may take a few minutes as it generates a commit message using AI...');
 
-                        // Add timeout wrapper around commit execution
-                        const commitTimeoutMs = 300000; // 5 minutes
-                        const commitPromise = Commit.execute({...runConfig, dryRun: false});
-                        const timeoutPromise = new Promise<never>((_, reject) => {
-                            setTimeout(() => reject(new Error(`Commit operation timed out after ${commitTimeoutMs/1000} seconds`)), commitTimeoutMs);
-                        });
+                            // Add timeout wrapper around commit execution
+                            const commitTimeoutMs = 300000; // 5 minutes
+                            const commitPromise = Commit.execute({...runConfig, dryRun: false});
+                            const timeoutPromise = new Promise<never>((_, reject) => {
+                                setTimeout(() => reject(new Error(`Commit operation timed out after ${commitTimeoutMs/1000} seconds`)), commitTimeoutMs);
+                            });
 
-                        // Add progress indicator
-                        let progressInterval: NodeJS.Timeout | null = null;
-                        try {
-                            // Start progress indicator
-                            progressInterval = setInterval(() => {
-                                packageLogger.info('⏳ Still generating commit message... (this can take 1-3 minutes)');
-                            }, 30000); // Every 30 seconds
+                            // Add progress indicator
+                            let progressInterval: NodeJS.Timeout | null = null;
+                            try {
+                                // Start progress indicator
+                                progressInterval = setInterval(() => {
+                                    packageLogger.info('⏳ Still generating commit message... (this can take 1-3 minutes)');
+                                }, 30000); // Every 30 seconds
 
-                            await Promise.race([commitPromise, timeoutPromise]);
-                            packageLogger.info('✅ Dependency updates committed successfully');
-                        } catch (commitError: any) {
-                            if (commitError.message.includes('timed out')) {
-                                packageLogger.error(`❌ Commit operation timed out after ${commitTimeoutMs/1000} seconds`);
-                                packageLogger.error('This usually indicates an issue with the AI service or very large changes');
-                                packageLogger.error('You may need to manually commit the dependency updates');
-                            } else {
-                                packageLogger.warn(`Failed to commit dependency updates: ${commitError.message}`);
-                            }
-                            // Continue with publish anyway - the updates are still in place
-                        } finally {
-                            if (progressInterval) {
-                                clearInterval(progressInterval);
+                                await Promise.race([commitPromise, timeoutPromise]);
+                                packageLogger.info('✅ Dependency updates committed successfully');
+                            } catch (commitError: any) {
+                                if (commitError.message.includes('timed out')) {
+                                    packageLogger.error(`❌ Commit operation timed out after ${commitTimeoutMs/1000} seconds`);
+                                    packageLogger.error('This usually indicates an issue with the AI service or very large changes');
+                                    packageLogger.error('You may need to manually commit the dependency updates');
+                                } else {
+                                    packageLogger.warn(`Failed to commit dependency updates: ${commitError.message}`);
+                                }
+                                // Continue with publish anyway - the updates are still in place
+                            } finally {
+                                if (progressInterval) {
+                                    clearInterval(progressInterval);
+                                }
                             }
                         }
-                    }
+                    }, `${packageName}: dependency updates`);
                 }
 
                 if (runConfig.debug || runConfig.verbose) {

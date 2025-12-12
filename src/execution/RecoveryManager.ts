@@ -69,7 +69,7 @@ export class RecoveryManager {
         for (const pkgIdentifier of packages) {
             // Resolve identifier to package name
             const pkg = this.resolvePackageName(pkgIdentifier);
-            
+
             if (!pkg) {
                 // List available packages for better error message
                 const available = Array.from(this.graph.packages.entries())
