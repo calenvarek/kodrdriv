@@ -2654,7 +2654,7 @@ describe('tree', () => {
             (fs.readdir as Mock).mockRejectedValue(new Error('Permission denied'));
 
             await expect(execute(config)).rejects.toThrow('Failed to analyze workspace');
-            expect(mockLogger.error).toHaveBeenCalledWith('Failed to scan directory /restricted/path: Error: Permission denied');
+            expect(mockLogger.error).toHaveBeenCalledWith('DEPENDENCY_GRAPH_SCAN_FAILED: Failed to scan directory | Directory: /restricted/path | Error: Error: Permission denied');
         });
     });
 

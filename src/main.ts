@@ -10,7 +10,7 @@ async function main(): Promise<void> {
         await runApplication();
     } catch (error: any) {
         const logger = getLogger();
-        logger.error('Exiting due to Error: %s, %s', error.message, error.stack);
+        logger.error('MAIN_ERROR_EXIT: Exiting due to error | Error: %s | Stack: %s | Status: terminating', error.message, error.stack);
         process.exit(1);
     }
 }
@@ -20,6 +20,6 @@ main().then(() => {
     process.exit(0);
 }).catch((error) => {
     const logger = getLogger();
-    logger.error('Unhandled error in main: %s', error.message || error);
+    logger.error('MAIN_UNHANDLED_ERROR: Unhandled error in main process | Error: %s | Type: unhandled', error.message || error);
     process.exit(1);
 });

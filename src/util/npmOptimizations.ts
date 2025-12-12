@@ -64,7 +64,7 @@ export const optimizedNpmInstall = async (options: {
     if (skipIfNotNeeded) {
         const installCheck = await isNpmInstallNeeded(storage);
         if (!installCheck.needed) {
-            logger.info(`⚡ Skipping npm install: ${installCheck.reason}`);
+            logger.info(`NPM_INSTALL_SKIPPED: Skipping npm install optimization | Reason: ${installCheck.reason} | Status: not-needed`);
             return { duration: 0, skipped: true, reason: installCheck.reason };
         } else {
             logger.verbose(`📦 npm install required: ${installCheck.reason}`);
@@ -88,7 +88,7 @@ export const optimizedNpmInstall = async (options: {
 
     const command = `npm ${npmArgs.join(' ')}`;
 
-    logger.info(`⏳ Running optimized npm install...`);
+    logger.info(`NPM_INSTALL_OPTIMIZED: Running optimized npm install | Mode: optimized | Command: npm install`);
     logger.verbose(`Command: ${command}`);
 
     const timer = PerformanceTimer.start(logger, 'Optimized npm install execution');
@@ -96,7 +96,7 @@ export const optimizedNpmInstall = async (options: {
     try {
         await run(command);
         const duration = timer.end('Optimized npm install completed successfully');
-        logger.info(`✅ Dependencies installed successfully (${duration}ms)`);
+        logger.info(`NPM_INSTALL_SUCCESS: Dependencies installed successfully | Duration: ${duration}ms | Status: completed`);
         return { duration, skipped: false, reason: 'Installation completed successfully' };
     } catch (error: any) {
         timer.end('Optimized npm install failed');
@@ -116,13 +116,13 @@ export const tryNpmCi = async (): Promise<{ success: boolean; duration?: number 
             return { success: false };
         }
 
-        logger.info('⚡ Using npm ci for faster installation...');
+        logger.info('NPM_CI_USING: Using npm ci for faster installation | Command: npm ci | Advantage: Faster clean install');
         const timer = PerformanceTimer.start(logger, 'npm ci execution');
 
         await run('npm ci --silent --no-audit --no-fund');
         const duration = timer.end('npm ci completed successfully');
 
-        logger.info(`✅ Dependencies installed with npm ci (${duration}ms)`);
+        logger.info(`NPM_CI_SUCCESS: Dependencies installed with npm ci | Duration: ${duration}ms | Status: completed`);
         return { success: true, duration };
     } catch (error: any) {
         logger.verbose(`npm ci failed, will fall back to npm install: ${error.message}`);

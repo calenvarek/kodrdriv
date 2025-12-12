@@ -905,9 +905,9 @@ describe('confirmVersionInteractively', () => {
         const result = await confirmVersionInteractively('1.2.3', '1.2.4');
 
         expect(mockRequireTTY).toHaveBeenCalledWith('Interactive version confirmation requires a terminal.');
-        expect(mockLogger.info).toHaveBeenCalledWith('\n📦 Version Confirmation:');
-        expect(mockLogger.info).toHaveBeenCalledWith('   Current version: 1.2.3');
-        expect(mockLogger.info).toHaveBeenCalledWith('   Proposed version: 1.2.4');
+        expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('VERSION_CONFIRMATION'));
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_CURRENT: Current package version | Version: 1.2.3');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_PROPOSED: Proposed new version | Version: 1.2.4');
         expect(mockGetUserChoice).toHaveBeenCalledWith(
             '\n🤔 Confirm the version for this release:',
             [
@@ -924,7 +924,7 @@ describe('confirmVersionInteractively', () => {
 
         const result = await confirmVersionInteractively('1.2.3', '1.2.4', 'patch');
 
-        expect(mockLogger.info).toHaveBeenCalledWith('   Target input: patch');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_TARGET_INPUT: Target version provided | Input: patch');
         expect(result).toBe('1.2.4');
     });
 
@@ -935,7 +935,7 @@ describe('confirmVersionInteractively', () => {
         const result = await confirmVersionInteractively('1.2.3', '1.2.4');
 
         expect(mockGetUserTextInput).toHaveBeenCalledWith('\n📝 Enter the version number (e.g., "4.30.0"):');
-        expect(mockLogger.info).toHaveBeenCalledWith('✅ Using custom version: 2.0.0');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_CUSTOM_SELECTED: Using custom version from user input | Version: 2.0.0 | Source: interactive input');
         expect(result).toBe('2.0.0');
     });
 
@@ -945,7 +945,7 @@ describe('confirmVersionInteractively', () => {
 
         const result = await confirmVersionInteractively('1.2.3', '1.2.4');
 
-        expect(mockLogger.info).toHaveBeenCalledWith('✅ Using custom version: 2.0.0');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_CUSTOM_SELECTED: Using custom version from user input | Version: 2.0.0 | Source: interactive input');
         expect(result).toBe('2.0.0');
     });
 
@@ -1006,9 +1006,9 @@ describe('confirmVersionInteractively', () => {
         // Test with versions that have leading zeros, etc.
         const result = await confirmVersionInteractively('v01.02.03', '01.02.04', 'PATCH');
 
-        expect(mockLogger.info).toHaveBeenCalledWith('   Current version: v01.02.03');
-        expect(mockLogger.info).toHaveBeenCalledWith('   Proposed version: 01.02.04');
-        expect(mockLogger.info).toHaveBeenCalledWith('   Target input: PATCH');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_CURRENT: Current package version | Version: v01.02.03');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_PROPOSED: Proposed new version | Version: 01.02.04');
+        expect(mockLogger.info).toHaveBeenCalledWith('VERSION_TARGET_INPUT: Target version provided | Input: PATCH');
         expect(result).toBe('01.02.04');
     });
 
@@ -1097,7 +1097,7 @@ describe('archiveAudio', () => {
         expect(mockStorage.isFileReadable).toHaveBeenCalledWith('/path/to/missing.wav');
         expect(fs.promises.readFile).not.toHaveBeenCalled();
         expect(mockLogger.warn).toHaveBeenCalledWith(
-            'Original audio file not found or not readable: %s',
+            'AUDIO_FILE_NOT_FOUND: Original audio file not accessible | Path: %s | Impact: Cannot archive original',
             '/path/to/missing.wav'
         );
 
@@ -1155,7 +1155,7 @@ describe('archiveAudio', () => {
             .toThrow('Audio archiving failed: Storage error');
 
         expect(mockLogger.error).toHaveBeenCalledWith(
-            'Failed to archive audio: %s',
+            'AUDIO_ARCHIVE_FAILED: Failed to archive audio files | Error: %s | Impact: Audio not preserved',
             'Storage error'
         );
     });
@@ -1175,7 +1175,7 @@ describe('archiveAudio', () => {
         await archiveAudio('/path/to/audio.wav', 'Test transcription', 'output');
 
         expect(mockLogger.info).toHaveBeenCalledWith(
-            '📁 Audio archived successfully - Audio: %s, Transcript: %s',
+            'AUDIO_ARCHIVED: Audio and transcript archived successfully | Audio: %s | Transcript: %s | Status: archived',
             '250107-0530-review-audio.wav',
             '250107-0530-review-transcript.md'
         );

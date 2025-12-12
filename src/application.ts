@@ -30,10 +30,10 @@ import { Config, SecureConfig } from './types';
 function printDebugCommandInfo(commandName: string, runConfig: Config): void {
     if (runConfig.debug) {
         const logger = getLogger();
-        logger.info('=== KODRDRIV DEBUG INFO ===');
-        logger.info('Command: %s', commandName);
-        logger.info('Version: %s', VERSION);
-        logger.info('===========================');
+        logger.info('DEBUG_INFO_HEADER: KodrDriv debug information');
+        logger.info('DEBUG_INFO_COMMAND: Command being executed | Command: %s', commandName);
+        logger.info('DEBUG_INFO_VERSION: KodrDriv version | Version: %s', VERSION);
+        logger.info('DEBUG_INFO_FOOTER: End of debug information');
     }
 }
 
@@ -107,7 +107,7 @@ export async function runApplication(): Promise<void> {
     setPromptFunction(promptConfirmation);
 
     // Display version information
-    logger.info('🚀 kodrdriv %s', VERSION);
+    logger.info('APPLICATION_STARTING: KodrDriv application initializing | Version: %s | Status: starting', VERSION);
 
     // Handle check-config command first
     if (commandConfig.commandName === COMMAND_CHECK_CONFIG) {
@@ -200,7 +200,7 @@ export async function runApplication(): Promise<void> {
     } catch (error: any) {
         // Handle user cancellation gracefully
         if (error instanceof UserCancellationError) {
-            logger.info(error.message);
+            logger.info('APPLICATION_ERROR: Application error occurred | Error: ' + error.message);
             process.exit(0);
         }
 

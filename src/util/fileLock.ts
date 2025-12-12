@@ -221,7 +221,7 @@ export class RepositoryFileLockManager {
             process.exit(143); // Standard exit code for SIGTERM
         });
         process.on('uncaughtException', (error) => {
-            this.logger.error('Uncaught exception, cleaning up locks:', error);
+            this.logger.error('FILELOCK_UNCAUGHT_EXCEPTION: Uncaught exception detected, cleaning up locks | Error: ' + error + ' | Action: Release all locks');
             cleanup();
             process.exit(1);
         });

@@ -47,7 +47,7 @@ export async function loadConfig(cwd: string = process.cwd()): Promise<KodrdrivC
             return config;
         } catch (error: any) {
             if (error.code !== 'ENOENT') {
-                logger.warn(`Failed to load config from ${configPath}: ${error.message}`);
+                logger.warn(`CONFIG_LOAD_FAILED: Failed to load configuration file | Path: ${configPath} | Error: ${error.message} | Action: Using defaults`);
             }
         }
     }
@@ -162,7 +162,7 @@ export async function saveSampleConfig(cwd: string = process.cwd()): Promise<str
 
     const sampleConfig = createSampleConfig();
     await fs.writeFile(configPath, sampleConfig, 'utf-8');
-    logger.info(`✅ Created sample configuration: ${configPath}`);
+    logger.info(`CONFIG_CREATED: Created sample configuration file | Path: ${configPath} | Status: created | Purpose: Template for customization`);
 
     return configPath;
 }

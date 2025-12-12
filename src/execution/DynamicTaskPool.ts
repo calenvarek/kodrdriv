@@ -91,7 +91,7 @@ export class DynamicTaskPool extends EventEmitter {
      * Main execution entry point
      */
     async execute(): Promise<ExecutionResult> {
-        this.logger.info(`Starting parallel execution with max concurrency: ${this.config.maxConcurrency}`);
+        this.logger.info(`EXECUTION_STARTING: Starting parallel execution | Max Concurrency: ${this.config.maxConcurrency} | Mode: parallel | Purpose: Execute packages with dependency awareness`);
         this.emit('execution:started', { totalPackages: this.graph.packages.size });
 
         try {
@@ -282,12 +282,12 @@ export class DynamicTaskPool extends EventEmitter {
         if (result.skippedNoChanges) {
             this.state.skippedNoChanges.push(packageName);
             const duration = this.packageDurations.get(packageName)!;
-            this.logger.info(`⊘ ${packageName} skipped - no code changes (${this.formatDuration(duration)})`);
+            this.logger.info(`PACKAGE_SKIPPED_NO_CHANGES: Package skipped due to no code changes | Package: ${packageName} | Duration: ${this.formatDuration(duration)} | Reason: no-changes`);
             this.emit('package:skipped-no-changes', { packageName, result });
         } else {
             this.state.completed.push(packageName);
             const duration = this.packageDurations.get(packageName)!;
-            this.logger.info(`✓ ${packageName} completed successfully (${this.formatDuration(duration)})`);
+            this.logger.info(`PACKAGE_EXECUTION_COMPLETE: Package execution finished successfully | Package: ${packageName} | Duration: ${this.formatDuration(duration)} | Status: success`);
             this.emit('package:completed', { packageName, result });
 
             // Track published version if applicable
@@ -346,7 +346,7 @@ export class DynamicTaskPool extends EventEmitter {
 
             this.state.failed.push(failureInfo);
 
-            this.logger.error(`✗ ${packageName} failed permanently: ${error.message}`);
+            this.logger.error(`PACKAGE_FAILED_PERMANENT: Package failed permanently | Package: ${packageName} | Error: ${error.message} | Status: failed | Retriable: false`);
             this.emit('package:failed', { packageName, error });
 
             // Cascade failure to dependents
@@ -368,7 +368,7 @@ export class DynamicTaskPool extends EventEmitter {
             // Add to skipped
             if (!this.state.skipped.includes(dependent)) {
                 this.state.skipped.push(dependent);
-                this.logger.warn(`⊘ Skipping ${dependent} (depends on failed ${failedPackage})`);
+                this.logger.warn(`PACKAGE_SKIPPED_DEPENDENCY: Package skipped due to failed dependency | Package: ${dependent} | Failed Dependency: ${failedPackage} | Reason: dependency-failed`);
                 this.emit('package:skipped', {
                     packageName: dependent,
                     reason: `Depends on failed ${failedPackage}`
@@ -479,14 +479,14 @@ export class DynamicTaskPool extends EventEmitter {
         const checkpoint = await this.checkpointManager.load();
 
         if (!checkpoint) {
-            this.logger.warn('No checkpoint found, starting fresh');
+            this.logger.warn('CHECKPOINT_NOT_FOUND: No checkpoint file found | Action: Starting fresh execution | Path: ' + this.config.checkpointPath);
             return;
         }
 
-        this.logger.info('Loading checkpoint...');
-        this.logger.info(`Execution ID: ${checkpoint.executionId}`);
-        this.logger.info(`Completed: ${checkpoint.state.completed.length} packages`);
-        this.logger.info(`Failed: ${checkpoint.state.failed.length} packages`);
+        this.logger.info('CHECKPOINT_LOADING: Loading execution checkpoint | Purpose: Resume previous execution | Path: ' + this.config.checkpointPath);
+        this.logger.info(`CHECKPOINT_EXECUTION_ID: Checkpoint execution identifier | ID: ${checkpoint.executionId}`);
+        this.logger.info(`CHECKPOINT_STATE_COMPLETED: Completed packages from checkpoint | Count: ${checkpoint.state.completed.length} packages`);
+        this.logger.info(`CHECKPOINT_STATE_FAILED: Failed packages from checkpoint | Count: ${checkpoint.state.failed.length} packages`);
 
         // Restore state
         this.executionId = checkpoint.executionId;
@@ -514,6 +514,37 @@ export class DynamicTaskPool extends EventEmitter {
             this.state.pending.push(running.name);
         }
         this.state.running = [];
+
+        // CRITICAL FIX: Re-evaluate skipped packages
+        // After loading checkpoint (especially with --mark-completed), packages that were
+        // skipped due to failed dependencies might now be eligible to run if those
+        // dependencies are now completed. Move them back to pending for reassessment.
+        const unblocked: string[] = [];
+        for (const packageName of this.state.skipped) {
+            // Check if all dependencies are now completed
+            const dependencies = this.graph.edges.get(packageName) || new Set();
+            const allDepsCompleted = Array.from(dependencies).every(dep =>
+                this.state.completed.includes(dep) || this.state.skippedNoChanges.includes(dep)
+            );
+
+            // Check if any dependencies are still failed
+            const anyDepsFailed = Array.from(dependencies).some(dep =>
+                this.state.failed.some(f => f.name === dep)
+            );
+
+            if (allDepsCompleted && !anyDepsFailed) {
+                unblocked.push(packageName);
+            }
+        }
+
+        // Move unblocked packages back to pending
+        if (unblocked.length > 0) {
+            this.logger.info(`PACKAGES_UNBLOCKED: Dependencies satisfied, packages now ready | Count: ${unblocked.length} | Packages: ${unblocked.join(', ')} | Status: ready-to-execute`);
+            for (const packageName of unblocked) {
+                this.state.skipped = this.state.skipped.filter(p => p !== packageName);
+                this.state.pending.push(packageName);
+            }
+        }
     }
 
     /**

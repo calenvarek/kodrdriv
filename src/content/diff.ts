@@ -296,7 +296,7 @@ export const create = async (options: { from?: string, to?: string, cached?: boo
                 }
                 const { stdout, stderr } = await run(command, { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
                 if (stderr) {
-                    logger.warn('Git diff produced stderr: %s', stderr);
+                    logger.warn('GIT_DIFF_STDERR: Git diff produced stderr output | Stderr: %s | Impact: May indicate warnings', stderr);
                 }
                 logger.debug('Git diff output: %s', stdout);
 
@@ -307,7 +307,7 @@ export const create = async (options: { from?: string, to?: string, cached?: boo
                     const newSize = Buffer.byteLength(truncatedDiff, 'utf8');
 
                     if (originalSize !== newSize) {
-                        logger.info('Applied diff truncation: %d bytes -> %d bytes (limit: %d bytes)',
+                        logger.info('DIFF_TRUNCATED: Applied diff size truncation | Original: %d bytes | Truncated: %d bytes | Limit: %d bytes | Reason: Size exceeds limit',
                             originalSize, newSize, options.maxDiffBytes);
                     }
 
@@ -316,11 +316,11 @@ export const create = async (options: { from?: string, to?: string, cached?: boo
 
                 return stdout;
             } catch (error: any) {
-                logger.error('Failed to execute git diff: %s', error.message);
+                logger.error('GIT_DIFF_FAILED: Failed to execute git diff command | Error: %s | Impact: Cannot gather change information', error.message);
                 throw error;
             }
         } catch (error: any) {
-            logger.error('Error occurred during gather change phase: %s %s', error.message, error.stack);
+            logger.error('DIFF_GATHER_ERROR: Error during change gathering phase | Error: %s | Stack: %s | Impact: Cannot collect diff', error.message, error.stack);
             throw new ExitError('Error occurred during gather change phase');
         }
     }
@@ -335,7 +335,7 @@ export const hasStagedChanges = async (): Promise<boolean> => {
         // Suppress error logging since exit code 1 is expected when there are staged changes
         const { stderr } = await run('git diff --cached --quiet', { suppressErrorLogging: true });
         if (stderr) {
-            logger.warn('Git diff produced stderr: %s', stderr);
+            logger.warn('GIT_DIFF_STDERR: Git diff produced stderr output | Stderr: %s | Impact: May indicate warnings', stderr);
         }
         // If there are staged changes, git diff --cached --quiet will return non-zero
         // So if we get here without an error, there are no staged changes

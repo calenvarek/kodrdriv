@@ -812,9 +812,12 @@ export const executePackage = async (
                     });
 
                     try {
-                        const { stdout } = await Promise.race([commandPromise, commandTimeoutPromise]);
+                        const { stdout, stderr } = await Promise.race([commandPromise, commandTimeoutPromise]);
                         // Detect explicit skip marker from publish to avoid propagating versions
-                        if (builtInCommandName === 'publish' && stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) {
+                        // Check both stdout (where we now write it) and stderr (winston logger output, for backward compat)
+                        if (builtInCommandName === 'publish' &&
+                            ((stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) ||
+                             (stderr && stderr.includes('KODRDRIV_PUBLISH_SKIPPED')))) {
                             packageLogger.info('Publish skipped for this package; will not record or propagate a version.');
                             publishWasSkipped = true;
                         }
@@ -1069,6 +1072,55 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info(`✅ Package '${promotePackage}' has been marked as completed.`);
         logger.info('You can now run the tree command with --continue to resume from the next package.');
         return `Package '${promotePackage}' promoted to completed status.`;
+    }
+
+    // Handle audit-branches command
+    if (runConfig.tree?.auditBranches) {
+        logger.info('🔍 Auditing branch state across all packages...');
+
+        const directories = runConfig.tree?.directories || [process.cwd()];
+        const excludedPatterns = runConfig.tree?.exclude || [];
+
+        let allPackageJsonPaths: string[] = [];
+        for (const targetDirectory of directories) {
+            const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, excludedPatterns);
+            allPackageJsonPaths = allPackageJsonPaths.concat(packageJsonPaths);
+        }
+
+        if (allPackageJsonPaths.length === 0) {
+            return 'No packages found';
+        }
+
+        const dependencyGraph = await buildDependencyGraph(allPackageJsonPaths);
+        const packages = Array.from(dependencyGraph.packages.values()).map(pkg => ({
+            name: pkg.name,
+            path: pkg.path,
+        }));
+
+        const { auditBranchState, formatAuditResults } = await import('../utils/branchState');
+
+        // For publish workflows, check branch consistency, merge conflicts, and existing PRs
+        // Don't pass an expected branch - let the audit find the most common branch
+        const targetBranch = runConfig.publish?.targetBranch || 'main';
+
+        logger.info(`Checking for merge conflicts with '${targetBranch}' and existing pull requests...`);
+
+        const auditResult = await auditBranchState(packages, undefined, {
+            targetBranch,
+            checkPR: true,
+            checkConflicts: true,
+        });
+        const formatted = formatAuditResults(auditResult);
+
+        logger.info('\n' + formatted);
+
+        if (auditResult.issuesFound > 0) {
+            logger.warn(`\n⚠️  Found issues in ${auditResult.issuesFound} package(s). Review the fixes above.`);
+            return `Branch audit complete: ${auditResult.issuesFound} package(s) need attention`;
+        }
+
+        logger.info(`\n✅ All ${auditResult.goodPackages} package(s) are in good state!`);
+        return `Branch audit complete: All packages OK`;
     }
 
     // Handle parallel execution recovery commands

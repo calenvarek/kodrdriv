@@ -193,7 +193,7 @@ describe('updates command', () => {
 
             await execute(config);
 
-            expect(mockLogger.info).toHaveBeenCalledWith('✅ npm-check-updates output:');
+            expect(mockLogger.info).toHaveBeenCalledWith('UPDATES_NCU_OUTPUT: npm-check-updates output | Status: completed');
             expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('@fjell/core'));
         });
 
@@ -211,7 +211,7 @@ describe('updates command', () => {
 
             await execute(config);
 
-            expect(mockLogger.info).toHaveBeenCalledWith('⚠️  npm-check-updates warnings:');
+            expect(mockLogger.info).toHaveBeenCalledWith('UPDATES_NCU_WARNINGS: npm-check-updates produced warnings | Type: warnings');
             expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('Some warning message'));
         });
 

@@ -5,7 +5,7 @@
 When running `kodrdriv tree publish --parallel`, the execution would freeze because:
 
 1. **Multiple child processes** were spawned (one per package)
-2. All packages were in the **same git repository** (`/Users/tobrien/gitw/calenvarek`)
+2. All packages were in the **same git repository** (`~gitw/calenvarek`)
 3. Each child process had its own **in-memory mutex** (SimpleMutex)
 4. In-memory mutexes **cannot coordinate across separate processes**
 5. Multiple processes tried to run git operations concurrently
@@ -138,7 +138,7 @@ Potential enhancements:
 
 To verify the fix works:
 ```bash
-cd /Users/tobrien/gitw/calenvarek/kodrdriv
+cd ~gitw/calenvarek/kodrdriv
 npm run build
 kodrdriv tree publish --parallel --dry-run
 ```

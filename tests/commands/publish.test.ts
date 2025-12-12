@@ -74,7 +74,8 @@ vi.mock('../../src/util/general', () => ({
     calculateTargetVersion: vi.fn(),
     checkIfTagExists: vi.fn(),
     confirmVersionInteractively: vi.fn(),
-    getOutputPath: vi.fn()
+    getOutputPath: vi.fn(),
+    getNpmPublishedVersion: vi.fn()
 }));
 
 vi.mock('@eldrforge/git-tools', () => ({

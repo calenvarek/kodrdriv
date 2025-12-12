@@ -30,7 +30,7 @@ export const handleCommandError = async (
 
     // Handle user cancellation gracefully
     if (error instanceof UserCancellationError) {
-        logger.info(error.message);
+        logger.info('USER_CANCELLATION: Operation cancelled by user | Reason: ' + error.message + ' | Status: aborted');
         if (exitOnError) process.exit(0);
         return;
     }
@@ -44,10 +44,10 @@ export const handleCommandError = async (
         if (error instanceof PullRequestCheckError) {
             // The error has already displayed its detailed recovery instructions
             // Just show a brief summary here
-            logger.error(`${command} failed: ${error.message}`);
-            logger.info('Detailed recovery instructions were provided above.');
+            logger.error(`COMMAND_FAILED: Command execution failed | Command: ${command} | Error: ${error.message} | Recovery: See above`);
+            logger.info('ERROR_RECOVERY_INFO: Detailed recovery instructions provided above | Action: Review and follow steps');
         } else {
-            logger.error(`${command} failed: ${error.message}`);
+            logger.error(`COMMAND_FAILED: Command execution failed | Command: ${command} | Error: ${error.message}`);
             if (error.cause && typeof error.cause === 'object' && 'message' in error.cause) {
                 logger.debug(`Caused by: ${(error.cause as Error).message}`);
                 if (logger.isDebugEnabled() && 'stack' in error.cause) {
@@ -57,7 +57,7 @@ export const handleCommandError = async (
 
             // Provide recovery suggestions for recoverable errors
             if (error.recoverable) {
-                logger.info('This error is recoverable. You may try again or adjust your configuration.');
+                logger.info('ERROR_RECOVERABLE: This error is recoverable | Action: Retry operation or adjust configuration | Status: can-retry');
             }
         }
 
@@ -66,7 +66,7 @@ export const handleCommandError = async (
     }
 
     // Handle unexpected errors
-    logger.error(`${command} encountered unexpected error: ${error.message}`);
+    logger.error(`ERROR_UNEXPECTED: Command encountered unexpected error | Command: ${command} | Error: ${error.message} | Type: unexpected`);
     if (logger.isDebugEnabled()) {
         logger.debug(`Stack trace:`, error.stack);
     }

@@ -97,6 +97,8 @@ export const ConfigSchema = z.object({
         from: z.string().optional(),
         targetVersion: z.string().optional(),
         interactive: z.boolean().optional(),
+        skipAlreadyPublished: z.boolean().optional(),
+        forceRepublish: z.boolean().optional(),
         dependencyUpdatePatterns: z.array(z.string()).optional(),
         scopedDependencyUpdates: z.array(z.string()).optional(),
         requiredEnvVars: z.array(z.string()).optional(),
@@ -113,6 +115,7 @@ export const ConfigSchema = z.object({
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
         skipPrePublishMerge: z.boolean().optional(),
+        updateDeps: z.string().optional(),
     }).optional(),
     branches: z.record(z.string(), z.object({
         targetBranch: z.string().optional(),
@@ -178,6 +181,7 @@ export const ConfigSchema = z.object({
         skipFailed: z.boolean().optional(),
         resetPackage: z.string().optional(),
         statusParallel: z.boolean().optional(),
+        auditBranches: z.boolean().optional(),
         validateState: z.boolean().optional(),
     }).optional(),
     development: z.object({
@@ -194,6 +198,7 @@ export const ConfigSchema = z.object({
     updates: z.object({
         scope: z.string().optional(),
         directories: z.array(z.string()).optional(),
+        interProject: z.boolean().optional(),
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
     traits: z.any().optional(), // Add traits property for cardigantime compatibility
@@ -325,6 +330,9 @@ export type PublishConfig = {
     from?: string;
     targetVersion?: string;
     interactive?: boolean;
+    skipAlreadyPublished?: boolean;
+    forceRepublish?: boolean;
+    syncTarget?: boolean;
     dependencyUpdatePatterns?: string[];
     scopedDependencyUpdates?: string[];
     requiredEnvVars?: string[];
@@ -337,6 +345,8 @@ export type PublishConfig = {
     releaseWorkflowsTimeout?: number;
     releaseWorkflowNames?: string[];
     targetBranch?: string;
+    noMilestones?: boolean;
+    updateDeps?: string; // scope for inter-project dependency updates (e.g., '@fjell')
 }
 
 export type VersionTargetConfig = {
@@ -398,6 +408,7 @@ export type TreeConfig = {
     skipFailed?: boolean;
     resetPackage?: string;
     statusParallel?: boolean;
+    auditBranches?: boolean;
     validateState?: boolean;
 }
 
@@ -417,4 +428,5 @@ export type VersionsConfig = {
 export type UpdatesConfig = {
     scope?: string; // npm scope to update (e.g., '@fjell', '@getdidthey')
     directories?: string[]; // directories to scan for packages (tree mode)
+    interProject?: boolean; // update inter-project dependencies based on tree state
 }

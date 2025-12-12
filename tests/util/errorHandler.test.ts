@@ -58,7 +58,7 @@ describe('errorHandler', () => {
 
                 await handleCommandError(error, getDefaultOptions());
 
-                expect(mockLogger.info).toHaveBeenCalledWith('Test cancellation');
+                expect(mockLogger.info).toHaveBeenCalledWith('USER_CANCELLATION: Operation cancelled by user | Reason: Test cancellation | Status: aborted');
                 expect(mockExit).not.toHaveBeenCalled();
             });
 
@@ -69,7 +69,7 @@ describe('errorHandler', () => {
                     handleCommandError(error, { ...getDefaultOptions(), exitOnError: true })
                 ).rejects.toThrow('process.exit called');
 
-                expect(mockLogger.info).toHaveBeenCalledWith('Test cancellation');
+                expect(mockLogger.info).toHaveBeenCalledWith('USER_CANCELLATION: Operation cancelled by user | Reason: Test cancellation | Status: aborted');
                 expect(mockExit).toHaveBeenCalledWith(0);
             });
 
@@ -78,7 +78,7 @@ describe('errorHandler', () => {
 
                 await handleCommandError(error, getDefaultOptions());
 
-                expect(mockLogger.info).toHaveBeenCalledWith('Operation cancelled by user');
+                expect(mockLogger.info).toHaveBeenCalledWith('USER_CANCELLATION: Operation cancelled by user | Reason: Operation cancelled by user | Status: aborted');
             });
         });
 
@@ -104,8 +104,8 @@ describe('errorHandler', () => {
                     handleCommandError(error, getDefaultOptions())
                 ).rejects.toThrow(error);
 
-                expect(mockLogger.error).toHaveBeenCalledWith('test-command failed: PR checks failed');
-                expect(mockLogger.info).toHaveBeenCalledWith('Detailed recovery instructions were provided above.');
+                expect(mockLogger.error).toHaveBeenCalledWith('COMMAND_FAILED: Command execution failed | Command: test-command | Error: PR checks failed | Recovery: See above');
+                expect(mockLogger.info).toHaveBeenCalledWith('ERROR_RECOVERY_INFO: Detailed recovery instructions provided above | Action: Review and follow steps');
                 expect(mockExit).not.toHaveBeenCalled();
             });
 
@@ -139,7 +139,7 @@ describe('errorHandler', () => {
                     handleCommandError(error, getDefaultOptions())
                 ).rejects.toThrow(error);
 
-                expect(mockLogger.error).toHaveBeenCalledWith('test-command failed: Test error');
+                expect(mockLogger.error).toHaveBeenCalledWith('COMMAND_FAILED: Command execution failed | Command: test-command | Error: Test error');
                 expect(mockExit).not.toHaveBeenCalled();
             });
 
@@ -151,7 +151,7 @@ describe('errorHandler', () => {
                     handleCommandError(error, getDefaultOptions())
                 ).rejects.toThrow(error);
 
-                expect(mockLogger.error).toHaveBeenCalledWith('test-command failed: Test error');
+                expect(mockLogger.error).toHaveBeenCalledWith('COMMAND_FAILED: Command execution failed | Command: test-command | Error: Test error');
                 expect(mockLogger.debug).toHaveBeenCalledWith('Caused by: Root cause');
             });
 
@@ -180,7 +180,7 @@ describe('errorHandler', () => {
                 ).rejects.toThrow(error);
 
                 expect(mockLogger.info).toHaveBeenCalledWith(
-                    'This error is recoverable. You may try again or adjust your configuration.'
+                    'ERROR_RECOVERABLE: This error is recoverable | Action: Retry operation or adjust configuration | Status: can-retry'
                 );
             });
 
@@ -204,7 +204,7 @@ describe('errorHandler', () => {
                 ).rejects.toThrow(error);
 
                 expect(mockLogger.error).toHaveBeenCalledWith(
-                    'test-command encountered unexpected error: Unexpected error'
+                    'ERROR_UNEXPECTED: Command encountered unexpected error | Command: test-command | Error: Unexpected error | Type: unexpected'
                 );
                 expect(mockExit).not.toHaveBeenCalled();
             });
@@ -282,7 +282,7 @@ describe('errorHandler', () => {
                 executeWithErrorHandling('test-command', mockLogger, mockExecution, false)
             ).rejects.toThrow(error);
 
-            expect(mockLogger.info).toHaveBeenCalledWith('User cancelled');
+            expect(mockLogger.info).toHaveBeenCalledWith('USER_CANCELLATION: Operation cancelled by user | Reason: User cancelled | Status: aborted');
             expect(mockExit).not.toHaveBeenCalled();
         });
     });
@@ -399,7 +399,7 @@ describe('errorHandler', () => {
             ).rejects.toThrow(validationError);
 
             expect(mockCommand.execute).not.toHaveBeenCalled();
-            expect(mockLogger.error).toHaveBeenCalledWith('test-command failed: Invalid input');
+            expect(mockLogger.error).toHaveBeenCalledWith('COMMAND_FAILED: Command execution failed | Command: test-command | Error: Invalid input');
         });
     });
 });
