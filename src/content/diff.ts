@@ -332,7 +332,8 @@ export const hasStagedChanges = async (): Promise<boolean> => {
     const logger = getLogger();
     try {
         logger.debug('Checking for staged changes');
-        const { stderr } = await run('git diff --cached --quiet');
+        // Suppress error logging since exit code 1 is expected when there are staged changes
+        const { stderr } = await run('git diff --cached --quiet', { suppressErrorLogging: true });
         if (stderr) {
             logger.warn('Git diff produced stderr: %s', stderr);
         }
@@ -342,7 +343,7 @@ export const hasStagedChanges = async (): Promise<boolean> => {
 
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (error: any) {
-        // If we get an error, it means there are staged changes
+        // If we get an error, it means there are staged changes (exit code 1 is expected behavior)
         return true;
     }
 }

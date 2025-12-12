@@ -197,7 +197,7 @@ describe('diff', () => {
 
             const result = await Diff.hasStagedChanges();
 
-            expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet');
+            expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet', { suppressErrorLogging: true });
             expect(result).toBe(false);
             expect(getLogger.getLogger().debug).toHaveBeenCalledWith('Checking for staged changes');
         });
@@ -208,7 +208,7 @@ describe('diff', () => {
 
             const result = await Diff.hasStagedChanges();
 
-            expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet');
+            expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet', { suppressErrorLogging: true });
             expect(result).toBe(true);
             expect(getLogger.getLogger().debug).toHaveBeenCalledWith('Checking for staged changes');
         });
@@ -219,7 +219,7 @@ describe('diff', () => {
 
             const result = await Diff.hasStagedChanges();
 
-            expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet');
+            expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet', { suppressErrorLogging: true });
             expect(result).toBe(false);
             expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git diff produced stderr: %s', mockStderr);
         });

@@ -12,6 +12,7 @@ import { create as createStorage } from '../util/storage';
 import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import fs from 'fs/promises';
+import { runGitWithLock } from '../util/gitMutex';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const logger = getLogger();
@@ -462,7 +463,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const remoteExists = await run(`git ls-remote --exit-code --heads origin ${currentBranch}`).then(() => true).catch(() => false);
 
             if (remoteExists) {
-                await run(`git pull origin ${currentBranch} --no-edit`);
+                // Wrap git pull with lock to prevent concurrent pulls in same repo
+                await runGitWithLock(process.cwd(), async () => {
+                    await run(`git pull origin ${currentBranch} --no-edit`);
+                }, `pull ${currentBranch}`);
                 logger.info(`✅ Synced ${currentBranch} with remote`);
             } else {
                 logger.info(`ℹ️ No remote ${currentBranch} branch found, will be created on first push`);
@@ -528,13 +532,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
         if (!targetBranchExists) {
             logger.info(`🌟 Target branch '${targetBranch}' does not exist, creating it from current branch...`);
             try {
-                // Create the target branch from the current HEAD
-                await runSecure('git', ['branch', targetBranch, 'HEAD']);
-                logger.info(`✅ Created target branch: ${targetBranch}`);
+                // Wrap git branch and push operations with lock
+                await runGitWithLock(process.cwd(), async () => {
+                    // Create the target branch from the current HEAD
+                    await runSecure('git', ['branch', targetBranch, 'HEAD']);
+                    logger.info(`✅ Created target branch: ${targetBranch}`);
 
-                // Push the new branch to origin
-                await runSecure('git', ['push', 'origin', targetBranch]);
-                logger.info(`✅ Pushed new target branch to origin: ${targetBranch}`);
+                    // Push the new branch to origin
+                    await runSecure('git', ['push', 'origin', targetBranch]);
+                    logger.info(`✅ Pushed new target branch to origin: ${targetBranch}`);
+                }, `create and push target branch ${targetBranch}`);
             } catch (error: any) {
                 throw new Error(`Failed to create target branch '${targetBranch}': ${error.message}`);
             }
@@ -607,7 +614,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
         // Check if package-lock.json exists before trying to stage it
         const packageLockExists = await storage.exists('package-lock.json');
         const filesToStage = packageLockExists ? 'package.json package-lock.json' : 'package.json';
-        await runWithDryRunSupport(`git add ${filesToStage}`, isDryRun);
+
+        // Wrap git operations with repository lock to prevent .git/index.lock conflicts
+        await runGitWithLock(process.cwd(), async () => {
+            await runWithDryRunSupport(`git add ${filesToStage}`, isDryRun);
+        }, 'stage dependency updates');
 
         logger.verbose('Checking for staged dependency updates...');
         if (isDryRun) {
@@ -615,7 +626,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
         } else {
             if (await Diff.hasStagedChanges()) {
                 logger.verbose('Staged dependency changes found, creating commit...');
-                await Commit.execute(runConfig);
+                // Commit also needs git lock
+                await runGitWithLock(process.cwd(), async () => {
+                    await Commit.execute(runConfig);
+                }, 'commit dependency updates');
             } else {
                 logger.verbose('No dependency changes to commit, skipping commit.');
             }
@@ -631,106 +645,109 @@ export const execute = async (runConfig: Config): Promise<void> => {
             if (isDryRun) {
                 logger.info(`Would merge ${targetBranch} into current branch`);
             } else {
-                // Fetch the latest target branch
-                try {
-                    await run(`git fetch origin ${targetBranch}:${targetBranch}`);
-                    logger.info(`✅ Fetched latest ${targetBranch}`);
-                } catch (fetchError: any) {
-                    logger.warn(`⚠️ Could not fetch ${targetBranch}: ${fetchError.message}`);
-                    logger.warn('Continuing without merge - PR may have conflicts...');
-                }
+                // Wrap entire merge process with git lock (involves fetch, merge, checkout, add, commit)
+                await runGitWithLock(process.cwd(), async () => {
+                    // Fetch the latest target branch
+                    try {
+                        await run(`git fetch origin ${targetBranch}:${targetBranch}`);
+                        logger.info(`✅ Fetched latest ${targetBranch}`);
+                    } catch (fetchError: any) {
+                        logger.warn(`⚠️ Could not fetch ${targetBranch}: ${fetchError.message}`);
+                        logger.warn('Continuing without merge - PR may have conflicts...');
+                    }
 
-                // Check if merge is needed (avoid unnecessary merge commits)
-                try {
-                    const { stdout: mergeBase } = await run(`git merge-base HEAD ${targetBranch}`);
-                    const { stdout: targetCommit } = await run(`git rev-parse ${targetBranch}`);
+                    // Check if merge is needed (avoid unnecessary merge commits)
+                    try {
+                        const { stdout: mergeBase } = await run(`git merge-base HEAD ${targetBranch}`);
+                        const { stdout: targetCommit } = await run(`git rev-parse ${targetBranch}`);
 
-                    if (mergeBase.trim() === targetCommit.trim()) {
-                        logger.info(`ℹ️  Already up-to-date with ${targetBranch}, no merge needed`);
-                    } else {
-                    // Try to merge target branch into current branch
-                        let mergeSucceeded = false;
-                        try {
-                            await run(`git merge ${targetBranch} --no-edit -m "Merge ${targetBranch} to sync before version bump"`);
-                            logger.info(`✅ Merged ${targetBranch} into current branch`);
-                            mergeSucceeded = true;
-                        } catch (mergeError: any) {
-                        // If merge conflicts occur, check if they're only in version-related files
-                            const errorText = [mergeError.message || '', mergeError.stdout || '', mergeError.stderr || ''].join(' ');
-                            if (errorText.includes('CONFLICT')) {
-                                logger.warn(`⚠️  Merge conflicts detected, attempting automatic resolution...`);
+                        if (mergeBase.trim() === targetCommit.trim()) {
+                            logger.info(`ℹ️  Already up-to-date with ${targetBranch}, no merge needed`);
+                        } else {
+                        // Try to merge target branch into current branch
+                            let mergeSucceeded = false;
+                            try {
+                                await run(`git merge ${targetBranch} --no-edit -m "Merge ${targetBranch} to sync before version bump"`);
+                                logger.info(`✅ Merged ${targetBranch} into current branch`);
+                                mergeSucceeded = true;
+                            } catch (mergeError: any) {
+                            // If merge conflicts occur, check if they're only in version-related files
+                                const errorText = [mergeError.message || '', mergeError.stdout || '', mergeError.stderr || ''].join(' ');
+                                if (errorText.includes('CONFLICT')) {
+                                    logger.warn(`⚠️  Merge conflicts detected, attempting automatic resolution...`);
 
-                                // Get list of conflicted files
-                                const { stdout: conflictedFiles } = await run('git diff --name-only --diff-filter=U');
-                                const conflicts = conflictedFiles.trim().split('\n').filter(Boolean);
+                                    // Get list of conflicted files
+                                    const { stdout: conflictedFiles } = await run('git diff --name-only --diff-filter=U');
+                                    const conflicts = conflictedFiles.trim().split('\n').filter(Boolean);
 
-                                logger.verbose(`Conflicted files: ${conflicts.join(', ')}`);
+                                    logger.verbose(`Conflicted files: ${conflicts.join(', ')}`);
 
-                                // Check if conflicts are only in package.json and package-lock.json
-                                const versionFiles = ['package.json', 'package-lock.json'];
-                                const nonVersionConflicts = conflicts.filter(f => !versionFiles.includes(f));
+                                    // Check if conflicts are only in package.json and package-lock.json
+                                    const versionFiles = ['package.json', 'package-lock.json'];
+                                    const nonVersionConflicts = conflicts.filter(f => !versionFiles.includes(f));
 
-                                if (nonVersionConflicts.length > 0) {
-                                    logger.error(`❌ Cannot auto-resolve: conflicts in non-version files: ${nonVersionConflicts.join(', ')}`);
-                                    logger.error('');
-                                    logger.error('Please resolve conflicts manually:');
-                                    logger.error('   1. Resolve conflicts in the files listed above');
-                                    logger.error('   2. git add <resolved-files>');
-                                    logger.error('   3. git commit');
-                                    logger.error('   4. kodrdriv publish (to continue)');
-                                    logger.error('');
-                                    throw new Error(`Merge conflicts in non-version files. Please resolve manually.`);
+                                    if (nonVersionConflicts.length > 0) {
+                                        logger.error(`❌ Cannot auto-resolve: conflicts in non-version files: ${nonVersionConflicts.join(', ')}`);
+                                        logger.error('');
+                                        logger.error('Please resolve conflicts manually:');
+                                        logger.error('   1. Resolve conflicts in the files listed above');
+                                        logger.error('   2. git add <resolved-files>');
+                                        logger.error('   3. git commit');
+                                        logger.error('   4. kodrdriv publish (to continue)');
+                                        logger.error('');
+                                        throw new Error(`Merge conflicts in non-version files. Please resolve manually.`);
+                                    }
+
+                                    // Auto-resolve version conflicts by accepting current branch versions
+                                    // (keep our working branch's version, which is likely already updated)
+                                    logger.info(`Auto-resolving version conflicts by keeping current branch versions...`);
+                                    for (const file of conflicts) {
+                                        if (versionFiles.includes(file)) {
+                                            await run(`git checkout --ours ${file}`);
+                                            await run(`git add ${file}`);
+                                            logger.verbose(`Resolved ${file} using current branch version`);
+                                        }
+                                    }
+
+                                    // Complete the merge
+                                    await run(`git commit --no-edit -m "Merge ${targetBranch} to sync before version bump (auto-resolved version conflicts)"`);
+                                    logger.info(`✅ Auto-resolved version conflicts and completed merge`);
+                                    mergeSucceeded = true;
+                                } else {
+                                // Not a conflict error, re-throw
+                                    throw mergeError;
                                 }
+                            }
 
-                                // Auto-resolve version conflicts by accepting current branch versions
-                                // (keep our working branch's version, which is likely already updated)
-                                logger.info(`Auto-resolving version conflicts by keeping current branch versions...`);
-                                for (const file of conflicts) {
-                                    if (versionFiles.includes(file)) {
-                                        await run(`git checkout --ours ${file}`);
-                                        await run(`git add ${file}`);
-                                        logger.verbose(`Resolved ${file} using current branch version`);
+                            // Only run npm install if merge actually happened
+                            if (mergeSucceeded) {
+                            // Run npm install to update package-lock.json based on merged package.json
+                                logger.info('Running npm install after merge...');
+                                await run('npm install');
+                                logger.info('✅ npm install completed');
+
+                                // Commit any changes from npm install (e.g., package-lock.json updates)
+                                const { stdout: mergeChangesStatus } = await run('git status --porcelain');
+                                if (mergeChangesStatus.trim()) {
+                                    logger.verbose('Staging post-merge changes for commit');
+                                    // Check if package-lock.json exists before trying to stage it
+                                    const packageLockExistsPostMerge = await storage.exists('package-lock.json');
+                                    const filesToStagePostMerge = packageLockExistsPostMerge ? 'package.json package-lock.json' : 'package.json';
+                                    await run(`git add ${filesToStagePostMerge}`);
+
+                                    if (await Diff.hasStagedChanges()) {
+                                        logger.verbose('Committing post-merge changes...');
+                                        await Commit.execute(runConfig);
                                     }
                                 }
-
-                                // Complete the merge
-                                await run(`git commit --no-edit -m "Merge ${targetBranch} to sync before version bump (auto-resolved version conflicts)"`);
-                                logger.info(`✅ Auto-resolved version conflicts and completed merge`);
-                                mergeSucceeded = true;
-                            } else {
-                            // Not a conflict error, re-throw
-                                throw mergeError;
                             }
                         }
-
-                        // Only run npm install if merge actually happened
-                        if (mergeSucceeded) {
-                        // Run npm install to update package-lock.json based on merged package.json
-                            logger.info('Running npm install after merge...');
-                            await run('npm install');
-                            logger.info('✅ npm install completed');
-
-                            // Commit any changes from npm install (e.g., package-lock.json updates)
-                            const { stdout: mergeChangesStatus } = await run('git status --porcelain');
-                            if (mergeChangesStatus.trim()) {
-                                logger.verbose('Staging post-merge changes for commit');
-                                // Check if package-lock.json exists before trying to stage it
-                                const packageLockExistsPostMerge = await storage.exists('package-lock.json');
-                                const filesToStagePostMerge = packageLockExistsPostMerge ? 'package.json package-lock.json' : 'package.json';
-                                await run(`git add ${filesToStagePostMerge}`);
-
-                                if (await Diff.hasStagedChanges()) {
-                                    logger.verbose('Committing post-merge changes...');
-                                    await Commit.execute(runConfig);
-                                }
-                            }
-                        }
+                    } catch (error: any) {
+                    // Only catch truly unexpected errors here
+                        logger.error(`❌ Unexpected error during merge: ${error.message}`);
+                        throw error;
                     }
-                } catch (error: any) {
-                // Only catch truly unexpected errors here
-                    logger.error(`❌ Unexpected error during merge: ${error.message}`);
-                    throw error;
-                }
+                }, `merge ${targetBranch} into current branch`);
             }
         }
 
@@ -800,14 +817,20 @@ export const execute = async (runConfig: Config): Promise<void> => {
         // Check if package-lock.json exists before trying to stage it
         const packageLockExistsVersionBump = await storage.exists('package-lock.json');
         const filesToStageVersionBump = packageLockExistsVersionBump ? 'package.json package-lock.json' : 'package.json';
-        await runWithDryRunSupport(`git add ${filesToStageVersionBump}`, isDryRun);
+
+        // Wrap git operations with lock
+        await runGitWithLock(process.cwd(), async () => {
+            await runWithDryRunSupport(`git add ${filesToStageVersionBump}`, isDryRun);
+        }, 'stage version bump');
 
         if (isDryRun) {
             logger.verbose('Would create version bump commit');
         } else {
             if (await Diff.hasStagedChanges()) {
                 logger.verbose('Creating version bump commit...');
-                await Commit.execute(runConfig);
+                await runGitWithLock(process.cwd(), async () => {
+                    await Commit.execute(runConfig);
+                }, 'commit version bump');
             } else {
                 logger.verbose('No version changes to commit.');
             }
@@ -856,7 +879,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info('Pushing to origin...');
         // Get current branch name and push explicitly to avoid pushing to wrong remote/branch
         const branchName = await GitHub.getCurrentBranchName();
-        await runWithDryRunSupport(`git push origin ${branchName}`, isDryRun);
+
+        // Wrap git push with lock
+        await runGitWithLock(process.cwd(), async () => {
+            await runWithDryRunSupport(`git push origin ${branchName}`, isDryRun);
+        }, `push ${branchName}`);
 
         logger.info('Creating pull request...');
         if (isDryRun) {
@@ -953,7 +980,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
     }
 
     try {
-        await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
+        // Wrap git checkout and pull with lock
+        await runGitWithLock(process.cwd(), async () => {
+            await runWithDryRunSupport(`git checkout ${targetBranch}`, isDryRun);
+        }, `checkout ${targetBranch}`);
 
         // Sync target branch with remote to avoid conflicts during PR creation
         if (!isDryRun) {
@@ -962,7 +992,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 const remoteExists = await run(`git ls-remote --exit-code --heads origin ${targetBranch}`).then(() => true).catch(() => false);
 
                 if (remoteExists) {
-                    await run(`git pull origin ${targetBranch} --no-edit`);
+                    await runGitWithLock(process.cwd(), async () => {
+                        await run(`git pull origin ${targetBranch} --no-edit`);
+                    }, `pull ${targetBranch}`);
                     logger.info(`✅ Synced ${targetBranch} with remote`);
                 } else {
                     logger.info(`ℹ️ No remote ${targetBranch} branch found, will be created on first push`);
@@ -1046,12 +1078,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
             if (stdout.trim() === tagName) {
                 logger.info(`Tag ${tagName} already exists locally, skipping tag creation`);
             } else {
-                await runSecure('git', ['tag', tagName]);
+                await runGitWithLock(process.cwd(), async () => {
+                    await runSecure('git', ['tag', tagName]);
+                }, `create tag ${tagName}`);
                 logger.info(`Created local tag: ${tagName}`);
             }
         } catch (error) {
             // If git tag -l fails, create the tag anyway
-            await runSecure('git', ['tag', tagName]);
+            await runGitWithLock(process.cwd(), async () => {
+                await runSecure('git', ['tag', tagName]);
+            }, `create tag ${tagName}`);
             logger.info(`Created local tag: ${tagName}`);
         }
 
@@ -1062,7 +1098,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
             if (stdout.trim()) {
                 logger.info(`Tag ${tagName} already exists on remote, skipping push`);
             } else {
-                await runSecure('git', ['push', 'origin', tagName]);
+                await runGitWithLock(process.cwd(), async () => {
+                    await runSecure('git', ['push', 'origin', tagName]);
+                }, `push tag ${tagName}`);
                 logger.info(`Pushed tag to remote: ${tagName}`);
                 tagWasPushed = true;
             }
@@ -1196,17 +1234,22 @@ export const execute = async (runConfig: Config): Promise<void> => {
         logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
 
         // Try fast-forward first (works with merge/rebase methods)
-        const fastForwardResult = await run(`git merge ${targetBranch} --ff-only`).catch(() => null);
-
-        if (fastForwardResult) {
+        // Use runSecure to avoid error output for expected failure
+        let fastForwardSucceeded = false;
+        try {
+            await runSecure('git', ['merge', targetBranch, '--ff-only']);
+            fastForwardSucceeded = true;
             logger.info(`✅ Fast-forward merged ${targetBranch} into ${currentBranch}`);
-        } else {
+        } catch {
             // Fast-forward failed - expected when using squash merge method
             if (mergeMethod === 'squash') {
                 logger.verbose('Fast-forward not possible (expected with squash merge), performing regular merge...');
             } else {
-                logger.warn(`⚠️  Fast-forward merge failed, performing regular merge...`);
+                logger.verbose(`Fast-forward merge not possible, performing regular merge...`);
             }
+        }
+
+        if (!fastForwardSucceeded) {
             await run(`git merge ${targetBranch} --no-edit`);
             logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
         }
@@ -1241,7 +1284,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
         // Push updated source branch
         logger.info(`Pushing updated ${currentBranch} branch...`);
         try {
-            await run(`git push origin ${currentBranch}`);
+            await runGitWithLock(process.cwd(), async () => {
+                await run(`git push origin ${currentBranch}`);
+            }, `push ${currentBranch}`);
             logger.info(`✅ Pushed ${currentBranch} to origin`);
         } catch (pushError: any) {
             logger.warn(`⚠️  Failed to push ${currentBranch}: ${pushError.message}`);
