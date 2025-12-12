@@ -18,13 +18,13 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
 
     if (isDryRun) {
         if (runConfig.audioCommit?.file) {
-            logger.info('Would process audio file: %s', runConfig.audioCommit.file);
-            logger.info('Would transcribe audio and use as context for commit message generation');
+            logger.info('AUDIO_COMMIT_FILE_DRY_RUN: Would process audio file | Mode: dry-run | File: %s | Action: Transcribe + generate commit', runConfig.audioCommit.file);
+            logger.info('AUDIO_COMMIT_WORKFLOW_DRY_RUN: Would transcribe and generate message | Mode: dry-run | Purpose: Commit message from audio');
         } else {
-            logger.info('Would start audio recording for commit context');
-            logger.info('Would transcribe audio and use as context for commit message generation');
+            logger.info('AUDIO_COMMIT_RECORD_DRY_RUN: Would start audio recording | Mode: dry-run | Purpose: Commit context');
+            logger.info('AUDIO_COMMIT_TRANSCRIPT_DRY_RUN: Would transcribe and generate | Mode: dry-run | Purpose: Extract commit message');
         }
-        logger.info('Would then delegate to regular commit command');
+        logger.info('AUDIO_COMMIT_DELEGATE_DRY_RUN: Would delegate to regular commit command | Mode: dry-run | Next: Standard commit flow');
 
         // Return preview without calling real commands
         return 'DRY RUN: Would process audio, transcribe it, and generate commit message with audio context';
@@ -34,10 +34,10 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
 
     try {
         // Step 1: Record audio using unplayable with new key handling
-        logger.info('🎙️  Starting audio recording for commit context...');
+        logger.info('AUDIO_COMMIT_RECORDING_STARTING: Starting audio recording | Purpose: Capture commit context | Tool: unplayable');
 
         if (!runConfig.audioCommit?.file) {
-            logger.info('Press ENTER to stop recording or C to cancel');
+            logger.info('AUDIO_COMMIT_RECORDING_ACTIVE: Recording in progress | Action: Press ENTER to stop | Alternative: Press C to cancel');
         }
 
         // Start countdown timer if recording (not processing a file) and maxRecordingTime is set
@@ -71,7 +71,7 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
 
         // Check if recording was cancelled
         if (audioResult.cancelled) {
-            logger.info('❌ Audio commit cancelled by user');
+            logger.info('AUDIO_COMMIT_CANCELLED: Audio commit cancelled by user | Reason: User choice | Status: aborted');
             throw new UserCancellationError('Audio commit cancelled by user');
         }
 
@@ -88,12 +88,12 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
             // Fallback to generated filename (this should rarely happen now)
             const outputDir = runConfig.outputDirectory || 'output';
             audioFilePath = path.join(outputDir, getTimestampedAudioFilename());
-            logger.warn('Using generated filename for recorded audio: %s', audioFilePath);
-            logger.warn('Note: This may not match the actual file created by unplayable');
+            logger.warn('AUDIO_COMMIT_FILENAME_GENERATED: Using generated filename for audio | Filename: %s | Warning: May not match actual file from unplayable', audioFilePath);
+            logger.warn('AUDIO_COMMIT_FILENAME_NOTE: Filename mismatch possible | Tool: unplayable | Impact: May need manual file lookup');
         }
 
         // Step 3: Use ai-service transcription functionality
-        logger.info('🤖 Transcribing audio locally using OpenAI Whisper...');
+        logger.info('AUDIO_COMMIT_TRANSCRIBING: Transcribing audio locally | Service: OpenAI Whisper | Mode: local | Purpose: Convert speech to text');
 
         const aiStorageAdapter = createStorageAdapter();
         const aiLogger = createLoggerAdapter(isDryRun);
@@ -112,10 +112,10 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
         audioContext = transcription.text;
 
         if (!audioContext.trim()) {
-            logger.warn('No audio content was transcribed. Proceeding without audio context.');
+            logger.warn('AUDIO_COMMIT_NO_CONTENT: No audio content transcribed | Reason: Empty or invalid | Action: Proceeding without audio context');
             audioContext = '';
         } else {
-            logger.info('📝 Successfully transcribed audio using kodrdriv');
+            logger.info('AUDIO_COMMIT_TRANSCRIPT_SUCCESS: Successfully transcribed audio | Tool: kodrdriv | Length: ' + audioContext.length + ' characters | Status: ready');
             logger.debug('Transcribed text: %s', audioContext);
         }
 
@@ -130,13 +130,13 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
             throw new UserCancellationError(error.message);
         }
 
-        logger.error('Audio processing failed: %s', error.message);
-        logger.info('Proceeding with commit generation without audio context...');
+        logger.error('AUDIO_COMMIT_PROCESSING_FAILED: Audio processing failed | Error: %s | Impact: No audio context available', error.message);
+        logger.info('AUDIO_COMMIT_FALLBACK: Proceeding without audio context | Mode: fallback | Next: Standard commit generation');
         audioContext = '';
     }
 
     // Now delegate to the regular commit command with the audio context
-    logger.info('🤖 Generating commit message using audio context...');
+    logger.info('AUDIO_COMMIT_GENERATING: Generating commit message with audio context | Source: transcript | Purpose: AI-generated commit message');
     const result = await executeCommit({
         ...runConfig,
         commit: {
@@ -156,12 +156,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         // Handle user cancellation gracefully - don't exit process
         if (error instanceof UserCancellationError) {
-            logger.info(error.message);
+            logger.info('AUDIO_COMMIT_ERROR: Error during audio commit | Error: ' + error.message);
             throw error; // Let calling code handle this
         }
 
         // Handle other errors - don't exit process
-        logger.error(`audio-commit failed: ${error.message}`);
+        logger.error(`AUDIO_COMMIT_FAILED: Audio commit command failed | Error: ${error.message} | Impact: Commit not generated`);
         if (error.cause) {
             logger.debug(`Caused by: ${error.cause.message}`);
         }

@@ -492,11 +492,11 @@ describe('checkForFileDependencies', () => {
 
         checkForFileDependencies(packageJsonFiles);
 
-        expect(mockLogger.warn).toHaveBeenCalledWith('⚠️  WARNING: Found file: dependencies that should not be committed:');
-        expect(mockLogger.warn).toHaveBeenCalledWith('  📄 .:');
-        expect(mockLogger.warn).toHaveBeenCalledWith('    - @myorg/utils: file:../utils');
-        expect(mockLogger.warn).toHaveBeenCalledWith('    - @myorg/tools: file:../tools');
-        expect(mockLogger.warn).toHaveBeenCalledWith('💡 Remember to run "kodrdriv unlink" before committing to restore registry versions!');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_WARNING: Found file: dependencies that should not be committed | Count: 1 | Impact: May cause build issues');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_PACKAGE: Package with file dependencies | Path: .');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: File dependency detected | Dependency: @myorg/utils: file:../utils');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: File dependency detected | Dependency: @myorg/tools: file:../tools');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_RESOLUTION: Action required before committing | Command: kodrdriv unlink | Purpose: Restore registry versions');
     });
 
     it('should not log warnings when no file: dependencies exist', () => {
@@ -552,8 +552,8 @@ describe('checkForFileDependencies', () => {
 
         checkForFileDependencies(packageJsonFiles);
 
-        expect(mockLogger.warn).toHaveBeenCalledWith('    - dep1: file:../dep1');
-        expect(mockLogger.warn).toHaveBeenCalledWith('    - dev1: file:../dev1');
-        expect(mockLogger.warn).toHaveBeenCalledWith('    - peer1: file:../peer1');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: File dependency detected | Dependency: dep1: file:../dep1');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: File dependency detected | Dependency: dev1: file:../dev1');
+        expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: File dependency detected | Dependency: peer1: file:../peer1');
     });
 });

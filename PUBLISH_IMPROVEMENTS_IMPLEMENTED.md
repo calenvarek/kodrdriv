@@ -1,11 +1,10 @@
 # Kodrdriv Publish Improvements - Implementation Summary
 
 **Date:** December 11, 2025
-**Based on feedback from:** `/Users/tobrien/gitw/wagnerskis/PUBLISH_FAILURE_ANALYSIS.md` and `KODRDRIV_PUBLISH_IMPROVEMENT_PROMPT.md`
 
 ## Overview
 
-This document summarizes the improvements made to kodrdriv's publish workflow based on feedback from a catastrophic parallel publish failure in the wagnerskis project. The improvements focus on better error handling, user feedback, and git operations.
+This document summarizes the improvements made to kodrdriv's publish workflow based on feedback from a catastrophic parallel publish failure in another project. The improvements focus on better error handling, user feedback, and git operations.
 
 ## Critical Issues Addressed
 
@@ -235,15 +234,15 @@ All changes have been compiled and tested:
 
 ```bash
 # ai-service
-cd /Users/tobrien/gitw/calenvarek/ai-service
+cd ~gitw/calenvarek/ai-service
 npm run build  # ✅ Success
 
 # github-tools
-cd /Users/tobrien/gitw/calenvarek/github-tools
+cd ~gitw/calenvarek/github-tools
 npm run build  # ✅ Success
 
 # kodrdriv
-cd /Users/tobrien/gitw/calenvarek/kodrdriv
+cd ~gitw/calenvarek/kodrdriv
 npm run build  # ✅ Success
 ```
 

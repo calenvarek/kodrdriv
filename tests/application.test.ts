@@ -710,10 +710,10 @@ describe('Application module', () => {
             await Application.runApplication();
 
             // Check that debug info is printed
-            expect(mockLogger.info).toHaveBeenCalledWith('=== KODRDRIV DEBUG INFO ===');
-            expect(mockLogger.info).toHaveBeenCalledWith('Command: %s', 'commit');
-            expect(mockLogger.info).toHaveBeenCalledWith('Version: %s', '0.0.52-test');
-            expect(mockLogger.info).toHaveBeenCalledWith('===========================');
+            expect(mockLogger.info).toHaveBeenCalledWith('DEBUG_INFO_HEADER: KodrDriv debug information');
+            expect(mockLogger.info).toHaveBeenCalledWith('DEBUG_INFO_COMMAND: Command being executed | Command: %s', 'commit');
+            expect(mockLogger.info).toHaveBeenCalledWith('DEBUG_INFO_VERSION: KodrDriv version | Version: %s', '0.0.52-test');
+            expect(mockLogger.info).toHaveBeenCalledWith('DEBUG_INFO_FOOTER: End of debug information');
         });
 
         it('should not print debug command and version info when debug flag is disabled', async () => {
@@ -726,16 +726,16 @@ describe('Application module', () => {
             await Application.runApplication();
 
             // Check that debug info is NOT printed
-            expect(mockLogger.info).not.toHaveBeenCalledWith('=== KODRDRIV DEBUG INFO ===');
-            expect(mockLogger.info).not.toHaveBeenCalledWith('Command: %s', 'commit');
-            expect(mockLogger.info).not.toHaveBeenCalledWith('Version: %s', '0.0.52-test');
-            expect(mockLogger.info).not.toHaveBeenCalledWith('===========================');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('DEBUG_INFO_HEADER: KodrDriv debug information');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('DEBUG_INFO_COMMAND: Command being executed | Command: %s', 'commit');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('DEBUG_INFO_VERSION: KodrDriv version | Version: %s', '0.0.52-test');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('DEBUG_INFO_FOOTER: End of debug information');
         });
 
         it('should display version information', async () => {
             await Application.runApplication();
 
-            expect(mockLogger.info).toHaveBeenCalledWith('🚀 kodrdriv %s', '0.0.52-test');
+            expect(mockLogger.info).toHaveBeenCalledWith('APPLICATION_STARTING: KodrDriv application initializing | Version: %s | Status: starting', '0.0.52-test');
         });
 
         it('should handle command execution errors that are not UserCancellationError', async () => {

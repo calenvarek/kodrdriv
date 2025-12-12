@@ -66,7 +66,7 @@ describe('log', () => {
 
             expect(run.run).toHaveBeenCalledWith('git log from..to', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockLog);
-            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git log produced stderr: %s', mockStderr);
+            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('GIT_LOG_STDERR: Git log produced stderr output | Stderr: %s | Impact: May indicate warnings', mockStderr);
         });
     });
 
@@ -244,7 +244,7 @@ describe('log', () => {
             const log = await Log.create({ from: 'from', to: 'to' });
 
             await expect(log.get()).rejects.toThrow(ExitError);
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', mockError.message);
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('GIT_LOG_FAILED: Failed to execute git log command | Error: %s | Impact: Cannot gather commit history', mockError.message);
         });
 
         it('should handle general error during gather change phase', async () => {
@@ -258,7 +258,7 @@ describe('log', () => {
 
             await expect(log.get()).rejects.toThrow(ExitError);
             expect(getLogger.getLogger().error).toHaveBeenCalledWith(
-                'Error occurred during gather change phase: %s %s',
+                'LOG_GATHER_ERROR: Error during change gathering phase | Error: %s | Stack: %s | Impact: Cannot collect log',
                 mockError.message,
                 mockError.stack
             );
@@ -398,7 +398,7 @@ describe('log', () => {
             expect(getLogger.getLogger().debug).not.toHaveBeenCalledWith(
                 expect.stringContaining('Empty repository detected')
             );
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', mockError.message);
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('GIT_LOG_FAILED: Failed to execute git log command | Error: %s | Impact: Cannot gather commit history', mockError.message);
         });
 
         it('should handle error with undefined message', async () => {
@@ -409,7 +409,7 @@ describe('log', () => {
             const log = await Log.create({ from: 'main' });
 
             await expect(log.get()).rejects.toThrow(ExitError);
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', undefined);
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('GIT_LOG_FAILED: Failed to execute git log command | Error: %s | Impact: Cannot gather commit history', undefined);
         });
 
         it('should handle error with null message', async () => {
@@ -420,7 +420,7 @@ describe('log', () => {
             const log = await Log.create({ from: 'main' });
 
             await expect(log.get()).rejects.toThrow(ExitError);
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git log: %s', null);
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('GIT_LOG_FAILED: Failed to execute git log command | Error: %s | Impact: Cannot gather commit history', null);
         });
     });
 
@@ -512,7 +512,7 @@ describe('log', () => {
             const result = await log.get();
 
             expect(result).toBe(mockLog);
-            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git log produced stderr: %s', mockStderr);
+            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('GIT_LOG_STDERR: Git log produced stderr output | Stderr: %s | Impact: May indicate warnings', mockStderr);
         });
     });
 });

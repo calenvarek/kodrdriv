@@ -164,7 +164,7 @@ describe('diff', () => {
 
             expect(run.run).toHaveBeenCalledWith('git diff --cached -- . \':(exclude)whatever\'', { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
             expect(result).toBe(mockDiff);
-            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git diff produced stderr: %s', mockStderr);
+            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('GIT_DIFF_STDERR: Git diff produced stderr output | Stderr: %s | Impact: May indicate warnings', mockStderr);
         });
 
         it('should handle git diff execution error', async () => {
@@ -174,8 +174,8 @@ describe('diff', () => {
             const diff = await Diff.create({ cached: false, excludedPatterns: ['whatever'] });
 
             await expect(diff.get()).rejects.toThrow(ExitError);
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Failed to execute git diff: %s', 'git diff failed');
-            expect(getLogger.getLogger().error).toHaveBeenCalledWith('Error occurred during gather change phase: %s %s', 'git diff failed', expect.any(String));
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('GIT_DIFF_FAILED: Failed to execute git diff command | Error: %s | Impact: Cannot gather change information', 'git diff failed');
+            expect(getLogger.getLogger().error).toHaveBeenCalledWith('DIFF_GATHER_ERROR: Error during change gathering phase | Error: %s | Stack: %s | Impact: Cannot collect diff', 'git diff failed', expect.any(String));
         });
 
         it('should call verbose and debug logging methods', async () => {
@@ -221,7 +221,7 @@ describe('diff', () => {
 
             expect(run.run).toHaveBeenCalledWith('git diff --cached --quiet', { suppressErrorLogging: true });
             expect(result).toBe(false);
-            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('Git diff produced stderr: %s', mockStderr);
+            expect(getLogger.getLogger().warn).toHaveBeenCalledWith('GIT_DIFF_STDERR: Git diff produced stderr output | Stderr: %s | Impact: May indicate warnings', mockStderr);
         });
     });
 

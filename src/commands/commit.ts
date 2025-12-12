@@ -152,12 +152,12 @@ async function handleInteractiveCommitFeedback(
         // Show configuration status
         if (senditEnabled) {
             if (willActuallyCommit) {
-                logger.info('\n⚙️  SendIt mode is ACTIVE - choosing "Commit" will run git commit automatically');
+                logger.info('\nSENDIT_MODE_ACTIVE: SendIt mode enabled | Action: Commit choice will execute git commit automatically | Staged Changes: Available');
             } else {
-                logger.info('\n⚙️  SendIt mode is configured but no staged changes available for commit');
+                logger.info('\nSENDIT_MODE_NO_CHANGES: SendIt mode configured but no staged changes | Action: Only message save available | Staged Changes: None');
             }
         } else {
-            logger.info('\n⚙️  SendIt mode is NOT active - choosing "Accept" will only save the message');
+            logger.info('\nSENDIT_MODE_INACTIVE: SendIt mode not active | Action: Accept choice will only save message | Commit: Manual');
         }
 
         // Get user choice
@@ -305,7 +305,7 @@ const saveCommitMessage = async (outputDirectory: string, summary: string, stora
         try {
             const outputRootPath = getOutputPath('output', timestampedFilename);
             await storage.writeFile(outputRootPath, summary, 'utf-8');
-            logger.info('Saved commit message to output directory fallback: %s', outputRootPath);
+            logger.info('COMMIT_MESSAGE_SAVED_FALLBACK: Saved commit message to fallback location | Path: %s | Purpose: Preserve message for later use', outputRootPath);
             return;
         } catch (outputError: any) {
             logger.warn('Failed to save to output directory fallback: %s', outputError.message);
@@ -334,11 +334,11 @@ const executeInternal = async (runConfig: Config) => {
 
     if (runConfig.commit?.add) {
         if (isDryRun) {
-            logger.info('Would add all changes to the index with: git add -A');
+            logger.info('GIT_ADD_DRY_RUN: Would stage all changes | Mode: dry-run | Command: git add -A');
         } else {
-            logger.info('📁 Adding all changes to the index (git add -A)...');
+            logger.info('GIT_ADD_STAGING: Adding all changes to index | Command: git add -A | Scope: all files | Purpose: Stage for commit');
             await run('git add -A');
-            logger.info('✅ Successfully staged all changes');
+            logger.info('GIT_ADD_SUCCESS: Successfully staged all changes | Command: git add -A | Status: completed');
         }
     }
 
@@ -367,19 +367,19 @@ const executeInternal = async (runConfig: Config) => {
         const criticalChanges = await Diff.hasCriticalExcludedChanges();
 
         if (criticalChanges.hasChanges) {
-            logger.info('No changes found with current exclusion patterns, but detected changes to critical files: %s',
+            logger.info('CRITICAL_FILES_DETECTED: No changes with exclusion patterns, but critical files modified | Files: %s | Action: May need to include critical files',
                 criticalChanges.files.join(', '));
 
             if (runConfig.commit?.sendit && !isDryRun) {
                 // In sendit mode, automatically include critical files
-                logger.info('SendIt mode: Including critical files in diff...');
+                logger.info('SENDIT_INCLUDING_CRITICAL: SendIt mode including critical files in diff | Purpose: Ensure all important changes are captured');
                 const minimalPatterns = Diff.getMinimalExcludedPatterns(runConfig.excludedPatterns ?? DEFAULT_EXCLUDED_PATTERNS);
                 const updatedOptions = { ...options, excludedPatterns: minimalPatterns };
                 const updatedDiff = await Diff.create(updatedOptions);
                 diffContent = await updatedDiff.get();
 
                 if (diffContent.trim().length > 0) {
-                    logger.info('Successfully included critical files in diff.');
+                    logger.info('CRITICAL_FILES_INCLUDED: Successfully added critical files to diff | Status: ready for commit message generation');
                     // Update hasActualChanges since we now have content after including critical files
                     hasActualChanges = true;
                 } else {
@@ -404,13 +404,13 @@ const executeInternal = async (runConfig: Config) => {
             }
         } else {
             // No changes at all - try fallback to file content for new repositories
-            logger.info('No changes detected in the working directory.');
+            logger.info('NO_CHANGES_DETECTED: No changes found in working directory | Status: clean | Action: Nothing to commit');
 
             if (runConfig.commit?.sendit && !isDryRun) {
                 logger.warn('No changes detected to commit. Skipping commit operation.');
                 return 'No changes to commit.';
             } else {
-                logger.info('No diff content available. Attempting to generate commit message from file content...');
+                logger.info('NO_DIFF_FALLBACK: No diff content available | Action: Attempting to generate commit message from file content | Strategy: fallback');
 
                 // Create file content collector as fallback
                 const fileOptions = {
@@ -422,16 +422,16 @@ const executeInternal = async (runConfig: Config) => {
                 const fileContent = await files.get();
 
                 if (fileContent && fileContent.trim().length > 0) {
-                    logger.info('Using file content for commit message generation (%d characters)', fileContent.length);
+                    logger.info('FILE_CONTENT_USING: Using file content for commit message generation | Content Length: %d characters | Source: file content', fileContent.length);
                     diffContent = fileContent;
                     isUsingFileContent = true;
                     hasActualChanges = true; // We have content to work with
                 } else {
                     if (runConfig.commit?.sendit) {
-                        logger.info('Skipping commit operation due to no changes.');
+                        logger.info('COMMIT_SKIPPED: Skipping commit operation | Reason: No changes detected | Action: None');
                         return 'No changes to commit.';
                     } else {
-                        logger.info('Generating commit message template for future use...');
+                        logger.info('COMMIT_TEMPLATE_GENERATING: Creating commit message template for future use | Reason: No changes | Purpose: Provide template');
                     }
                 }
             }
@@ -513,7 +513,7 @@ const executeInternal = async (runConfig: Config) => {
 
     // Create retry callback that reduces diff size on token limit errors
     const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
-        logger.info('Retrying with reduced diff size (attempt %d)', attempt);
+        logger.info('COMMIT_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
 
         // Progressively reduce the diff size on retries
         const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
@@ -615,8 +615,8 @@ const executeInternal = async (runConfig: Config) => {
         );
 
         if (interactiveResult.action === 'skip') {
-            logger.info('❌ Commit aborted by user');
-            logger.info('💡 No commit will be performed');
+            logger.info('COMMIT_ABORTED: User aborted commit operation | Reason: User choice | Action: No commit performed');
+            logger.info('COMMIT_NO_ACTION: No commit will be performed | Status: aborted | Next: User can retry or modify changes');
             userSkippedCommit = true;
             return interactiveResult.finalMessage;
         }
@@ -627,7 +627,7 @@ const executeInternal = async (runConfig: Config) => {
 
         if (willActuallyCommit) {
             const commitAction = runConfig.commit?.amend ? 'amending last commit' : 'committing';
-            logger.info('🚀 SendIt enabled: %s with final message: \n\n%s\n\n', commitAction.charAt(0).toUpperCase() + commitAction.slice(1), interactiveResult.finalMessage);
+            logger.info('SENDIT_EXECUTING: SendIt enabled, executing commit action | Action: %s | Message Length: %d | Final Message: \n\n%s\n\n', commitAction.charAt(0).toUpperCase() + commitAction.slice(1), interactiveResult.finalMessage.length, interactiveResult.finalMessage);
             try {
                 const validatedSummary = validateString(interactiveResult.finalMessage, 'commit summary');
                 const escapedSummary = shellescape([validatedSummary]);
@@ -635,7 +635,7 @@ const executeInternal = async (runConfig: Config) => {
                     `git commit --amend -m ${escapedSummary}` :
                     `git commit -m ${escapedSummary}`;
                 await run(commitCommand);
-                logger.info('✅ Commit successful!');
+                logger.info('COMMIT_SUCCESS: Commit operation completed successfully | Status: committed | Action: Changes saved to repository');
 
                 // Push if requested
                 await pushCommit(runConfig.commit?.push, logger, isDryRun);

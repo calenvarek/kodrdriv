@@ -233,7 +233,7 @@ export const scanDirectoryForPackages = async (rootDir: string, storage: any): P
         processTimer.end(`Processed ${items.length} directories in ${batches.length} batches`);
         logger.verbose(`Found ${packageMap.size} packages in ${items.length} subdirectories`);
     } catch (error) {
-        logger.warn(`Failed to read directory ${absoluteRootDir}: ${error}`);
+        logger.warn(`PERFORMANCE_DIR_READ_FAILED: Unable to read directory | Directory: ${absoluteRootDir} | Error: ${error}`);
     }
 
     timer.end(`Found ${packageMap.size} packages in: ${rootDir}`);
@@ -345,16 +345,16 @@ export const checkForFileDependencies = (packageJsonFiles: PackageJsonLocation[]
     }
 
     if (filesWithFileDepedencies.length > 0) {
-        logger.warn('⚠️  WARNING: Found file: dependencies that should not be committed:');
+        logger.warn('FILE_DEPS_WARNING: Found file: dependencies that should not be committed | Count: ' + filesWithFileDepedencies.length + ' | Impact: May cause build issues');
         for (const file of filesWithFileDepedencies) {
-            logger.warn(`  📄 ${file.path}:`);
+            logger.warn(`FILE_DEPS_PACKAGE: Package with file dependencies | Path: ${file.path}`);
             for (const dep of file.dependencies) {
-                logger.warn(`    - ${dep}`);
+                logger.warn(`FILE_DEPS_DETAIL: File dependency detected | Dependency: ${dep}`);
             }
         }
         logger.warn('');
-        logger.warn('💡 Remember to run "kodrdriv unlink" before committing to restore registry versions!');
-        logger.warn('   Or add a pre-commit hook to prevent accidental commits of linked dependencies.');
+        logger.warn('FILE_DEPS_RESOLUTION: Action required before committing | Command: kodrdriv unlink | Purpose: Restore registry versions');
+        logger.warn('FILE_DEPS_PREVENTION: Alternative option | Action: Add pre-commit hook | Purpose: Prevent accidental commits of linked dependencies');
     }
 
     timer.end(`Checked ${packageJsonFiles.length} files, found ${filesWithFileDepedencies.length} with file: dependencies`);

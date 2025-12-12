@@ -78,7 +78,7 @@ const findLinkedDependencies = async (
             }
         }
     } catch (error: any) {
-        logger.warn(`Failed to check linked dependencies in ${packageName}: ${error.message}`);
+        logger.warn(`LINKED_DEPS_CHECK_FAILED: Unable to check linked dependencies | Package: ${packageName} | Error: ${error.message}`);
     }
 
     return linkedDependencies;
@@ -152,25 +152,25 @@ const createSymbolicLink = async (
                     logger.verbose(`Symlink already exists and points to correct target: ${targetPath} -> ${relativePath}`);
                     return true;
                 } else {
-                    logger.info(`🔧 Fixing symlink: ${targetPath} (was pointing to ${existingLink}, now pointing to ${relativePath})`);
+                    logger.info(`SYMLINK_FIXING: Correcting symlink target | Path: ${targetPath} | Old Target: ${existingLink} | New Target: ${relativePath}`);
                     await fs.unlink(targetPath);
                     await fs.symlink(relativePath, targetPath, 'dir');
-                    logger.info(`✅ Fixed symlink: ${targetPath} -> ${relativePath}`);
+                    logger.info(`SYMLINK_FIXED: Successfully updated symlink | Path: ${targetPath} | Target: ${relativePath} | Type: directory`);
                     return true;
                 }
             } else if (stats.isDirectory()) {
                 // It's a directory, remove it
-                logger.warn(`⚠️ Removing existing directory to create symlink: ${targetPath}`);
+                logger.warn(`SYMLINK_DIRECTORY_CONFLICT: Removing existing directory to create symlink | Path: ${targetPath} | Type: directory | Action: Remove and replace with symlink`);
                 await fs.rm(targetPath, { recursive: true, force: true });
                 await fs.symlink(relativePath, targetPath, 'dir');
-                logger.info(`✅ Created symlink: ${targetPath} -> ${relativePath}`);
+                logger.info(`SYMLINK_CREATED: Successfully created symlink after directory removal | Path: ${targetPath} | Target: ${relativePath} | Type: directory`);
                 return true;
             } else {
                 // It's a file, remove it
-                logger.warn(`⚠️ Removing existing file to create symlink: ${targetPath}`);
+                logger.warn(`SYMLINK_FILE_CONFLICT: Removing existing file to create symlink | Path: ${targetPath} | Type: file | Action: Remove and replace with symlink`);
                 await fs.unlink(targetPath);
                 await fs.symlink(relativePath, targetPath, 'dir');
-                logger.info(`✅ Created symlink: ${targetPath} -> ${relativePath}`);
+                logger.info(`SYMLINK_CREATED: Successfully created symlink after file removal | Path: ${targetPath} | Target: ${relativePath} | Type: directory`);
                 return true;
             }
         } catch (error: any) {
@@ -184,7 +184,7 @@ const createSymbolicLink = async (
             }
         }
     } catch (error: any) {
-        logger.warn(`Failed to create symlink for ${packageName}: ${error.message}`);
+        logger.warn(`SYMLINK_CREATE_FAILED: Unable to create symlink | Package: ${packageName} | Error: ${error.message} | Status: failed`);
         return false;
     }
 };
@@ -243,7 +243,7 @@ const findMatchingPackages = async (
                 });
             }
         } catch (error: any) {
-            logger.warn(`Failed to parse ${packageJsonLocation.path}: ${error.message}`);
+            logger.warn(`PACKAGE_JSON_PARSE_FAILED: Unable to parse package.json | Path: ${packageJsonLocation.path} | Error: ${error.message}`);
         }
     }
 
@@ -310,14 +310,14 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
     const targetDirectories = runConfig.tree?.directories || [process.cwd()];
 
     if (targetDirectories.length === 1) {
-        logger.info(`Analyzing workspace at: ${targetDirectories[0]}`);
+        logger.info(`WORKSPACE_ANALYSIS: Analyzing single workspace directory | Path: ${targetDirectories[0]} | Purpose: Find linkable packages`);
     } else {
-        logger.info(`Analyzing workspaces at: ${targetDirectories.join(', ')}`);
+        logger.info(`WORKSPACE_ANALYSIS: Analyzing multiple workspace directories | Paths: ${targetDirectories.join(', ')} | Count: ${targetDirectories.length} | Purpose: Find linkable packages across workspaces`);
     }
 
     // If no package argument provided, use new smart same-scope linking behavior
     if (!packageArgument) {
-        logger.info('🔗 Smart linking current project...');
+        logger.info('LINK_SMART_MODE: Smart linking mode activated for current project | Mode: smart | Target: current directory | Purpose: Auto-link dependencies based on scope');
 
         // Work in current directory only - read the package.json
         const currentDir = process.cwd();
@@ -329,13 +329,13 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             const parsed = safeJsonParse(packageJsonContent, packageJsonPath);
             currentPackageJson = validatePackageJson(parsed, packageJsonPath);
         } catch (error: any) {
-            const message = `No valid package.json found in current directory: ${error.message}`;
+            const message = `PACKAGE_JSON_NOT_FOUND: No valid package.json in current directory | Error: ${error.message} | Action: Cannot proceed with smart linking`;
             logger.error(message);
             return message;
         }
 
         if (!currentPackageJson.name) {
-            const message = 'package.json must have a name field';
+            const message = 'PACKAGE_NAME_MISSING: package.json must have a name field | Field: name | Requirement: Required for linking | Action: Add name field to package.json';
             logger.error(message);
             return message;
         }
@@ -346,25 +346,25 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             : null;
 
         if (!currentScope) {
-            const message = 'Current package must have a scoped name (e.g., @scope/package) for smart linking';
+            const message = 'PACKAGE_SCOPE_MISSING: Package must have scoped name for smart linking | Format Required: @scope/package | Current: ' + currentPackageJson.name + ' | Action: Use scoped package name';
             logger.warn(message);
             return message;
         }
 
-        logger.info(`Current package: ${currentPackageJson.name} (scope: ${currentScope})`);
+        logger.info(`CURRENT_PACKAGE_IDENTIFIED: Current package identified for smart linking | Package: ${currentPackageJson.name} | Scope: ${currentScope} | Path: ${currentDir}`);
 
         // Step 1: Link the current package globally (optional - continue even if this fails)
         try {
             if (isDryRun) {
-                logger.info(`DRY RUN: Would run 'npm link' in current directory`);
+                logger.info(`SELF_LINK_DRY_RUN: Would link current package globally | Mode: dry-run | Package: ${currentPackageJson.name} | Command: npm link`);
             } else {
-                logger.verbose(`Running 'npm link' to register ${currentPackageJson.name} globally...`);
+                logger.verbose(`SELF_LINK_STARTING: Registering package globally | Package: ${currentPackageJson.name} | Command: npm link | Purpose: Make available for dependency linking`);
                 await run('npm link');
-                logger.info(`✅ Self-linked: ${currentPackageJson.name}`);
+                logger.info(`SELF_LINK_SUCCESS: Current package linked globally | Package: ${currentPackageJson.name} | Location: Global npm | Purpose: Make available for linking`);
             }
         } catch (error: any) {
-            logger.warn(`⚠️ Failed to self-link ${currentPackageJson.name}: ${error.message}`);
-            logger.info(`Continuing with dependency linking despite self-link failure...`);
+            logger.warn(`SELF_LINK_FAILED: Unable to self-link current package | Package: ${currentPackageJson.name} | Error: ${error.message} | Impact: Continuing with dependency linking`);
+            logger.info(`LINK_CONTINUING: Proceeding with dependency linking despite self-link failure | Next: Link matching dependencies`);
         }
 
         // Step 2: Find same-scope dependencies in current package
@@ -443,10 +443,10 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                                         process.chdir(packageDir);
                                         logger.verbose(`Running 'npm link' in source: ${packageDir}`);
                                         await run('npm link');
-                                        logger.info(`✅ Source linked via scopeRoots: ${depName}`);
+                                        logger.info(`LINK_SOURCE_SCOPE_ROOTS: Source linked via scopeRoots | Package: ${depName} | Method: scopeRoots | Status: linked`);
                                         globallyLinkedViaScopeRoots.push(depName);
                                     } catch (linkError: any) {
-                                        logger.warn(`⚠️ Failed to link source package ${depName}: ${linkError.message}`);
+                                        logger.warn(`LINK_SOURCE_FAILED: Failed to link source package | Package: ${depName} | Error: ${linkError.message}`);
                                     } finally {
                                         process.chdir(originalCwd);
                                     }
@@ -523,10 +523,10 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                     const success = await createSymbolicLink(depName, sourcePath, currentDir, logger, isDryRun);
 
                     if (success) {
-                        logger.info(`✅ Linked dependency: ${depName}`);
+                        logger.info(`LINK_DEPENDENCY_SUCCESS: Linked dependency successfully | Dependency: ${depName} | Status: symlink-created`);
                         linkedDependencies.push(depName);
                     } else {
-                        logger.warn(`⚠️ Failed to link ${depName}`);
+                        logger.warn(`LINK_DEPENDENCY_FAILED: Failed to link dependency | Dependency: ${depName} | Status: failed`);
                     }
                 } catch (error: any) {
                     logger.warn(`⚠️ Failed to link ${depName}: ${error.message}`);
@@ -547,10 +547,10 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             } else {
                 logger.verbose(`Running 'npm install --package-lock-only --no-audit --no-fund' to regenerate package-lock.json without touching node_modules...`);
                 await run('npm install --package-lock-only --no-audit --no-fund');
-                logger.info(`✅ Regenerated package-lock.json`);
+                logger.info(`LINK_LOCK_REGENERATED: Regenerated package-lock.json successfully | File: package-lock.json | Status: updated`);
             }
         } catch (error: any) {
-            logger.warn(`⚠️ Failed to regenerate package-lock.json: ${error.message}`);
+            logger.warn(`LINK_LOCK_REGEN_FAILED: Failed to regenerate package-lock.json | Error: ${error.message} | Impact: Lock file may be out of sync`);
         }
 
         logger.info(summary);
@@ -558,7 +558,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
     }
 
     // New scope-based linking behavior
-    logger.info(`🔗 Linking scope/package: ${packageArgument}`);
+    logger.info(`LINK_SCOPE_MODE: Linking scope or specific package | Target: ${packageArgument} | Mode: scope-based | Purpose: Link packages by scope`);
 
     const { scope, packageName } = parsePackageArgument(packageArgument);
     logger.verbose(`Parsed scope: ${scope}, package: ${packageName || 'all packages in scope'}`);
@@ -597,7 +597,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                 } else {
                     logger.verbose(`Running 'npm link' in source: ${pkg.path}`);
                     await run('npm link');
-                    logger.info(`✅ Source linked: ${pkg.name}`);
+                    logger.info(`LINK_SOURCE_SUCCESS: Source package linked globally | Package: ${pkg.name} | Status: linked`);
                 }
             } finally {
                 process.chdir(originalCwd);
@@ -622,13 +622,13 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                             } else {
                                 logger.verbose(`Running 'npm link ${pkg.name}' in consumer: ${consumer.path}`);
                                 await runSecure('npm', ['link', pkg.name]);
-                                logger.info(`✅ Consumer linked: ${consumer.name} -> ${pkg.name}`);
+                                logger.info(`LINK_CONSUMER_SUCCESS: Consumer linked to package | Consumer: ${consumer.name} | Package: ${pkg.name} | Status: linked`);
                             }
                         } finally {
                             process.chdir(consumerOriginalCwd);
                         }
                     } catch (error: any) {
-                        logger.error(`❌ Failed to link ${pkg.name} in ${consumer.name}: ${error.message}`);
+                        logger.error(`LINK_CONSUMER_FAILED: Failed to link package in consumer | Package: ${pkg.name} | Consumer: ${consumer.name} | Error: ${error.message}`);
                         throw new Error(`Failed to link ${pkg.name} in consumer ${consumer.name}: ${error.message}`);
                     }
                 }
@@ -636,7 +636,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 
             linkedPackages.push(pkg.name);
         } catch (error: any) {
-            logger.error(`❌ Failed to link source package ${pkg.name}: ${error.message}`);
+            logger.error(`LINK_SOURCE_PACKAGE_FAILED: Failed to link source package | Package: ${pkg.name} | Error: ${error.message}`);
             throw new Error(`Failed to link source package ${pkg.name}: ${error.message}`);
         }
     }
@@ -645,7 +645,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 
     // Final step: Regenerate package-lock.json files in all affected packages without modifying node_modules
     if (!isDryRun) {
-        logger.info(`🔄 Regenerating package-lock.json files in all packages (lockfile-only)...`);
+        logger.info(`LINK_LOCK_REGENERATING_ALL: Regenerating package-lock.json files in all packages | Mode: lockfile-only | Purpose: Update lock files after linking`);
 
         // Get all unique consuming packages
         const allConsumingPackages = new Set<string>();
@@ -666,16 +666,16 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                 try {
                     logger.verbose(`Running 'npm install --package-lock-only --no-audit --no-fund' in: ${packagePath}`);
                     await run('npm install --package-lock-only --no-audit --no-fund');
-                    logger.verbose(`✅ Regenerated package-lock.json in: ${packagePath}`);
+                    logger.verbose(`LINK_LOCK_PACKAGE_REGENERATED: Regenerated package-lock.json | Path: ${packagePath} | Status: updated`);
                 } finally {
                     process.chdir(originalCwd);
                 }
             } catch (error: any) {
-                logger.warn(`⚠️ Failed to regenerate package-lock.json in ${packagePath}: ${error.message}`);
+                logger.warn(`LINK_LOCK_PACKAGE_REGEN_FAILED: Failed to regenerate package-lock.json | Path: ${packagePath} | Error: ${error.message}`);
             }
         }
 
-        logger.info(`✅ Regenerated package-lock.json files in ${allConsumingPackages.size} packages`);
+        logger.info(`LINK_LOCK_ALL_REGENERATED: Regenerated package-lock.json files in all packages | Package Count: ${allConsumingPackages.size} | Status: completed`);
     } else {
         logger.info(`DRY RUN: Would run 'npm install --package-lock-only --no-audit --no-fund' to regenerate package-lock.json files in all packages`);
     }

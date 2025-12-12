@@ -68,12 +68,12 @@ export class CheckpointManager {
 
             return checkpoint;
         } catch (error: any) {
-            this.logger.error(`Failed to load checkpoint: ${error.message}`);
+            this.logger.error(`CHECKPOINT_LOAD_FAILED: Failed to load checkpoint file | Error: ${error.message} | Impact: Cannot resume execution`);
 
             // Try backup
             const backup = await this.loadBackup();
             if (backup) {
-                this.logger.info('Recovered from backup checkpoint');
+                this.logger.info('CHECKPOINT_RECOVERED_BACKUP: Recovered from backup checkpoint | Source: backup | Status: loaded');
                 return backup;
             }
 
@@ -132,7 +132,7 @@ export class CheckpointManager {
 
                 const elapsed = Date.now() - startTime;
                 if (elapsed > maxWaitMs) {
-                    this.logger.warn('Breaking stale checkpoint lock');
+                    this.logger.warn('CHECKPOINT_LOCK_STALE: Breaking stale checkpoint lock | Reason: Lock expired | Action: Force break lock');
                     await fs.unlink(this.lockPath).catch(() => {});
                     continue;
                 }
@@ -162,7 +162,7 @@ export class CheckpointManager {
         ]);
 
         if (allPackages.size !== checkpoint.buildOrder.length) {
-            this.logger.warn('Checkpoint state inconsistency detected');
+            this.logger.warn('CHECKPOINT_INCONSISTENCY: Checkpoint state inconsistency detected | Issue: State validation failed | Impact: May need manual recovery');
         }
     }
 
