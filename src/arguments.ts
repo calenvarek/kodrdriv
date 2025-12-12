@@ -741,13 +741,13 @@ export async function getCliConfig(
         .option('--start-from <startFrom>', 'resume execution from this package directory name (useful for restarting failed builds)')
         .option('--stop-at <stopAt>', 'stop execution at this package directory name (the specified package will not be executed)')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
-        
+
         // Parallel Execution Options
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--max-concurrency <number>', 'maximum number of packages to execute concurrently (default: number of CPU cores)', parseInt)
         .option('--max-retries <number>', 'maximum retry attempts for failed packages (default: 3)', parseInt)
         .option('--retry-delay <ms>', 'initial retry delay in milliseconds (default: 5000)', parseInt)
-        
+
         // Recovery & Status Options
         .option('--continue', 'continue from previous tree publish execution using saved checkpoint state')
         .option('--status', 'check status of running tree publish processes')
@@ -759,10 +759,10 @@ export async function getCliConfig(
         .option('--retry-failed', 'retry all previously failed packages from checkpoint')
         .option('--skip-failed', 'skip failed packages and continue with remaining packages')
         .option('--validate-state', 'validate checkpoint state integrity before continuing')
-        
+
         // Package Filtering
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
-        
+
         // Link/Unlink Options
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
         .description(`Analyze package dependencies in workspace and execute commands in dependency order.
@@ -781,8 +781,8 @@ Examples:
   kodrdriv tree publish --parallel --model "gpt-5-mini"
   kodrdriv tree --cmd "npm test"
   kodrdriv tree publish --continue --retry-failed
-  kodrdriv tree --audit-branches
-  kodrdriv tree --status-parallel`);
+  kodrdriv tree publish --audit-branches
+  kodrdriv tree publish --status-parallel`);
     addSharedOptions(treeCommand);
 
     const linkCommand = program
