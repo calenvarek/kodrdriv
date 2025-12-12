@@ -78,15 +78,15 @@ export async function checkBranchStatus(
         // Check for merge conflicts with target branch
         let hasMergeConflicts = false;
         let conflictsWith: string | undefined;
-        
+
         if (branch !== targetBranch) {
             try {
                 // Fetch latest to ensure we're checking against current target
                 await run('git fetch origin --quiet');
-                
+
                 // Use git merge-tree to test for conflicts without actually merging
                 const { stdout: mergeTree } = await run(`git merge-tree $(git merge-base ${branch} origin/${targetBranch}) ${branch} origin/${targetBranch}`);
-                
+
                 // If merge-tree output contains conflict markers, there are conflicts
                 if (mergeTree.includes('<<<<<<<') || mergeTree.includes('=======') || mergeTree.includes('>>>>>>>')) {
                     hasMergeConflicts = true;
@@ -102,7 +102,7 @@ export async function checkBranchStatus(
         let hasOpenPR = false;
         let prUrl: string | undefined;
         let prNumber: number | undefined;
-        
+
         if (checkPR) {
             try {
                 const { findOpenPullRequestByHeadRef } = await import('@eldrforge/github-tools');
@@ -165,13 +165,13 @@ export async function auditBranchState(
     let actualExpectedBranch = expectedBranch;
     if (!expectedBranch) {
         const branchCounts = new Map<string, number>();
-        
+
         // First pass: collect all branch names
         for (const pkg of packages) {
             const status = await checkBranchStatus(pkg.path);
             branchCounts.set(status.name, (branchCounts.get(status.name) || 0) + 1);
         }
-        
+
         // Find most common branch
         let maxCount = 0;
         for (const [branch, count] of branchCounts.entries()) {
@@ -180,7 +180,7 @@ export async function auditBranchState(
                 actualExpectedBranch = branch;
             }
         }
-        
+
         logger.verbose(`Most common branch: ${actualExpectedBranch} (${maxCount}/${packages.length} packages)`);
     }
 
@@ -246,7 +246,7 @@ export async function auditBranchState(
 }
 
 /**
- * Format audit results for display
+ * Format audit results for display with detailed fix instructions
  */
 export function formatAuditResults(result: BranchAuditResult): string {
     const lines: string[] = [];
@@ -257,7 +257,7 @@ export function formatAuditResults(result: BranchAuditResult): string {
         const branch = audit.status.name;
         branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
     }
-
+    
     let commonBranch: string | undefined;
     let maxCount = 0;
     for (const [branch, count] of branchCounts.entries()) {
@@ -296,6 +296,10 @@ export function formatAuditResults(result: BranchAuditResult): string {
         // Count critical issues (merge conflicts, existing PRs)
         const conflictCount = result.audits.filter(a => a.status.hasMergeConflicts).length;
         const prCount = result.audits.filter(a => a.status.hasOpenPR).length;
+        const branchInconsistentCount = result.audits.filter(a => !a.status.isOnExpectedBranch).length;
+        const unpushedCount = result.audits.filter(a => a.status.hasUnpushedCommits).length;
+        const behindCount = result.audits.filter(a => a.status.needsSync).length;
+        const noRemoteCount = result.audits.filter(a => !a.status.remoteExists).length;
         
         if (conflictCount > 0 || prCount > 0) {
             lines.push(`🚨 CRITICAL ISSUES:`);
@@ -308,24 +312,149 @@ export function formatAuditResults(result: BranchAuditResult): string {
             lines.push('');
         }
         
-        lines.push(`⚠️  Issues Found (${result.issuesFound} package${result.issuesFound === 1 ? '' : 's'}):`);
+        lines.push(`⚠️  Issues Summary:`);
+        if (conflictCount > 0) lines.push(`   • ${conflictCount} merge conflict${conflictCount === 1 ? '' : 's'}`);
+        if (prCount > 0) lines.push(`   • ${prCount} existing PR${prCount === 1 ? '' : 's'}`);
+        if (branchInconsistentCount > 0) lines.push(`   • ${branchInconsistentCount} branch inconsistenc${branchInconsistentCount === 1 ? 'y' : 'ies'}`);
+        if (unpushedCount > 0) lines.push(`   • ${unpushedCount} package${unpushedCount === 1 ? '' : 's'} with unpushed commits`);
+        if (behindCount > 0) lines.push(`   • ${behindCount} package${behindCount === 1 ? '' : 's'} behind remote`);
+        if (noRemoteCount > 0) lines.push(`   • ${noRemoteCount} package${noRemoteCount === 1 ? '' : 's'} with no remote branch`);
+        lines.push('');
+        
+        lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        lines.push('📋 DETAILED ISSUES AND FIXES:');
+        lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         lines.push('');
 
-        result.audits.filter(a => a.issues.length > 0).forEach(audit => {
+        // Sort issues by severity: conflicts first, then PRs, then others
+        const auditsWithIssues = result.audits.filter(a => a.issues.length > 0);
+        const sortedAudits = auditsWithIssues.sort((a, b) => {
+            const aScore = (a.status.hasMergeConflicts ? 1000 : 0) + (a.status.hasOpenPR ? 100 : 0);
+            const bScore = (b.status.hasMergeConflicts ? 1000 : 0) + (b.status.hasOpenPR ? 100 : 0);
+            return bScore - aScore;
+        });
+
+        sortedAudits.forEach((audit, index) => {
             // Highlight critical issues
             const hasCritical = audit.status.hasMergeConflicts || audit.status.hasOpenPR;
-            const prefix = hasCritical ? '🚨 ' : '';
+            const prefix = hasCritical ? '🚨 CRITICAL' : '⚠️  WARNING';
             
-            lines.push(`${prefix}${audit.packageName}:`);
+            lines.push(`${prefix} [${index + 1}/${sortedAudits.length}] ${audit.packageName}`);
+            lines.push(`Location: ${audit.path}`);
+            lines.push(`Branch: ${audit.status.name}`);
+            
+            if (audit.status.remoteExists) {
+                const syncStatus = [];
+                if (audit.status.ahead > 0) syncStatus.push(`ahead ${audit.status.ahead}`);
+                if (audit.status.behind > 0) syncStatus.push(`behind ${audit.status.behind}`);
+                if (syncStatus.length > 0) {
+                    lines.push(`Sync: ${syncStatus.join(', ')}`);
+                }
+            } else {
+                lines.push(`Remote: Does not exist`);
+            }
+            
+            lines.push('');
+            lines.push('Issues:');
             audit.issues.forEach(issue => {
                 const icon = issue.includes('MERGE CONFLICTS') ? '⚠️ ' : issue.includes('PR') ? '📋 ' : '❌ ';
-                lines.push(`   ${icon}${issue}`);
+                lines.push(`  ${icon} ${issue}`);
             });
-            audit.fixes.forEach(fix => {
-                lines.push(`   💡 Fix: ${fix}`);
+            
+            lines.push('');
+            lines.push('Fix Commands (execute in order):');
+            audit.fixes.forEach((fix, fixIndex) => {
+                lines.push(`  ${fixIndex + 1}. ${fix}`);
             });
+            
+            // Add context-specific guidance
+            if (audit.status.hasMergeConflicts) {
+                lines.push('');
+                lines.push('  ⚠️  Merge Conflict Resolution:');
+                lines.push('     After running the merge command above, you will need to:');
+                lines.push('     a) Manually edit conflicting files to resolve conflicts');
+                lines.push('     b) Stage resolved files: git add <file>');
+                lines.push('     c) Complete the merge: git commit');
+                lines.push('     d) Push the resolved merge: git push origin ' + audit.status.name);
+                lines.push('     e) Re-run audit to verify: kodrdriv tree publish --audit-branches');
+            }
+            
+            if (audit.status.hasOpenPR) {
+                lines.push('');
+                lines.push('  📋 Existing PR Handling:');
+                lines.push('     You have options:');
+                lines.push('     a) Continue with existing PR (kodrdriv publish will detect and use it)');
+                lines.push('     b) Close the PR if no longer needed');
+                lines.push('     c) Merge the PR if ready, then create new one');
+            }
+            
+            lines.push('');
+            lines.push('─────────────────────────────────────────────────────────────');
             lines.push('');
         });
+        
+        lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        lines.push('📝 RECOMMENDED WORKFLOW:');
+        lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        lines.push('');
+        
+        if (conflictCount > 0) {
+            lines.push('1️⃣  RESOLVE MERGE CONFLICTS FIRST (blocking):');
+            sortedAudits.filter(a => a.status.hasMergeConflicts).forEach(audit => {
+                lines.push(`   • ${audit.packageName}: cd ${audit.path} && git merge origin/${audit.status.conflictsWith}`);
+            });
+            lines.push('   Then resolve conflicts, commit, and push.');
+            lines.push('');
+        }
+        
+        if (prCount > 0) {
+            lines.push('2️⃣  HANDLE EXISTING PRS:');
+            sortedAudits.filter(a => a.status.hasOpenPR).forEach(audit => {
+                lines.push(`   • ${audit.packageName}: Review ${audit.status.prUrl}`);
+                lines.push(`     Option: Continue (publish will reuse PR) or close/merge it first`);
+            });
+            lines.push('');
+        }
+        
+        if (branchInconsistentCount > 0) {
+            lines.push('3️⃣  ALIGN BRANCHES (if needed):');
+            sortedAudits.filter(a => !a.status.isOnExpectedBranch).forEach(audit => {
+                lines.push(`   • ${audit.packageName}: cd ${audit.path} && git checkout ${audit.status.expectedBranch}`);
+            });
+            lines.push('');
+        }
+        
+        if (behindCount > 0) {
+            lines.push('4️⃣  SYNC WITH REMOTE:');
+            sortedAudits.filter(a => a.status.needsSync && !a.status.hasMergeConflicts).forEach(audit => {
+                lines.push(`   • ${audit.packageName}: cd ${audit.path} && git pull origin ${audit.status.name}`);
+            });
+            lines.push('');
+        }
+        
+        if (unpushedCount > 0) {
+            lines.push('5️⃣  PUSH LOCAL COMMITS:');
+            sortedAudits.filter(a => a.status.hasUnpushedCommits && !a.status.hasMergeConflicts).forEach(audit => {
+                lines.push(`   • ${audit.packageName}: cd ${audit.path} && git push origin ${audit.status.name}`);
+            });
+            lines.push('');
+        }
+        
+        if (noRemoteCount > 0) {
+            lines.push('6️⃣  CREATE REMOTE BRANCHES:');
+            sortedAudits.filter(a => !a.status.remoteExists).forEach(audit => {
+                lines.push(`   • ${audit.packageName}: cd ${audit.path} && git push -u origin ${audit.status.name}`);
+            });
+            lines.push('');
+        }
+        
+        lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        lines.push('');
+        lines.push('🔄 After fixing issues, re-run audit to verify:');
+        lines.push('   kodrdriv tree publish --audit-branches');
+        lines.push('');
+        lines.push('✅ Once all clear, proceed with publish:');
+        lines.push('   kodrdriv tree publish --parallel --model "gpt-5-mini"');
     }
 
     lines.push('╚══════════════════════════════════════════════════════════════╝');
