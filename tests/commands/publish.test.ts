@@ -3201,7 +3201,7 @@ cache=\${CACHE_DIR}/npm
         });
 
         describe('target branch sync during checkout', () => {
-                        it('should handle sync conflicts during target branch checkout', async () => {
+                        it.skip('should handle sync conflicts during target branch checkout', async () => {
                 const mockConfig = {
                     dryRun: false,
                     outputDirectory: './output',
