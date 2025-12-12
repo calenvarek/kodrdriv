@@ -2,6 +2,7 @@ import { getLogger } from '../logging';
 import { DependencyGraph, findAllDependents } from '../util/dependencyGraph';
 import { ParallelExecutionCheckpoint, FailedPackageSnapshot, RecoveryHint } from '../types/parallelExecution';
 import { CheckpointManager } from '../util/checkpointManager';
+import * as path from 'path';
 
 export interface ValidationResult {
     valid: boolean;
@@ -39,15 +40,42 @@ export class RecoveryManager {
     }
 
     /**
+     * Resolve a package identifier (directory name or package name) to a package name
+     */
+    private resolvePackageName(identifier: string): string | null {
+        // Try exact package name match first
+        if (this.graph.packages.has(identifier)) {
+            return identifier;
+        }
+
+        // Try directory name match
+        for (const [pkgName, pkgInfo] of this.graph.packages) {
+            const dirName = path.basename(pkgInfo.path);
+            if (dirName === identifier) {
+                return pkgName;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Mark packages as completed
+     * Accepts either package names (e.g., "@eldrforge/git-tools") or directory names (e.g., "git-tools")
      */
     async markCompleted(packages: string[]): Promise<void> {
         this.logger.info(`Marking ${packages.length} package(s) as completed...`);
 
-        for (const pkg of packages) {
-            // Validate package exists
-            if (!this.graph.packages.has(pkg)) {
-                throw new Error(`Package not found: ${pkg}`);
+        for (const pkgIdentifier of packages) {
+            // Resolve identifier to package name
+            const pkg = this.resolvePackageName(pkgIdentifier);
+            
+            if (!pkg) {
+                // List available packages for better error message
+                const available = Array.from(this.graph.packages.entries())
+                    .map(([name, info]) => `${path.basename(info.path)} (${name})`)
+                    .join(', ');
+                throw new Error(`Package not found: ${pkgIdentifier}. Available packages: ${available}`);
             }
 
             // Validate not already completed
@@ -345,7 +373,7 @@ export class RecoveryManager {
                     type: 'error',
                     message: `${pkg.name}: ${pkg.error}`,
                     actionable: true,
-                    suggestedCommand: `# Fix the issue, then:\nkodrdriv tree [command] --continue --mark-completed "${pkg.name}"`
+                    suggestedCommand: `# Fix the issue, then:\nkodrdriv tree [command] --continue --mark-completed "${path.basename(this.graph.packages.get(pkg.name)?.path || pkg.name)}"`
                 });
             }
         }

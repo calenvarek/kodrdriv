@@ -291,7 +291,7 @@ export class ProgressFormatter {
         }
 
         lines.push('  3. Mark specific package as completed:');
-        lines.push('     kodrdriv tree [command] --continue --mark-completed "package-name"');
+        lines.push('     kodrdriv tree [command] --continue --mark-completed "directory-name"');
         lines.push('');
 
         lines.push('  4. Check detailed status:');

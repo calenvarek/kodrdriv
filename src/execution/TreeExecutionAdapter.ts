@@ -186,8 +186,10 @@ import { ProgressFormatter } from '../ui/ProgressFormatter';
 export function formatParallelResult(result: any): string {
     const lines: string[] = [];
 
-    if (result.success) {
+    if (result.success && result.skipped.length === 0) {
         lines.push(`\n✨ All ${result.totalPackages} packages completed successfully! 🎉\n`);
+    } else if (result.success && result.skipped.length > 0) {
+        lines.push(`\n⚠️  Execution completed with ${result.skipped.length} package(s) skipped\n`);
     } else {
         lines.push(`\n⚠️  Execution completed with ${result.failed.length} failure(s)\n`);
     }

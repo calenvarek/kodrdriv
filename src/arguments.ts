@@ -745,7 +745,7 @@ export async function getCliConfig(
         .option('--status', 'check status of running tree publish processes')
         .option('--status-parallel', 'show detailed parallel execution status')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
-        .option('--mark-completed <packages>', 'mark packages as completed (comma-separated, for recovery)')
+        .option('--mark-completed <packages>', 'mark packages as completed using directory names (comma-separated, for recovery)')
         .option('--skip <packages>', 'skip packages and their dependents (comma-separated)')
         .option('--retry-failed', 'retry all previously failed packages')
         .option('--skip-failed', 'skip failed packages and continue with remaining')

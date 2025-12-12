@@ -137,7 +137,9 @@ export class DynamicTaskPool extends EventEmitter {
             }
 
             // Final checkpoint and cleanup
-            if (this.state.failed.length === 0) {
+            // Only cleanup if everything completed (no failures, no skipped packages)
+            const allCompleted = this.state.failed.length === 0 && this.state.skipped.length === 0;
+            if (allCompleted) {
                 await this.checkpointManager.cleanup();
             } else {
                 await this.saveCheckpoint();
