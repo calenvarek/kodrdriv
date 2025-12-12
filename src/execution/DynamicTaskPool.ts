@@ -579,20 +579,70 @@ export class DynamicTaskPool extends EventEmitter {
      * Check if error is retriable
      */
     private isRetriableError(error: Error): boolean {
+        const errorText = error.message || String(error);
+        const stackText = error.stack || '';
+        const fullText = `${errorText}\n${stackText}`;
+
         const retriablePatterns = [
+            // Network errors
             /ETIMEDOUT/i,
             /ECONNRESET/i,
             /ENOTFOUND/i,
+            /ECONNREFUSED/i,
             /rate limit/i,
             /temporary failure/i,
             /try again/i,
             /gateway timeout/i,
-            /service unavailable/i
+            /service unavailable/i,
+
+            // Git lock file errors (common in parallel execution)
+            /index\.lock/i,
+            /\.git\/index\.lock/i,
+            /unable to create.*lock/i,
+            /lock file.*exists/i,
+
+            // npm install race conditions
+            /ENOENT.*npm-cache/i,
+            /EBUSY.*npm/i,
+            /npm.*EEXIST/i,
+
+            // GitHub API temporary errors
+            /abuse detection/i,
+            /secondary rate limit/i,
+            /GitHub API.*unavailable/i,
+
+            // Timeout errors (might be transient)
+            /timeout waiting for/i,
+            /timed out after/i
         ];
 
-        return retriablePatterns.some(pattern =>
-            pattern.test(error.message || String(error))
+        const isRetriable = retriablePatterns.some(pattern =>
+            pattern.test(fullText)
         );
+
+        // Non-retriable errors that should fail immediately
+        const nonRetriablePatterns = [
+            /test.*failed/i,
+            /coverage.*below.*threshold/i,
+            /compilation.*failed/i,
+            /build.*failed/i,
+            /merge.*conflict/i,
+            /uncommitted changes/i,
+            /working.*dirty/i,
+            /authentication.*failed/i,
+            /permission denied/i
+        ];
+
+        const isNonRetriable = nonRetriablePatterns.some(pattern =>
+            pattern.test(fullText)
+        );
+
+        // If explicitly non-retriable, don't retry
+        if (isNonRetriable) {
+            return false;
+        }
+
+        return isRetriable;
     }
 
     /**
@@ -635,6 +685,9 @@ export class DynamicTaskPool extends EventEmitter {
         const errorStack = error.stack || '';
         const fullText = `${errorMsg}\n${errorStack}`;
 
+        // Get log file path from error if attached, otherwise use default
+        const logFile = (error as any).logFilePath || this.getLogFilePath(packageName);
+
         // Test coverage failure
         if (fullText.match(/coverage.*below.*threshold|coverage.*insufficient/i)) {
             const coverageMatch = fullText.match(/(\w+):\s*(\d+\.?\d*)%.*threshold:\s*(\d+\.?\d*)%/i);
@@ -643,7 +696,7 @@ export class DynamicTaskPool extends EventEmitter {
                 context: coverageMatch
                     ? `${coverageMatch[1]}: ${coverageMatch[2]}% (threshold: ${coverageMatch[3]}%)`
                     : 'Coverage below threshold',
-                logFile: this.getLogFilePath(packageName),
+                logFile,
                 suggestion: `cd ${this.getPackagePath(packageName)} && npm test -- --coverage`
             };
         }
@@ -653,7 +706,7 @@ export class DynamicTaskPool extends EventEmitter {
             return {
                 type: 'build_error',
                 context: this.extractFirstErrorLine(fullText),
-                logFile: this.getLogFilePath(packageName),
+                logFile,
                 suggestion: `cd ${this.getPackagePath(packageName)} && npm run build`
             };
         }
@@ -663,7 +716,7 @@ export class DynamicTaskPool extends EventEmitter {
             return {
                 type: 'merge_conflict',
                 context: 'Unresolved merge conflicts detected',
-                logFile: this.getLogFilePath(packageName),
+                logFile,
                 suggestion: `cd ${this.getPackagePath(packageName)} && git status`
             };
         }
@@ -674,7 +727,7 @@ export class DynamicTaskPool extends EventEmitter {
             return {
                 type: 'test_failure',
                 context: failMatch ? `${failMatch[1]} test(s) failing` : 'Tests failed',
-                logFile: this.getLogFilePath(packageName),
+                logFile,
                 suggestion: `cd ${this.getPackagePath(packageName)} && npm test`
             };
         }
@@ -684,8 +737,58 @@ export class DynamicTaskPool extends EventEmitter {
             return {
                 type: 'timeout',
                 context: this.extractFirstErrorLine(fullText),
-                logFile: this.getLogFilePath(packageName),
+                logFile,
                 suggestion: 'Consider increasing timeout or checking for stuck processes'
+            };
+        }
+
+        // PR/Git errors
+        if (fullText.match(/pull request|pr|github/i) && fullText.match(/not mergeable|conflict/i)) {
+            return {
+                type: 'pr_conflict',
+                context: 'Pull request has merge conflicts',
+                logFile,
+                suggestion: 'Resolve conflicts in the PR and re-run with --continue'
+            };
+        }
+
+        // Git state errors
+        if (fullText.match(/uncommitted changes|working.*dirty|not.*clean/i)) {
+            return {
+                type: 'git_state',
+                context: 'Working directory has uncommitted changes',
+                logFile,
+                suggestion: `cd ${this.getPackagePath(packageName)} && git status`
+            };
+        }
+
+        // npm install / dependency errors
+        if (fullText.match(/npm.*install|ERESOLVE|Cannot find module/i)) {
+            return {
+                type: 'dependency_error',
+                context: this.extractFirstErrorLine(fullText),
+                logFile,
+                suggestion: `cd ${this.getPackagePath(packageName)} && rm -rf node_modules package-lock.json && npm install`
+            };
+        }
+
+        // Git lock file errors
+        if (fullText.match(/index\.lock|\.git\/index\.lock|unable to create.*lock/i)) {
+            return {
+                type: 'git_lock',
+                context: 'Git lock file conflict - another git process running',
+                logFile,
+                suggestion: `cd ${this.getPackagePath(packageName)} && rm -f .git/index.lock`
+            };
+        }
+
+        // No changes detected (not really an error, but handle it)
+        if (fullText.match(/no.*changes|already.*published|nothing.*to.*publish/i)) {
+            return {
+                type: 'no_changes',
+                context: 'No changes detected - package already published',
+                logFile,
+                suggestion: 'This is expected if package was previously published'
             };
         }
 
@@ -693,7 +796,7 @@ export class DynamicTaskPool extends EventEmitter {
         return {
             type: 'unknown',
             context: errorMsg.split('\n')[0].substring(0, 200),
-            logFile: this.getLogFilePath(packageName)
+            logFile
         };
     }
 
@@ -715,7 +818,8 @@ export class DynamicTaskPool extends EventEmitter {
     private getLogFilePath(packageName: string): string {
         const pkgPath = this.getPackagePath(packageName);
         const outputDir = this.config.config.outputDirectory || 'output/kodrdriv';
-        // Try to find the most recent log file
+        // Return wildcard pattern as fallback (log file should be attached to error directly)
+        // This is used as a fallback when log file path isn't attached to the error
         return `${pkgPath}/${outputDir}/publish_*.log`;
     }
 }
