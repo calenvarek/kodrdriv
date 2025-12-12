@@ -493,7 +493,8 @@ const runWithLogging = async (
     command: string,
     packageLogger: any,
     options: child_process.ExecOptions = {},
-    showOutput: 'none' | 'minimal' | 'full' = 'none'
+    showOutput: 'none' | 'minimal' | 'full' = 'none',
+    logFilePath?: string
 ): Promise<{ stdout: string; stderr: string }> => {
     const execPromise = util.promisify(exec);
 
@@ -506,6 +507,24 @@ const runWithLogging = async (
         packageLogger.info(`🔧 Running: ${command}`);
     } else if (showOutput === 'minimal') {
         packageLogger.verbose(`Running: ${command}`);
+    }
+
+    // Helper to write to log file
+    const writeToLogFile = async (content: string) => {
+        if (!logFilePath) return;
+        try {
+            const logDir = path.dirname(logFilePath);
+            await fs.mkdir(logDir, { recursive: true });
+            await fs.appendFile(logFilePath, content + '\n', 'utf-8');
+        } catch (err: any) {
+            packageLogger.warn(`Failed to write to log file ${logFilePath}: ${err.message}`);
+        }
+    };
+
+    // Write command to log file
+    if (logFilePath) {
+        const timestamp = new Date().toISOString();
+        await writeToLogFile(`[${timestamp}] Executing: ${command}\n`);
     }
 
     try {
@@ -535,6 +554,19 @@ const runWithLogging = async (
             }
         }
 
+        // Write output to log file
+        if (logFilePath) {
+            const stdout = String(result.stdout);
+            const stderr = String(result.stderr);
+            if (stdout.trim()) {
+                await writeToLogFile(`\n=== STDOUT ===\n${stdout}`);
+            }
+            if (stderr.trim()) {
+                await writeToLogFile(`\n=== STDERR ===\n${stderr}`);
+            }
+            await writeToLogFile(`\n[${new Date().toISOString()}] Command completed successfully\n`);
+        }
+
         // Ensure result is properly typed as strings
         return {
             stdout: String(result.stdout),
@@ -560,6 +592,21 @@ const runWithLogging = async (
                 });
             }
         }
+
+        // Write error output to log file
+        if (logFilePath) {
+            await writeToLogFile(`\n[${new Date().toISOString()}] Command failed: ${error.message}`);
+            if (error.stdout) {
+                await writeToLogFile(`\n=== STDOUT ===\n${error.stdout}`);
+            }
+            if (error.stderr) {
+                await writeToLogFile(`\n=== STDERR ===\n${error.stderr}`);
+            }
+            if (error.stack) {
+                await writeToLogFile(`\n=== STACK TRACE ===\n${error.stack}`);
+            }
+        }
+
         throw error;
     }
 };
@@ -638,10 +685,19 @@ export const executePackage = async (
     total: number,
     allPackageNames: Set<string>,
     isBuiltInCommand: boolean = false
-): Promise<{ success: boolean; error?: any; isTimeoutError?: boolean; skippedNoChanges?: boolean }> => {
+): Promise<{ success: boolean; error?: any; isTimeoutError?: boolean; skippedNoChanges?: boolean; logFile?: string }> => {
     const packageLogger = createPackageLogger(packageName, index + 1, total, isDryRun);
     const packageDir = packageInfo.path;
     const logger = getLogger();
+
+    // Create log file path for publish commands
+    let logFilePath: string | undefined;
+    if (isBuiltInCommand && commandToRun.includes('publish')) {
+        const outputDir = runConfig.outputDirectory || 'output/kodrdriv';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').split('.')[0];
+        const commandName = commandToRun.split(' ')[1]?.split(' ')[0] || 'command';
+        logFilePath = path.join(packageDir, outputDir, `${commandName}_${timestamp}.log`);
+    }
 
     // Determine output level based on flags
     // For publish commands, default to full output to show OpenAI progress and other details
@@ -806,7 +862,7 @@ export const executePackage = async (
                         packageLogger.info(`⏰ Setting timeout of ${commandTimeoutMs/60000} minutes for publish command`);
                     }
 
-                    const commandPromise = runWithLogging(effectiveCommand, packageLogger, {}, showOutput);
+                    const commandPromise = runWithLogging(effectiveCommand, packageLogger, {}, showOutput, logFilePath);
                     const commandTimeoutPromise = new Promise<never>((_, reject) => {
                         setTimeout(() => reject(new Error(`Command timed out after ${commandTimeoutMs/60000} minutes`)), commandTimeoutMs);
                     });
@@ -831,7 +887,7 @@ export const executePackage = async (
                     }
                 } else {
                     // For custom commands, use the existing logic
-                    await runWithLogging(commandToRun, packageLogger, {}, showOutput);
+                    await runWithLogging(commandToRun, packageLogger, {}, showOutput, logFilePath);
                 }
 
                 // Track published version after successful publish (skip during dry run)
@@ -902,7 +958,7 @@ export const executePackage = async (
             }
         }
 
-        return { success: true, skippedNoChanges: publishWasSkipped };
+        return { success: true, skippedNoChanges: publishWasSkipped, logFile: logFilePath };
     } catch (error: any) {
         if (runConfig.debug || runConfig.verbose) {
             packageLogger.error(`❌ Execution failed: ${error.message}`);
@@ -921,7 +977,7 @@ export const executePackage = async (
             errorMessage.includes('timed_out')
         );
 
-        return { success: false, error, isTimeoutError };
+        return { success: false, error, isTimeoutError, logFile: logFilePath };
     }
 };
 
