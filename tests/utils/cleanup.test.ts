@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { promises as fs } from 'fs';
+import fs from 'fs/promises';
 import * as cleanup from '../../src/utils/cleanup';
 import * as gitTools from '@eldrforge/git-tools';
 
-vi.mock('fs', async () => {
-    const actual = await vi.importActual<typeof import('fs')>('fs');
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof import('fs/promises')>('fs/promises');
     return {
         ...actual,
-        promises: {
-            ...actual.promises,
+        default: {
+            ...actual.default,
             rm: vi.fn(),
             rename: vi.fn(),
         },
+        rm: vi.fn(),
+        rename: vi.fn(),
     };
 });
 

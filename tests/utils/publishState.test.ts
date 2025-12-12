@@ -1,18 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { promises as fs } from 'fs';
 import * as publishState from '../../src/utils/publishState';
+import fs from 'fs/promises';
 
-vi.mock('fs', async () => {
-    const actual = await vi.importActual<typeof import('fs')>('fs');
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof import('fs/promises')>('fs/promises');
     return {
         ...actual,
-        promises: {
-            ...actual.promises,
+        default: {
+            ...actual.default,
             mkdir: vi.fn(),
             readFile: vi.fn(),
             writeFile: vi.fn(),
             unlink: vi.fn(),
         },
+        mkdir: vi.fn(),
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        unlink: vi.fn(),
     };
 });
 

@@ -1,17 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { promises as fs } from 'fs';
 import * as config from '../../src/utils/config';
+import fs from 'fs/promises';
 
-vi.mock('fs', async () => {
-    const actual = await vi.importActual<typeof import('fs')>('fs');
+vi.mock('fs/promises', async () => {
+    const actual = await vi.importActual<typeof import('fs/promises')>('fs/promises');
     return {
         ...actual,
-        promises: {
-            ...actual.promises,
+        default: {
+            ...actual.default,
             readFile: vi.fn(),
             writeFile: vi.fn(),
             access: vi.fn(),
         },
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        access: vi.fn(),
     };
 });
 
