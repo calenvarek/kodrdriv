@@ -241,7 +241,7 @@ export class ProgressFormatter {
     /**
      * Create error summary
      */
-    static createErrorSummary(failures: Array<{ name: string; error: string; dependents: string[] }>): string[] {
+    static createErrorSummary(failures: Array<{ name: string; error: string; dependents: string[]; errorDetails?: { type?: string; context?: string; logFile?: string; suggestion?: string } }>): string[] {
         const lines: string[] = [];
 
         if (failures.length === 0) {
@@ -254,16 +254,39 @@ export class ProgressFormatter {
 
         for (const failure of failures) {
             lines.push(`  ${failure.name}:`);
-            lines.push(`    Error: ${failure.error}`);
 
+            // Show error type if available
+            if (failure.errorDetails?.type) {
+                const typeLabel = failure.errorDetails.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                lines.push(`    Type: ${typeLabel}`);
+            }
+
+            // Show context if available, otherwise show generic error
+            if (failure.errorDetails?.context) {
+                lines.push(`    Details: ${failure.errorDetails.context}`);
+            } else {
+                lines.push(`    Error: ${failure.error}`);
+            }
+
+            // Show log file location
+            if (failure.errorDetails?.logFile) {
+                lines.push(`    Log: ${failure.errorDetails.logFile}`);
+            }
+
+            // Show suggestion
+            if (failure.errorDetails?.suggestion) {
+                lines.push(`    💡 Suggestion: ${failure.errorDetails.suggestion}`);
+            }
+
+            // Show blocked dependents
             if (failure.dependents.length > 0) {
                 const dependentStr = failure.dependents.slice(0, 3).join(', ');
                 const more = failure.dependents.length > 3 ? ` +${failure.dependents.length - 3} more` : '';
                 lines.push(`    Blocked: ${dependentStr}${more}`);
             }
-        }
 
-        lines.push('');
+            lines.push('');
+        }
 
         return lines;
     }

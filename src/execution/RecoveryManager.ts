@@ -299,7 +299,8 @@ export class RecoveryManager {
             ...this.checkpoint.state.running.map(r => r.name),
             ...this.checkpoint.state.completed,
             ...this.checkpoint.state.failed.map(f => f.name),
-            ...this.checkpoint.state.skipped
+            ...this.checkpoint.state.skipped,
+            ...this.checkpoint.state.skippedNoChanges
         ];
 
         const duplicates = this.findDuplicates(allPackages);
@@ -423,6 +424,7 @@ export class RecoveryManager {
         // Progress summary
         const total = this.checkpoint.buildOrder.length;
         const completed = this.checkpoint.state.completed.length;
+        const skippedNoChanges = this.checkpoint.state.skippedNoChanges.length;
         const failed = this.checkpoint.state.failed.length;
         const skipped = this.checkpoint.state.skipped.length;
         const running = this.checkpoint.state.running.length;
@@ -430,10 +432,11 @@ export class RecoveryManager {
 
         lines.push('📊 Progress:');
         lines.push(`  Completed: ${completed}/${total} (${Math.round(completed/total*100)}%)`);
+        lines.push(`  Skipped (no changes): ${skippedNoChanges}`);
         lines.push(`  Running:   ${running}`);
         lines.push(`  Pending:   ${pending}`);
         lines.push(`  Failed:    ${failed}`);
-        lines.push(`  Skipped:   ${skipped}`);
+        lines.push(`  Skipped (dependency failed):   ${skipped}`);
         lines.push('');
 
         // Progress bar
@@ -550,6 +553,7 @@ export class RecoveryManager {
         this.checkpoint.state.completed = this.checkpoint.state.completed.filter(p => p !== packageName);
         this.checkpoint.state.failed = this.checkpoint.state.failed.filter(f => f.name !== packageName);
         this.checkpoint.state.skipped = this.checkpoint.state.skipped.filter(p => p !== packageName);
+        this.checkpoint.state.skippedNoChanges = this.checkpoint.state.skippedNoChanges.filter(p => p !== packageName);
     }
 
     private updateReadyState(): void {

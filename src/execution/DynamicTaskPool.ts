@@ -137,7 +137,8 @@ export class DynamicTaskPool extends EventEmitter {
             }
 
             // Final checkpoint and cleanup
-            // Only cleanup if everything completed (no failures, no skipped packages)
+            // Only cleanup if everything completed (no failures, no skipped packages due to dependencies)
+            // Note: skippedNoChanges is OK - those packages successfully ran but had nothing to do
             const allCompleted = this.state.failed.length === 0 && this.state.skipped.length === 0;
             if (allCompleted) {
                 await this.checkpointManager.cleanup();
@@ -169,7 +170,8 @@ export class DynamicTaskPool extends EventEmitter {
             running: [],
             completed: [],
             failed: [],
-            skipped: []
+            skipped: [],
+            skippedNoChanges: []
         };
     }
 
@@ -276,20 +278,26 @@ export class DynamicTaskPool extends EventEmitter {
      * Handle successful package completion
      */
     private async handleSuccess(packageName: string, result: PackageResult): Promise<void> {
-        this.state.completed.push(packageName);
+        // Check if this was skipped due to no changes
+        if (result.skippedNoChanges) {
+            this.state.skippedNoChanges.push(packageName);
+            const duration = this.packageDurations.get(packageName)!;
+            this.logger.info(`⊘ ${packageName} skipped - no code changes (${this.formatDuration(duration)})`);
+            this.emit('package:skipped-no-changes', { packageName, result });
+        } else {
+            this.state.completed.push(packageName);
+            const duration = this.packageDurations.get(packageName)!;
+            this.logger.info(`✓ ${packageName} completed successfully (${this.formatDuration(duration)})`);
+            this.emit('package:completed', { packageName, result });
 
-        const duration = this.packageDurations.get(packageName)!;
-        this.logger.info(`✓ ${packageName} completed successfully (${this.formatDuration(duration)})`);
-
-        this.emit('package:completed', { packageName, result });
-
-        // Track published version if applicable
-        if (result.publishedVersion) {
-            this.publishedVersions.push({
-                name: packageName,
-                version: result.publishedVersion,
-                time: new Date()
-            });
+            // Track published version if applicable
+            if (result.publishedVersion) {
+                this.publishedVersions.push({
+                    name: packageName,
+                    version: result.publishedVersion,
+                    time: new Date()
+                });
+            }
         }
     }
 
@@ -321,6 +329,9 @@ export class DynamicTaskPool extends EventEmitter {
             const dependencies = Array.from(this.graph.edges.get(packageName) || []);
             const dependents = Array.from(findAllDependents(packageName, this.graph));
 
+            // Extract detailed error information
+            const errorDetails = this.extractErrorDetails(error, packageName);
+
             const failureInfo: FailedPackageSnapshot = {
                 name: packageName,
                 error: error.message,
@@ -329,7 +340,8 @@ export class DynamicTaskPool extends EventEmitter {
                 attemptNumber,
                 failedAt: new Date().toISOString(),
                 dependencies,
-                dependents
+                dependents,
+                errorDetails
             };
 
             this.state.failed.push(failureInfo);
@@ -527,6 +539,7 @@ export class DynamicTaskPool extends EventEmitter {
             completed: this.state.completed,
             failed: this.state.failed,
             skipped: this.state.skipped,
+            skippedNoChanges: this.state.skippedNoChanges,
             metrics
         };
     }
@@ -581,5 +594,97 @@ export class DynamicTaskPool extends EventEmitter {
             return `${minutes}m ${seconds % 60}s`;
         }
         return `${seconds}s`;
+    }
+
+    /**
+     * Extract detailed error information from error message and stack
+     */
+    private extractErrorDetails(error: Error, packageName: string): { type?: string; context?: string; logFile?: string; suggestion?: string } | undefined {
+        const errorMsg = error.message || '';
+        const errorStack = error.stack || '';
+        const fullText = `${errorMsg}\n${errorStack}`;
+
+        // Test coverage failure
+        if (fullText.match(/coverage.*below.*threshold|coverage.*insufficient/i)) {
+            const coverageMatch = fullText.match(/(\w+):\s*(\d+\.?\d*)%.*threshold:\s*(\d+\.?\d*)%/i);
+            return {
+                type: 'test_coverage',
+                context: coverageMatch
+                    ? `${coverageMatch[1]}: ${coverageMatch[2]}% (threshold: ${coverageMatch[3]}%)`
+                    : 'Coverage below threshold',
+                logFile: this.getLogFilePath(packageName),
+                suggestion: `cd ${this.getPackagePath(packageName)} && npm test -- --coverage`
+            };
+        }
+
+        // Build/compile errors
+        if (fullText.match(/compilation.*failed|build.*failed|tsc.*error/i)) {
+            return {
+                type: 'build_error',
+                context: this.extractFirstErrorLine(fullText),
+                logFile: this.getLogFilePath(packageName),
+                suggestion: `cd ${this.getPackagePath(packageName)} && npm run build`
+            };
+        }
+
+        // Merge conflicts
+        if (fullText.match(/merge.*conflict|conflict.*marker|<<<<<<<|>>>>>>>/i)) {
+            return {
+                type: 'merge_conflict',
+                context: 'Unresolved merge conflicts detected',
+                logFile: this.getLogFilePath(packageName),
+                suggestion: `cd ${this.getPackagePath(packageName)} && git status`
+            };
+        }
+
+        // Test failures
+        if (fullText.match(/test.*failed|tests.*failed|\d+\s+failing/i)) {
+            const failMatch = fullText.match(/(\d+)\s+failing/i);
+            return {
+                type: 'test_failure',
+                context: failMatch ? `${failMatch[1]} test(s) failing` : 'Tests failed',
+                logFile: this.getLogFilePath(packageName),
+                suggestion: `cd ${this.getPackagePath(packageName)} && npm test`
+            };
+        }
+
+        // Timeout errors
+        if (fullText.match(/timeout|timed.*out/i)) {
+            return {
+                type: 'timeout',
+                context: this.extractFirstErrorLine(fullText),
+                logFile: this.getLogFilePath(packageName),
+                suggestion: 'Consider increasing timeout or checking for stuck processes'
+            };
+        }
+
+        // Generic error with log file
+        return {
+            type: 'unknown',
+            context: errorMsg.split('\n')[0].substring(0, 200),
+            logFile: this.getLogFilePath(packageName)
+        };
+    }
+
+    private extractFirstErrorLine(text: string): string {
+        const lines = text.split('\n');
+        for (const line of lines) {
+            if (line.match(/error|failed|exception/i) && line.trim().length > 10) {
+                return line.trim().substring(0, 200);
+            }
+        }
+        return text.split('\n')[0].substring(0, 200);
+    }
+
+    private getPackagePath(packageName: string): string {
+        const pkgInfo = this.graph.packages.get(packageName);
+        return pkgInfo?.path || '.';
+    }
+
+    private getLogFilePath(packageName: string): string {
+        const pkgPath = this.getPackagePath(packageName);
+        const outputDir = this.config.config.outputDirectory || 'output/kodrdriv';
+        // Try to find the most recent log file
+        return `${pkgPath}/${outputDir}/publish_*.log`;
     }
 }

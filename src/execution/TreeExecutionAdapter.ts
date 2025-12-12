@@ -83,13 +83,17 @@ export class TreeExecutionAdapter {
                 throw result.error || new Error('Package execution failed');
             }
 
+            // Check if this was a "no changes" skip (result will have skippedNoChanges flag)
+            const skippedNoChanges = (result as any).skippedNoChanges || false;
+
             return {
                 success: true,
                 duration,
                 // Extract published version if available (from output or state)
                 publishedVersion: undefined,
                 stdout: undefined,
-                stderr: undefined
+                stderr: undefined,
+                skippedNoChanges
             };
         };
     }
@@ -156,6 +160,12 @@ export function createParallelProgressLogger(pool: DynamicTaskPool, config: Conf
         logger.warn(`⊘ Skipped: ${packageName} (${reason})`);
     });
 
+    pool.on('package:skipped-no-changes', ({ packageName }) => {
+        if (config.verbose || config.debug) {
+            logger.info(`⊘ Skipped: ${packageName} (no code changes)`);
+        }
+    });
+
     pool.on('checkpoint:saved', () => {
         if (config.debug) {
             logger.debug('💾 Checkpoint saved');
@@ -170,8 +180,9 @@ export function createParallelProgressLogger(pool: DynamicTaskPool, config: Conf
             logger.info(`\nMetrics:`);
             logger.info(`  Total packages: ${result.totalPackages}`);
             logger.info(`  Completed: ${result.completed.length}`);
+            logger.info(`  Skipped (no changes): ${result.skippedNoChanges.length}`);
+            logger.info(`  Skipped (dependency failed): ${result.skipped.length}`);
             logger.info(`  Failed: ${result.failed.length}`);
-            logger.info(`  Skipped: ${result.skipped.length}`);
             logger.info(`  Peak concurrency: ${result.metrics.peakConcurrency}`);
             logger.info(`  Average concurrency: ${result.metrics.averageConcurrency.toFixed(1)}`);
         }
@@ -186,12 +197,49 @@ import { ProgressFormatter } from '../ui/ProgressFormatter';
 export function formatParallelResult(result: any): string {
     const lines: string[] = [];
 
+    // Summary header
     if (result.success && result.skipped.length === 0) {
-        lines.push(`\n✨ All ${result.totalPackages} packages completed successfully! 🎉\n`);
+        if (result.skippedNoChanges.length > 0) {
+            lines.push(`\n✨ Execution completed: ${result.completed.length} published, ${result.skippedNoChanges.length} skipped (no changes)\n`);
+        } else {
+            lines.push(`\n✨ All ${result.totalPackages} packages completed successfully! 🎉\n`);
+        }
     } else if (result.success && result.skipped.length > 0) {
-        lines.push(`\n⚠️  Execution completed with ${result.skipped.length} package(s) skipped\n`);
+        lines.push(`\n⚠️  Execution completed with ${result.skipped.length} package(s) skipped due to failed dependencies\n`);
     } else {
         lines.push(`\n⚠️  Execution completed with ${result.failed.length} failure(s)\n`);
+    }
+
+    // Detailed status breakdown
+    lines.push('📊 Execution Summary:\n');
+
+    if (result.completed.length > 0) {
+        lines.push(`✅ Published: ${result.completed.length} package(s)`);
+        if (result.completed.length <= 10) {
+            lines.push(`   ${result.completed.join(', ')}`);
+        }
+        lines.push('');
+    }
+
+    if (result.skippedNoChanges.length > 0) {
+        lines.push(`⊘ Skipped (no code changes): ${result.skippedNoChanges.length} package(s)`);
+        if (result.skippedNoChanges.length <= 10) {
+            lines.push(`   ${result.skippedNoChanges.join(', ')}`);
+        }
+        lines.push('');
+    }
+
+    if (result.skipped.length > 0) {
+        lines.push(`⊘ Skipped (dependency failed): ${result.skipped.length} package(s)`);
+        if (result.skipped.length <= 10) {
+            lines.push(`   ${result.skipped.join(', ')}`);
+        }
+        lines.push('');
+    }
+
+    if (result.failed.length > 0) {
+        lines.push(`❌ Failed: ${result.failed.length} package(s)`);
+        lines.push('');
     }
 
     // Use ProgressFormatter for metrics
@@ -208,13 +256,6 @@ export function formatParallelResult(result: any): string {
         const hasPermanent = result.failed.some((f: any) => !f.isRetriable);
         const recoveryLines = ProgressFormatter.createRecoveryGuidance(hasRetriable, hasPermanent);
         lines.push(...recoveryLines);
-    }
-
-    // Skipped packages
-    if (result.skipped.length > 0) {
-        lines.push(`\n⊘ Skipped packages (due to failed dependencies):`);
-        lines.push(`  ${result.skipped.join(', ')}`);
-        lines.push('');
     }
 
     return lines.join('\n');
