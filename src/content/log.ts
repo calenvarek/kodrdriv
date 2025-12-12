@@ -39,7 +39,7 @@ export const create = async (options: { from?: string, to?: string, limit?: numb
                 logger.debug('Git log command: %s', gitLogCmd);
                 const { stdout, stderr } = await run(gitLogCmd, { maxBuffer: DEFAULT_GIT_COMMAND_MAX_BUFFER });
                 if (stderr) {
-                    logger.warn('Git log produced stderr: %s', stderr);
+                    logger.warn('GIT_LOG_STDERR: Git log produced stderr output | Stderr: %s | Impact: May indicate warnings', stderr);
                 }
                 logger.debug('Git log output: %s', stdout);
                 return stdout;
@@ -57,7 +57,7 @@ export const create = async (options: { from?: string, to?: string, limit?: numb
                     return ''; // Return empty string for empty repositories
                 }
 
-                logger.error('Failed to execute git log: %s', error.message);
+                logger.error('GIT_LOG_FAILED: Failed to execute git log command | Error: %s | Impact: Cannot gather commit history', error.message);
                 throw error;
             }
         } catch (error: any) {
@@ -74,7 +74,7 @@ export const create = async (options: { from?: string, to?: string, limit?: numb
                 return ''; // Return empty string for empty repositories
             }
 
-            logger.error('Error occurred during gather change phase: %s %s', error.message, error.stack);
+            logger.error('LOG_GATHER_ERROR: Error during change gathering phase | Error: %s | Stack: %s | Impact: Cannot collect log', error.message, error.stack);
             throw new ExitError('Error occurred during gather change phase');
         }
     }

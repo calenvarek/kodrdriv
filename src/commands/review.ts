@@ -80,30 +80,30 @@ const confirmFileProcessing = async (filePath: string, senditMode: boolean): Pro
     const logger = getLogger();
 
     if (senditMode) {
-        logger.info(`Processing file: ${filePath} (auto-confirmed due to --sendit)`);
+        logger.info(`REVIEW_FILE_PROCESSING: Processing review file automatically | File: ${filePath} | Mode: sendit | Confirmation: auto`);
         return true;
     }
 
     // Check if we're in an interactive environment
     if (!isTTYSafe()) {
-        logger.warn(`Non-interactive environment detected, skipping confirmation for: ${filePath}`);
+        logger.warn(`REVIEW_NON_INTERACTIVE: Non-interactive environment detected | File: ${filePath} | Action: Skipping confirmation | Mode: non-interactive`);
         return true;
     }
 
     // For interactive mode, we'll use a simple prompt
     // In a real implementation, you might want to use a more sophisticated prompt library
-    logger.info(`\nReview file: ${filePath}`);
-    logger.info('Press Enter to process this file, or type "skip" to skip:');
+    logger.info(`\nREVIEW_FILE_PROMPT: Review file ready for processing | File: ${filePath}`);
+    logger.info('REVIEW_FILE_ACTION: Press Enter to process or type "skip" to skip | Options: [Enter]=process, "skip"=skip');
 
     // This is a simplified confirmation - in practice you might want to use a proper prompt library
     return new Promise((resolve) => {
         process.stdin.once('data', (data) => {
             const input = data.toString().trim().toLowerCase();
             if (input === 'skip' || input === 'n' || input === 'no') {
-                logger.info(`Skipping file: ${filePath}`);
+                logger.info(`REVIEW_FILE_SKIPPED: User chose to skip file | File: ${filePath} | Action: skipped`);
                 resolve(false);
             } else {
-                logger.info(`Processing file: ${filePath}`);
+                logger.info(`REVIEW_FILE_PROCESSING: User confirmed file for processing | File: ${filePath} | Action: processing`);
                 resolve(true);
             }
         });
@@ -115,21 +115,19 @@ const selectFilesForProcessing = async (reviewFiles: string[], senditMode: boole
     const logger = getLogger();
 
     if (senditMode) {
-        logger.info(`Auto-selecting all ${reviewFiles.length} files for processing (--sendit mode)`);
+        logger.info(`REVIEW_AUTO_SELECT: Auto-selecting all files for processing | Mode: sendit | File Count: ${reviewFiles.length} | Confirmation: automatic`);
         return reviewFiles;
     }
 
     // Check if we're in an interactive environment
     if (!isTTYSafe()) {
-        logger.warn(`Non-interactive environment detected, selecting all files for processing`);
+        logger.warn(`REVIEW_NON_INTERACTIVE_SELECT: Non-interactive environment detected | Action: Selecting all files | Mode: non-interactive`);
         return reviewFiles;
     }
 
-    logger.info(`\n📁 File Selection Phase`);
-    logger.info(`Found ${reviewFiles.length} files to review. Select which ones to process:`);
-    logger.info(`[c] Confirm this file for processing`);
-    logger.info(`[s] Skip this file`);
-    logger.info(`[a] Abort the entire review process`);
+    logger.info(`\nREVIEW_SELECTION_PHASE: Starting file selection phase | File Count: ${reviewFiles.length} | Purpose: Choose files to process`);
+    logger.info(`REVIEW_SELECTION_FILES: Found files to review | Count: ${reviewFiles.length} | Action: Select files for processing`);
+    logger.info(`REVIEW_SELECTION_OPTIONS: File selection options available | [c]=Confirm | [s]=Skip | [a]=Abort`);
     logger.info(``);
 
     const selectedFiles: string[] = [];
@@ -137,7 +135,7 @@ const selectFilesForProcessing = async (reviewFiles: string[], senditMode: boole
 
     for (let i = 0; i < reviewFiles.length; i++) {
         const filePath = reviewFiles[i];
-        logger.info(`File ${i + 1}/${reviewFiles.length}: ${filePath}`);
+        logger.info(`REVIEW_SELECTION_FILE: File for review | Progress: ${i + 1}/${reviewFiles.length} | File: ${filePath}`);
 
         const choice = await getUserChoice(
             `Select action for this file:`,
@@ -149,14 +147,14 @@ const selectFilesForProcessing = async (reviewFiles: string[], senditMode: boole
         );
 
         if (choice === 'a') {
-            logger.info(`🛑 Aborting review process as requested`);
+            logger.info(`REVIEW_ABORTED: User aborted review process | Action: Aborting | Reason: User request`);
             shouldAbort = true;
             break;
         } else if (choice === 'c') {
             selectedFiles.push(filePath);
-            logger.info(`✅ File selected for processing: ${filePath}`);
+            logger.info(`REVIEW_FILE_SELECTED: File selected for processing | File: ${filePath} | Action: Will be processed`);
         } else if (choice === 's') {
-            logger.info(`⏭️  File skipped: ${filePath}`);
+            logger.info(`REVIEW_FILE_SKIPPED: File skipped during selection | File: ${filePath} | Action: Will not be processed`);
         }
     }
 
@@ -188,7 +186,7 @@ const createSecureTempFile = async (): Promise<string> => {
         const W_OK = 2; // fs.constants.W_OK value
         await fs.access(tmpDir, W_OK);
     } catch (error: any) {
-        logger.error(`Temp directory not writable: ${tmpDir}`);
+        logger.error(`TEMP_DIR_NOT_WRITABLE: Temporary directory is not writable | Directory: ${tmpDir} | Impact: Cannot create temp files`);
         throw new FileOperationError(`Temp directory not writable: ${error.message}`, tmpDir, error);
     }
 
@@ -201,7 +199,7 @@ const createSecureTempFile = async (): Promise<string> => {
         logger.debug(`Created secure temp file: ${tmpFilePath}`);
         return tmpFilePath;
     } catch (error: any) {
-        logger.error(`Failed to create temp file: ${error.message}`);
+        logger.error(`TEMP_FILE_CREATE_FAILED: Unable to create temporary file | Error: ${error.message} | Impact: Cannot proceed with review`);
         throw new FileOperationError(`Failed to create temp file: ${error.message}`, 'temporary file', error);
     }
 };
@@ -215,7 +213,7 @@ const cleanupTempFile = async (filePath: string): Promise<void> => {
     } catch (error: any) {
         // Only ignore ENOENT (file not found) errors, log others
         if (error.code !== 'ENOENT') {
-            logger.warn(`Failed to cleanup temp file ${filePath}: ${error.message}`);
+            logger.warn(`TEMP_FILE_CLEANUP_FAILED: Unable to cleanup temporary file | File: ${filePath} | Error: ${error.message} | Impact: File may remain`);
             // Don't throw here to avoid masking the main operation
         }
     }
@@ -480,7 +478,7 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
     }
 
     // Analyze review note for issues using OpenAI
-    logger.info('🤖 Analyzing review note for project issues...');
+    logger.info('REVIEW_ANALYSIS_STARTING: Analyzing review note for project issues | Source: review note | Purpose: Identify actionable issues');
     logger.debug('Context summary:');
     logger.debug('  - Review note: %d chars', reviewNote.length);
     logger.debug('  - Log context: %d chars', logContext.length);
@@ -530,11 +528,11 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
         analysisResult = validateReviewResult(rawResult);
 
     } catch (error: any) {
-        logger.error(`Failed to analyze review note: ${error.message}`);
+        logger.error(`REVIEW_ANALYSIS_FAILED: Unable to analyze review note | Error: ${error.message} | Impact: Cannot identify issues`);
         throw new Error(`Review analysis failed: ${error.message}`);
     }
 
-    logger.info('✅ Analysis completed');
+    logger.info('REVIEW_ANALYSIS_COMPLETE: Review note analysis completed successfully | Status: completed | Next: Issue creation if enabled');
     logger.debug('Analysis result summary: %s', analysisResult.summary);
     logger.debug('Total issues found: %d', analysisResult.totalIssues);
     logger.debug('Issues array length: %d', analysisResult.issues?.length || 0);

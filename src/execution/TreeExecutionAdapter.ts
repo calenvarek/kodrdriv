@@ -17,7 +17,7 @@ export type ExecutePackageFunction = (
     total: number,
     allPackageNames: Set<string>,
     isBuiltInCommand?: boolean
-) => Promise<{ success: boolean; error?: any; isTimeoutError?: boolean }>;
+) => Promise<{ success: boolean; error?: any; isTimeoutError?: boolean; skippedNoChanges?: boolean }>;
 
 /**
  * TreeExecutionAdapter bridges DynamicTaskPool with tree.ts executePackage
@@ -124,12 +124,12 @@ export function createParallelProgressLogger(pool: DynamicTaskPool, config: Conf
 
     pool.on('execution:started', ({ totalPackages: total }) => {
         totalPackages = total;
-        logger.info(`\n📦 Executing ${total} packages in parallel\n`);
+        logger.info(`\nPARALLEL_EXECUTION_STARTING: Initiating parallel package execution | Package Count: ${total} | Mode: parallel | Strategy: dependency-aware`);
     });
 
     pool.on('package:started', ({ packageName }) => {
         if (config.verbose || config.debug) {
-            logger.info(`▶️  Started: ${packageName}`);
+            logger.info(`PACKAGE_STARTED: Package execution initiated | Package: ${packageName} | Status: running`);
         }
     });
 
@@ -139,52 +139,52 @@ export function createParallelProgressLogger(pool: DynamicTaskPool, config: Conf
         const elapsed = Math.round((Date.now() - startTime) / 1000);
 
         if (config.debug) {
-            logger.info(`✅ Completed: ${packageName} (${result.duration}ms) [${completedCount}/${totalPackages} - ${percent}% - ${elapsed}s elapsed]`);
+            logger.info(`PACKAGE_COMPLETED: Package execution finished successfully | Package: ${packageName} | Duration: ${result.duration}ms | Progress: ${completedCount}/${totalPackages} (${percent}%) | Elapsed: ${elapsed}s`);
         } else if (config.verbose) {
-            logger.info(`✅ Completed: ${packageName} [${completedCount}/${totalPackages}]`);
+            logger.info(`PACKAGE_COMPLETED: Package execution finished | Package: ${packageName} | Progress: ${completedCount}/${totalPackages}`);
         } else {
             // Minimal output
-            logger.info(`[${completedCount}/${totalPackages}] ✅ ${packageName}`);
+            logger.info(`PROGRESS: [${completedCount}/${totalPackages}] Package completed: ${packageName}`);
         }
     });
 
     pool.on('package:failed', ({ packageName, error }) => {
-        logger.error(`❌ Failed: ${packageName} - ${error.message}`);
+        logger.error(`PACKAGE_FAILED: Package execution failed | Package: ${packageName} | Error: ${error.message} | Status: error`);
     });
 
     pool.on('package:retrying', ({ packageName, attemptNumber }) => {
-        logger.warn(`🔄 Retrying: ${packageName} (attempt ${attemptNumber})`);
+        logger.warn(`PACKAGE_RETRYING: Retrying package execution | Package: ${packageName} | Attempt: ${attemptNumber} | Status: retrying`);
     });
 
     pool.on('package:skipped', ({ packageName, reason }) => {
-        logger.warn(`⊘ Skipped: ${packageName} (${reason})`);
+        logger.warn(`PACKAGE_SKIPPED: Package skipped due to dependency failure | Package: ${packageName} | Reason: ${reason} | Status: skipped`);
     });
 
     pool.on('package:skipped-no-changes', ({ packageName }) => {
         if (config.verbose || config.debug) {
-            logger.info(`⊘ Skipped: ${packageName} (no code changes)`);
+            logger.info(`PACKAGE_SKIPPED_NO_CHANGES: Package skipped due to no code changes | Package: ${packageName} | Reason: no-code-changes | Status: skipped`);
         }
     });
 
     pool.on('checkpoint:saved', () => {
         if (config.debug) {
-            logger.debug('💾 Checkpoint saved');
+            logger.debug('CHECKPOINT_SAVED: Execution checkpoint saved | Purpose: Recovery support | Action: State persisted to disk');
         }
     });
 
     pool.on('execution:completed', ({ result }) => {
         const totalTime = Math.round((Date.now() - startTime) / 1000);
-        logger.info(`\n✨ Parallel execution completed in ${totalTime}s`);
+        logger.info(`\nPARALLEL_EXECUTION_COMPLETED: Parallel execution finished | Duration: ${totalTime}s | Status: completed`);
 
         if (config.verbose || config.debug) {
-            logger.info(`\nMetrics:`);
-            logger.info(`  Total packages: ${result.totalPackages}`);
-            logger.info(`  Completed: ${result.completed.length}`);
-            logger.info(`  Skipped (no changes): ${result.skippedNoChanges.length}`);
-            logger.info(`  Skipped (dependency failed): ${result.skipped.length}`);
-            logger.info(`  Failed: ${result.failed.length}`);
-            logger.info(`  Peak concurrency: ${result.metrics.peakConcurrency}`);
-            logger.info(`  Average concurrency: ${result.metrics.averageConcurrency.toFixed(1)}`);
+            logger.info(`\nEXECUTION_METRICS: Performance and execution statistics:`);
+            logger.info(`  METRIC_TOTAL_PACKAGES: ${result.totalPackages}`);
+            logger.info(`  METRIC_COMPLETED: ${result.completed.length} packages successfully completed`);
+            logger.info(`  METRIC_SKIPPED_NO_CHANGES: ${result.skippedNoChanges.length} packages skipped (no changes)`);
+            logger.info(`  METRIC_SKIPPED_DEPENDENCIES: ${result.skipped.length} packages skipped (dependency failures)`);
+            logger.info(`  METRIC_FAILED: ${result.failed.length} packages failed`);
+            logger.info(`  METRIC_PEAK_CONCURRENCY: ${result.metrics.peakConcurrency} packages running simultaneously`);
+            logger.info(`  METRIC_AVG_CONCURRENCY: ${result.metrics.averageConcurrency.toFixed(1)} average concurrent packages`);
         }
     });
 }

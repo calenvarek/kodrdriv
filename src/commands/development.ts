@@ -31,8 +31,8 @@ async function createRetroactiveTags(
     tagPrefix: string = 'working/'
 ): Promise<void> {
     logger.info('');
-    logger.info('🔍 Scanning git history for past release points to tag...');
-    logger.info('   (Looking for X.X.X-dev.0 version bump commits)');
+    logger.info('DEV_TAG_SCAN_STARTING: Scanning git history for past release points | Purpose: Create retroactive tags | Pattern: X.X.X-dev.0 version bumps');
+    logger.info('DEV_TAG_SCAN_PATTERN: Looking for development version bump commits | Version Format: X.X.X-dev.0 | Purpose: Identify release points');
     logger.info('');
 
     try {
@@ -46,7 +46,7 @@ async function createRetroactiveTags(
             return /\b\d+\.\d+\.\d+-dev\.0\b/.test(line);
         });
 
-        logger.info(`📊 Found ${devCommits.length} potential dev version commits`);
+        logger.info(`DEV_TAG_COMMITS_FOUND: Found potential development version commits | Count: ${devCommits.length} | Status: Analyzing for tag creation`);
 
         const tagsCreated: string[] = [];
         const tagsSkipped: string[] = [];
@@ -79,7 +79,7 @@ async function createRetroactiveTags(
                 await run(`git tag ${workingTagName} ${sha}`);
                 tagsCreated.push(workingTagName);
             } else {
-                logger.info(`   Would create: ${workingTagName} at ${sha.substring(0, 7)}`);
+                logger.info(`DEV_TAG_DRY_RUN: Would create retroactive tag | Mode: dry-run | Tag: ${workingTagName} | Commit: ${sha.substring(0, 7)}`);
                 tagsCreated.push(workingTagName);
             }
         }
@@ -87,14 +87,14 @@ async function createRetroactiveTags(
         logger.info('');
 
         if (tagsCreated.length > 0 && !isDryRun) {
-            logger.info(`📤 Pushing ${tagsCreated.length} new retroactive tags to origin...`);
+            logger.info(`DEV_TAG_PUSHING: Pushing retroactive tags to remote | Count: ${tagsCreated.length} | Remote: origin | Command: git push origin --tags`);
             await run('git push origin --tags');
             logger.info('');
-            logger.info(`✅ Created and pushed ${tagsCreated.length} retroactive tags:`);
-            tagsCreated.forEach(tag => logger.info(`   - ${tag}`));
+            logger.info(`DEV_TAG_PUSH_SUCCESS: Successfully created and pushed retroactive tags | Count: ${tagsCreated.length} | Remote: origin | Status: completed`);
+            tagsCreated.forEach(tag => logger.info(`DEV_TAG_CREATED: Retroactive tag created | Tag: ${tag} | Status: pushed`));
         } else if (tagsCreated.length > 0 && isDryRun) {
-            logger.info(`Would create and push ${tagsCreated.length} retroactive tags:`);
-            tagsCreated.forEach(tag => logger.info(`   - ${tag}`));
+            logger.info(`DEV_TAG_DRY_RUN_SUMMARY: Would create and push retroactive tags | Mode: dry-run | Count: ${tagsCreated.length}`);
+            tagsCreated.forEach(tag => logger.info(`DEV_TAG_DRY_RUN_TAG: Would create tag | Tag: ${tag} | Mode: dry-run`));
         }
 
         if (tagsSkipped.length > 0) {
@@ -104,14 +104,14 @@ async function createRetroactiveTags(
         }
 
         if (tagsCreated.length === 0 && tagsSkipped.length === 0) {
-            logger.info('ℹ️  No dev version commits found in history');
+            logger.info('DEV_TAG_NO_COMMITS: No development version commits found in history | Pattern: X.X.X-dev.0 | Status: Nothing to tag | Action: No retroactive tags created');
         }
 
         logger.info('');
 
     } catch (error: any) {
-        logger.warn(`⚠️  Could not create retroactive tags: ${error.message}`);
-        logger.warn('   You can tag past releases manually if needed');
+        logger.warn(`DEV_TAG_CREATION_FAILED: Unable to create retroactive tags | Error: ${error.message} | Impact: Past releases not tagged | Alternative: Manual tagging available`);
+        logger.warn('DEV_TAG_MANUAL_OPTION: Manual tagging option available | Action: Use git tag manually for past releases | Purpose: Tag historical releases');
         // Don't throw - retroactive tagging is optional
     }
 }
@@ -123,12 +123,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
 
-    logger.info('🔄 Navigating to working branch for active development...');
+    logger.info('DEV_BRANCH_NAVIGATION: Navigating to working branch for development | Purpose: Start development cycle | Next: Version bump and sync');
 
     try {
         // Get current branch
         const currentBranch = isDryRun ? 'mock-branch' : await getCurrentBranch();
-        logger.info(`📍 Currently on branch: ${currentBranch}`);
+        logger.info(`DEV_CURRENT_BRANCH: Current branch identified | Branch: ${currentBranch} | Action: Determine working branch`);
 
         // Find the working/development branch from configuration
         let workingBranch = 'working'; // Default fallback
@@ -137,12 +137,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
             const configuredDevBranch = findDevelopmentBranch(runConfig.branches);
             if (configuredDevBranch) {
                 workingBranch = configuredDevBranch;
-                logger.info(`🎯 Found configured working branch: ${workingBranch}`);
+                logger.info(`DEV_WORKING_BRANCH_CONFIGURED: Using configured working branch | Branch: ${workingBranch} | Source: config | Current: ${currentBranch}`);
             } else {
-                logger.info(`🎯 No working branch configured, using default: ${workingBranch}`);
+                logger.info(`DEV_WORKING_BRANCH_DEFAULT: No working branch configured | Branch: ${workingBranch} | Source: default | Current: ${currentBranch}`);
             }
         } else {
-            logger.info(`🎯 No branch configuration found, using default working branch: ${workingBranch}`);
+            logger.info(`DEV_WORKING_BRANCH_NO_CONFIG: No branch configuration found | Branch: ${workingBranch} | Source: default | Current: ${currentBranch}`);
         }
 
         // Track what actions are taken to determine the appropriate return message
@@ -178,26 +178,26 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
         }
 
-        logger.info(`🏷️ Using prerelease tag: ${prereleaseTag}`);
-        logger.info(`📈 Using increment level: ${incrementLevel}`);
+        logger.info(`DEV_VERSION_CONFIG: Development version configuration | Prerelease Tag: ${prereleaseTag} | Increment Level: ${incrementLevel}`);
+        logger.info(`DEV_VERSION_STRATEGY: Version increment strategy | Level: ${incrementLevel} | Tag: ${prereleaseTag} | Purpose: Development version management`);
 
         // Step 1: Fetch latest remote information
         if (!isDryRun) {
-            logger.info('📡 Fetching latest remote information...');
+            logger.info('DEV_GIT_FETCH: Fetching latest remote information | Remote: origin | Purpose: Ensure sync before branch operations');
             try {
                 await run('git fetch origin');
-                logger.info('✅ Fetched latest remote information');
+                logger.info('DEV_GIT_FETCH_SUCCESS: Successfully fetched remote information | Remote: origin | Status: up-to-date');
             } catch (error: any) {
-                logger.warn(`⚠️ Could not fetch from remote: ${error.message}`);
+                logger.warn(`DEV_GIT_FETCH_FAILED: Unable to fetch remote | Remote: origin | Error: ${error.message} | Impact: May have stale branch info`);
             }
         } else {
-            logger.info('Would fetch latest remote information');
+            logger.info('DEV_GIT_FETCH_DRY_RUN: Would fetch latest remote information | Mode: dry-run | Remote: origin');
         }
 
         // Special case: If currently on development branch, merge development into working
         if (currentBranch === 'development') {
             if (!isDryRun) {
-                logger.info('🔄 Currently on development branch, merging into working...');
+                logger.info('DEV_MERGE_STARTING: Currently on development branch, merging into working | Source: development | Target: working | Purpose: Sync branches before development');
                 await run(`git checkout ${workingBranch}`);
                 await run(`git merge development --no-ff -m "Merge development into working for continued development"`);
                 await run('npm install');
@@ -212,7 +212,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 // Stay on working branch for development (removed checkout development)
                 mergedDevelopmentIntoWorking = true;
             } else {
-                logger.info('Would merge development into working and stay on working branch');
+                logger.info('DEV_MERGE_DRY_RUN: Would merge development into working | Mode: dry-run | Source: development | Target: working');
                 mergedDevelopmentIntoWorking = true;
             }
         }
@@ -221,17 +221,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
         if (!isDryRun && !mergedDevelopmentIntoWorking) {
             const workingBranchExists = await localBranchExists(workingBranch);
             if (!workingBranchExists) {
-                logger.info(`🌟 Working branch '${workingBranch}' doesn't exist, creating it...`);
+                logger.info(`DEV_BRANCH_CREATING: Working branch does not exist, creating now | Branch: ${workingBranch} | Action: Create and checkout | Source: current HEAD`);
                 await run(`git checkout -b ${workingBranch}`);
-                logger.info(`✅ Created and switched to ${workingBranch}`);
+                logger.info(`DEV_BRANCH_CREATED: Successfully created and switched to branch | Branch: ${workingBranch} | Status: checked-out`);
                 branchCreated = true;
             } else if (currentBranch !== workingBranch) {
-                logger.info(`🔄 Switching to ${workingBranch}...`);
+                logger.info(`DEV_BRANCH_SWITCHING: Switching to working branch | Branch: ${workingBranch} | Action: checkout | Previous: ${currentBranch}`);
                 await run(`git checkout ${workingBranch}`);
-                logger.info(`✅ Switched to ${workingBranch}`);
+                logger.info(`DEV_BRANCH_SWITCHED: Successfully switched to branch | Branch: ${workingBranch} | Status: checked-out`);
                 branchUpdated = true;
             } else {
-                logger.info(`✅ Already on working branch: ${workingBranch}`);
+                logger.info(`DEV_BRANCH_CURRENT: Already on working branch | Branch: ${workingBranch} | Status: no-switch-needed`);
                 alreadyOnBranch = true;
             }
         } else if (!mergedDevelopmentIntoWorking) {
@@ -244,35 +244,35 @@ export const execute = async (runConfig: Config): Promise<string> => {
             } else {
                 alreadyOnBranch = true;
             }
-            logger.info(`Would switch to ${workingBranch} branch (creating if needed)`);
-            logger.info(`Would sync ${workingBranch} with remote to avoid conflicts`);
+            logger.info(`DEV_BRANCH_DRY_RUN: Would switch to working branch | Mode: dry-run | Branch: ${workingBranch} | Action: Create if needed`);
+            logger.info(`DEV_SYNC_DRY_RUN: Would sync branch with remote | Mode: dry-run | Branch: ${workingBranch} | Purpose: Avoid conflicts`);
         }
 
         // Step 2.1: Sync with remote working branch to avoid conflicts
         if (!isDryRun) {
             try {
-                logger.info(`🔄 Syncing ${workingBranch} with remote to avoid conflicts...`);
+                logger.info(`DEV_BRANCH_SYNCING: Synchronizing working branch with remote | Branch: ${workingBranch} | Remote: origin/${workingBranch} | Purpose: Avoid conflicts`);
                 const remoteExists = await run(`git ls-remote --exit-code --heads origin ${workingBranch}`).then(() => true).catch(() => false);
 
                 if (remoteExists) {
                     // Use explicit fetch+merge instead of pull to avoid git config conflicts
                     await run(`git fetch origin ${workingBranch}`);
                     await run(`git merge origin/${workingBranch} --no-ff --no-edit`);
-                    logger.info(`✅ Synced ${workingBranch} with remote`);
+                    logger.info(`DEV_BRANCH_SYNCED: Successfully synchronized with remote | Branch: ${workingBranch} | Remote: origin/${workingBranch} | Status: in-sync`);
                 } else {
-                    logger.info(`ℹ️ No remote ${workingBranch} branch found, will be created on first push`);
+                    logger.info(`DEV_REMOTE_BRANCH_NOT_FOUND: No remote branch exists | Branch: ${workingBranch} | Remote: origin | Action: Will be created on first push`);
                 }
             } catch (error: any) {
                 if (error.message && error.message.includes('CONFLICT')) {
-                    logger.error(`❌ Merge conflicts detected when syncing ${workingBranch} with remote`);
-                    logger.error(`   Please resolve the conflicts manually and then run:`);
-                    logger.error(`   1. Resolve conflicts in the files`);
-                    logger.error(`   2. git add <resolved-files>`);
-                    logger.error(`   3. git commit`);
-                    logger.error(`   4. kodrdriv development (to continue)`);
+                    logger.error(`DEV_MERGE_CONFLICTS: Merge conflicts detected when syncing with remote | Branch: ${workingBranch} | Remote: origin | Status: conflicts-detected`);
+                    logger.error(`DEV_CONFLICT_RESOLUTION: Manual conflict resolution required:`);
+                    logger.error(`   Step 1: Resolve conflicts in the files`);
+                    logger.error(`   Step 2: Stage resolved files | Command: git add <resolved-files>`);
+                    logger.error(`   Step 3: Complete merge | Command: git commit`);
+                    logger.error(`   Step 4: Resume development | Command: kodrdriv development`);
                     throw new Error(`Merge conflicts detected when syncing ${workingBranch} with remote. Please resolve conflicts manually.`);
                 } else {
-                    logger.warn(`⚠️ Could not sync with remote ${workingBranch}: ${error.message}`);
+                    logger.warn(`DEV_SYNC_FAILED: Could not sync with remote | Branch: ${workingBranch} | Remote: origin | Error: ${error.message}`);
                 }
             }
         }
@@ -285,50 +285,50 @@ export const execute = async (runConfig: Config): Promise<string> => {
             const targetBranchExists = await localBranchExists(targetBranch);
 
             if (targetBranchExists) {
-                logger.info(`🔄 Syncing ${workingBranch} with target branch '${targetBranch}'...`);
+                logger.info(`DEV_TARGET_SYNC: Syncing working branch with target branch | Working: ${workingBranch} | Target: ${targetBranch} | Strategy: fast-forward`);
                 try {
                     await run(`git merge ${targetBranch} --ff-only`);
-                    logger.info(`✅ Fast-forward merged ${targetBranch} into ${workingBranch}`);
+                    logger.info(`DEV_TARGET_MERGED_FF: Fast-forward merged target into working | Target: ${targetBranch} | Working: ${workingBranch} | Status: merged`);
                 } catch (error: any) {
                     // Fast-forward failed, might need regular merge
                     if (error.message && error.message.includes('Not possible to fast-forward')) {
-                        logger.warn(`⚠️  Cannot fast-forward ${targetBranch} into ${workingBranch}`);
-                        logger.info(`   Attempting regular merge...`);
+                        logger.warn(`DEV_NO_FAST_FORWARD: Cannot fast-forward merge | Target: ${targetBranch} | Working: ${workingBranch} | Reason: Divergent history`);
+                        logger.info(`DEV_REGULAR_MERGE_ATTEMPTING: Attempting regular merge | Strategy: no-ff | Purpose: Sync branches`);
                         try {
                             await run(`git merge ${targetBranch} --no-ff -m "Merge ${targetBranch} into ${workingBranch} for sync"`);
-                            logger.info(`✅ Merged ${targetBranch} into ${workingBranch}`);
+                            logger.info(`DEV_TARGET_MERGED: Merged target into working | Target: ${targetBranch} | Working: ${workingBranch} | Status: merged`);
 
                             // Run npm install after merge
-                            logger.info('📦 Running npm install after merge...');
+                            logger.info('DEV_POST_MERGE_INSTALL: Running npm install after merge | Command: npm install | Purpose: Update dependencies');
                             await run('npm install');
 
                             // Check if npm install created changes
                             const gitStatus = await run('git status --porcelain');
                             if (gitStatus.stdout.trim()) {
-                                logger.info('📝 Committing changes from npm install...');
+                                logger.info('DEV_POST_MERGE_COMMIT: Committing changes from npm install | Files: package-lock.json | Purpose: Finalize merge');
                                 await run('git add -A');
                                 await run('git commit -m "chore: update package-lock.json after merge"');
                             }
                         } catch (mergeError: any) {
                             if (mergeError.message && mergeError.message.includes('CONFLICT')) {
-                                logger.error(`❌ Merge conflicts detected when merging ${targetBranch} into ${workingBranch}`);
-                                logger.error(`   Please resolve the conflicts manually and then run:`);
-                                logger.error(`   1. Resolve conflicts in the files`);
-                                logger.error(`   2. git add <resolved-files>`);
-                                logger.error(`   3. git commit`);
-                                logger.error(`   4. npm install`);
-                                logger.error(`   5. kodrdriv development (to continue)`);
+                                logger.error(`DEV_MERGE_CONFLICTS: Merge conflicts detected | Target: ${targetBranch} | Working: ${workingBranch} | Status: conflicts-detected`);
+                                logger.error(`DEV_CONFLICT_RESOLUTION: Manual conflict resolution required:`);
+                                logger.error(`   Step 1: Resolve conflicts in the files`);
+                                logger.error(`   Step 2: Stage resolved files | Command: git add <resolved-files>`);
+                                logger.error(`   Step 3: Complete merge | Command: git commit`);
+                                logger.error(`   Step 4: Update dependencies | Command: npm install`);
+                                logger.error(`   Step 5: Resume development | Command: kodrdriv development`);
                                 throw new Error(`Merge conflicts detected when merging ${targetBranch} into ${workingBranch}. Please resolve conflicts manually.`);
                             } else {
                                 throw mergeError;
                             }
                         }
                     } else {
-                        logger.warn(`⚠️  Could not merge ${targetBranch} into ${workingBranch}: ${error.message}`);
+                        logger.warn(`DEV_TARGET_MERGE_FAILED: Could not merge target into working | Target: ${targetBranch} | Working: ${workingBranch} | Error: ${error.message}`);
                     }
                 }
             } else {
-                logger.info(`ℹ️ Target branch '${targetBranch}' does not exist, skipping target sync`);
+                logger.info(`DEV_TARGET_NOT_EXISTS: Target branch does not exist | Branch: ${targetBranch} | Action: Skipping target sync | Status: no-target-branch`);
             }
         } else {
             logger.info('Would sync working branch with target branch (main) if it exists');
@@ -338,49 +338,49 @@ export const execute = async (runConfig: Config): Promise<string> => {
         if (!isDryRun) {
             const developmentBranchExists = await localBranchExists('development');
             if (developmentBranchExists) {
-                logger.info('🔄 Merging latest changes from development branch...');
+                logger.info('DEV_DEVELOPMENT_MERGE: Merging latest changes from development branch | Source: development | Target: ' + workingBranch + ' | Purpose: Sync development changes');
 
                 try {
                     await run(`git merge development --no-ff -m "Merge latest development changes into ${workingBranch}"`);
-                    logger.info('✅ Successfully merged development changes');
+                    logger.info('DEV_DEVELOPMENT_MERGED: Successfully merged development changes | Source: development | Target: ' + workingBranch + ' | Status: merged');
 
                     // Run npm install after merge to update dependencies
-                    logger.info('📦 Running npm install after merge...');
+                    logger.info('DEV_DEVELOPMENT_INSTALL: Running npm install after merge | Command: npm install | Purpose: Update dependencies');
                     await run('npm install');
 
                     // Check if npm install created any changes (e.g., package-lock.json)
                     const gitStatus = await run('git status --porcelain');
                     if (gitStatus.stdout.trim()) {
-                        logger.info('📝 Committing changes from npm install...');
+                        logger.info('DEV_POST_MERGE_COMMIT: Committing changes from npm install | Files: package-lock.json | Purpose: Finalize merge');
                         await run('git add -A');
                         await run(`git commit -m "chore: update package-lock.json after merge"`);
-                        logger.info('✅ Changes committed');
+                        logger.info('DEV_CHANGES_COMMITTED: Changes committed successfully | Files: package-lock.json | Status: committed');
                     }
 
                 } catch (error: any) {
                     if (error.message && error.message.includes('CONFLICT')) {
-                        logger.error(`❌ Merge conflicts detected when merging development into ${workingBranch}`);
-                        logger.error(`   Please resolve the conflicts manually and then run:`);
-                        logger.error(`   1. Resolve conflicts in the files`);
-                        logger.error(`   2. git add <resolved-files>`);
-                        logger.error(`   3. git commit`);
-                        logger.error(`   4. npm install`);
-                        logger.error(`   5. npm version pre${incrementLevel} --preid=${prereleaseTag}`);
+                        logger.error(`DEV_DEV_MERGE_CONFLICTS: Merge conflicts detected | Source: development | Target: ${workingBranch} | Status: conflicts-detected`);
+                        logger.error(`DEV_DEV_CONFLICT_RESOLUTION: Manual conflict resolution required:`);
+                        logger.error(`   Step 1: Resolve conflicts in the files`);
+                        logger.error(`   Step 2: Stage resolved files | Command: git add <resolved-files>`);
+                        logger.error(`   Step 3: Complete merge | Command: git commit`);
+                        logger.error(`   Step 4: Update dependencies | Command: npm install`);
+                        logger.error(`   Step 5: Bump version | Command: npm version pre${incrementLevel} --preid=${prereleaseTag}`);
                         throw new Error(`Merge conflicts detected when merging development into ${workingBranch}. Please resolve conflicts manually.`);
                     } else {
-                        logger.error(`❌ Failed to merge development into ${workingBranch}: ${error.message}`);
+                        logger.error(`DEV_DEV_MERGE_FAILED: Failed to merge development branch | Source: development | Target: ${workingBranch} | Error: ${error.message}`);
                         throw error;
                     }
                 }
             } else if (!developmentBranchExists) {
-                logger.info('ℹ️ Development branch does not exist, skipping merge step');
+                logger.info('DEV_NO_DEV_BRANCH: Development branch does not exist | Branch: development | Action: Skipping merge step | Status: not-found');
             } else {
-                logger.info('ℹ️ Already merged from development (was on development branch)');
+                logger.info('DEV_ALREADY_MERGED: Already merged from development | Reason: Was on development branch | Action: Skipping');
             }
         } else {
-            logger.info('Would merge latest changes from development branch if it exists');
-            logger.info('Would run npm install after merge');
-            logger.info('Would commit any changes from npm install (e.g., package-lock.json)');
+            logger.info('DEV_DEV_MERGE_DRY_RUN: Would merge development if exists | Mode: dry-run | Source: development | Target: working');
+            logger.info('DEV_INSTALL_DRY_RUN: Would run npm install after merge | Mode: dry-run | Command: npm install');
+            logger.info('DEV_COMMIT_DRY_RUN: Would commit npm install changes | Mode: dry-run | Files: package-lock.json');
         }
 
         // Step 4.5: Create retroactive tags if requested (one-time operation)
@@ -399,7 +399,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
                 // If current version already has the dev tag, we're done
                 if (currentVersion.includes(`-${prereleaseTag}.`)) {
-                    logger.info(`✅ Already on working branch with development version ${currentVersion}`);
+                    logger.info(`DEV_ALREADY_DEV_VERSION: Already on working branch with development version | Branch: ${workingBranch} | Version: ${currentVersion} | Status: no-bump-needed`);
                     return 'Already on working branch with development version';
                 }
             } catch {
@@ -426,7 +426,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     const workingTagName = `${tagPrefix}v${currentVersion}`;
 
                     if (!isDryRun) {
-                        logger.info(`🏷️  Current version is ${currentVersion} (release version)`);
+                        logger.info(`DEV_TAG_RELEASE_VERSION: Current version is release version | Version: ${currentVersion} | Type: release | Action: Will tag before bump`);
                         logger.verbose(`Checking if tag ${workingTagName} exists...`);
 
                         // Check if tag already exists
@@ -434,7 +434,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                         const tagExists = tagExistsResult.stdout.trim() !== '';
 
                         if (tagExists) {
-                            logger.info(`ℹ️  Tag ${workingTagName} already exists, skipping tag creation`);
+                            logger.info(`DEV_TAG_EXISTS: Tag already exists | Tag: ${workingTagName} | Action: Skipping tag creation | Status: already-tagged`);
                         } else {
                             // Create tag on current commit (working branch at release version)
                             logger.verbose(`Creating tag ${workingTagName} at current HEAD...`);
@@ -444,12 +444,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
                             logger.verbose(`Pushing tag ${workingTagName} to origin...`);
                             await run(`git push origin ${workingTagName}`);
 
-                            logger.info(`✅ Tagged working branch: ${workingTagName}`);
-                            logger.info(`   📝 Release notes for v${currentVersion} can be generated from:`);
-                            logger.info(`      kodrdriv release --from {previous-tag} --to ${workingTagName}`);
+                            logger.info(`DEV_TAG_CREATED: Tagged working branch | Tag: ${workingTagName} | Version: ${currentVersion} | Status: tagged-and-pushed`);
+                            logger.info(`DEV_TAG_RELEASE_NOTES_HINT: Release notes can be generated | Version: v${currentVersion} | Command: kodrdriv release --from {previous-tag} --to ${workingTagName}`);
                         }
                     } else {
-                        logger.info(`Would tag working branch with ${workingTagName} (current version: ${currentVersion})`);
+                        logger.info(`DEV_TAG_DRY_RUN: Would tag working branch | Mode: dry-run | Tag: ${workingTagName} | Version: ${currentVersion}`);
                     }
                 } else if (currentVersion) {
                     logger.verbose(`Current version is ${currentVersion} (prerelease), skipping tag creation`);
@@ -458,8 +457,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             } catch (error: any) {
                 if (!isDryRun) {
-                    logger.warn(`⚠️  Could not tag working branch: ${error.message}`);
-                    logger.warn('   This is not critical - you can tag manually later');
+                    logger.warn(`DEV_TAG_FAILED: Could not tag working branch | Error: ${error.message} | Impact: Not critical | Alternative: Manual tagging`);
+                    logger.warn('DEV_TAG_MANUAL: Manual tagging option available | Action: Tag manually later | Purpose: Mark release point');
                 } else {
                     logger.info('Would tag working branch with current release version if applicable');
                 }
@@ -473,12 +472,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
         let versionCommand: string;
         if (['patch', 'minor', 'major'].includes(incrementLevel)) {
             versionCommand = `pre${incrementLevel}`;
-            logger.info(`🚀 Bumping ${incrementLevel} version with prerelease tag '${prereleaseTag}'...`);
+            logger.info(`DEV_VERSION_BUMPING: Bumping version with prerelease tag | Level: ${incrementLevel} | Tag: ${prereleaseTag} | Command: npm version`);
         } else {
             // Explicit version like "3.5.0"
             const cleanVersion = incrementLevel.replace(/^v/, '');
             versionCommand = `${cleanVersion}-${prereleaseTag}.0`;
-            logger.info(`🚀 Setting explicit version ${versionCommand}...`);
+            logger.info(`DEV_VERSION_EXPLICIT: Setting explicit version | Version: ${versionCommand} | Type: explicit`);
         }
 
         if (!isDryRun) {
@@ -487,7 +486,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     ? await run(`npm version ${versionCommand} --preid=${prereleaseTag}`)
                     : await run(`npm version ${versionCommand}`);
                 const newVersion = versionResult.stdout.trim();
-                logger.info(`✅ Version bumped to: ${newVersion}`);
+                logger.info(`DEV_VERSION_BUMPED: Version bumped successfully | New Version: ${newVersion} | Status: completed`);
 
                 // Return appropriate message based on what actions were taken
                 if (mergedDevelopmentIntoWorking) {
@@ -502,7 +501,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     return `Ready for development on ${workingBranch} with version ${newVersion}`;
                 }
             } catch (error: any) {
-                logger.error(`❌ Failed to bump version: ${error.message}`);
+                logger.error(`DEV_VERSION_BUMP_FAILED: Failed to bump version | Error: ${error.message} | Impact: Version not updated`);
                 throw new Error(`Failed to bump ${incrementLevel} version: ${error.message}`);
             }
         } else {

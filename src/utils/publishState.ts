@@ -60,7 +60,7 @@ export async function loadPublishState(cwd: string = process.cwd()): Promise<Pub
             logger.verbose(`No publish state found at ${statePath}`);
             return null;
         }
-        logger.warn(`Failed to load publish state: ${error.message}`);
+        logger.warn(`PUBLISH_STATE_LOAD_FAILED: Failed to load publish state | Error: ${error.message} | Impact: State not restored`);
         return null;
     }
 }
@@ -77,7 +77,7 @@ export async function savePublishState(state: PublishState, cwd: string = proces
         await fs.writeFile(statePath, JSON.stringify(state, null, 2), 'utf-8');
         logger.verbose(`Saved publish state to ${statePath}`);
     } catch (error: any) {
-        logger.warn(`Failed to save publish state: ${error.message}`);
+        logger.warn(`PUBLISH_STATE_SAVE_FAILED: Failed to save publish state | Error: ${error.message} | Impact: State not persisted`);
     }
 }
 
@@ -142,7 +142,7 @@ export async function clearPublishState(cwd: string = process.cwd()): Promise<vo
         logger.verbose(`Cleared publish state from ${statePath}`);
     } catch (error: any) {
         if (error.code !== 'ENOENT') {
-            logger.warn(`Failed to clear publish state: ${error.message}`);
+            logger.warn(`PUBLISH_STATE_CLEAR_FAILED: Failed to clear publish state | Error: ${error.message} | Impact: State may persist`);
         }
     }
 }

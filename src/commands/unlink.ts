@@ -90,7 +90,7 @@ export const findLinkedDependencies = async (
             }
         }
     } catch (error: any) {
-        logger.warn(`Failed to check linked dependencies in ${packageName}: ${error.message}`);
+        logger.warn(`UNLINK_CHECK_FAILED: Unable to check linked dependencies | Package: ${packageName} | Error: ${error.message}`);
     }
 
     return linkedDependencies;
@@ -149,7 +149,7 @@ export const removeSymbolicLink = async (
             }
         }
     } catch (error: any) {
-        logger.warn(`Failed to remove symlink for ${packageName}: ${error.message}`);
+        logger.warn(`UNLINK_SYMLINK_REMOVE_FAILED: Unable to remove symlink | Package: ${packageName} | Error: ${error.message}`);
         return false;
     }
 };
@@ -275,14 +275,14 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
     const targetDirectories = runConfig.tree?.directories || [process.cwd()];
 
     if (targetDirectories.length === 1) {
-        logger.info(`Analyzing workspace at: ${targetDirectories[0]}`);
+        logger.info(`UNLINK_WORKSPACE_ANALYSIS: Analyzing single workspace directory | Path: ${targetDirectories[0]} | Purpose: Find packages to unlink`);
     } else {
-        logger.info(`Analyzing workspaces at: ${targetDirectories.join(', ')}`);
+        logger.info(`UNLINK_WORKSPACE_ANALYSIS: Analyzing multiple workspace directories | Paths: ${targetDirectories.join(', ')} | Count: ${targetDirectories.length} | Purpose: Find packages to unlink`);
     }
 
     // If no package argument provided, implement new behavior for current project
     if (!packageArgument) {
-        logger.info('🔓 Unlinking current project...');
+        logger.info('UNLINK_SMART_MODE: Smart unlinking mode activated for current project | Mode: smart | Target: current directory | Purpose: Auto-unlink based on scope');
 
         const currentDir = process.cwd();
         const packageJsonPath = `${currentDir}/package.json`;
@@ -290,7 +290,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
         // Check if we're in a directory with package.json
         if (!(await storage.exists(packageJsonPath))) {
             const message = `No package.json found in current directory: ${currentDir}`;
-            logger.warn(message);
+            logger.warn('UNLINK_NO_PACKAGE_JSON: No package.json found in current directory | Directory: ' + currentDir + ' | Action: Cannot unlink without package.json');
             return message;
         }
 
@@ -307,18 +307,18 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             packageName = packageJson.name;
         } catch (error: any) {
             const message = `Failed to parse package.json: ${error.message}`;
-            logger.error(message);
+            logger.error('UNLINK_PACKAGE_NAME_MISSING: package.json must have a name field | Field: name | Requirement: Required for unlinking | Action: Add name field to package.json');
             return message;
         }
 
-        logger.info(`Processing package: ${packageName}`);
+        logger.info(`UNLINK_PACKAGE_PROCESSING: Processing package for unlinking | Package: ${packageName} | Action: Remove symlinks and restore registry versions`);
 
         const cleanNodeModules = runConfig.unlink?.cleanNodeModules || false;
         const externalUnlinkPatterns = runConfig.unlink?.externals || [];
 
         // Step 0: Handle external dependencies if patterns are specified
         if (externalUnlinkPatterns.length > 0) {
-            logger.info(`Step 0: Processing external dependencies matching patterns: ${externalUnlinkPatterns.join(', ')}`);
+            logger.info(`UNLINK_EXTERNAL_DEPS: Processing external dependencies | Patterns: ${externalUnlinkPatterns.join(', ')} | Purpose: Unlink external packages before main package`);
 
             // Read package.json to get dependencies
             const packageJsonContent = await storage.readFile(packageJsonPath, 'utf-8');
@@ -335,22 +335,22 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             );
 
             if (externalDependencies.length > 0) {
-                logger.info(`Found ${externalDependencies.length} external dependencies to unlink: ${externalDependencies.join(', ')}`);
+                logger.info(`UNLINK_EXTERNAL_FOUND: Found external dependencies to unlink | Count: ${externalDependencies.length} | Dependencies: ${externalDependencies.join(', ')}`);
 
                 for (const depName of externalDependencies) {
                     try {
                         const success = await removeSymbolicLink(depName, currentDir, logger, isDryRun);
                         if (success) {
-                            logger.info(`✅ Unlinked external dependency: ${depName}`);
+                            logger.info(`UNLINK_EXTERNAL_SUCCESS: External dependency unlinked successfully | Dependency: ${depName} | Status: unlinked`);
                         } else {
-                            logger.warn(`⚠️ Failed to unlink external dependency: ${depName}`);
+                            logger.warn(`UNLINK_EXTERNAL_FAILED: Failed to unlink external dependency | Dependency: ${depName} | Status: failed`);
                         }
                     } catch (error: any) {
-                        logger.warn(`⚠️ Error unlinking external dependency ${depName}: ${error.message}`);
+                        logger.warn(`UNLINK_EXTERNAL_ERROR: Error during external dependency unlink | Dependency: ${depName} | Error: ${error.message}`);
                     }
                 }
             } else {
-                logger.info('No external dependencies found matching the specified patterns');
+                logger.info('UNLINK_EXTERNAL_NONE: No external dependencies found matching patterns | Patterns: ' + externalUnlinkPatterns.join(', ') + ' | Action: Skipping external unlink');
             }
         }
 
@@ -374,40 +374,40 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
         }
 
         // Step 1: Remove global link
-        logger.info('Step 1: Removing global link...');
+        logger.info('UNLINK_GLOBAL_REMOVING: Removing global npm link | Step: 1 | Command: npm unlink -g | Purpose: Remove package from global npm');
         try {
             await run('npm unlink -g');
-            logger.info('✅ Global link removed');
+            logger.info('UNLINK_GLOBAL_SUCCESS: Global link removed successfully | Status: unlinked | Location: global npm');
         } catch (error: any) {
             // This might fail if the package wasn't globally linked, which is OK
-            logger.warn(`⚠️ Failed to remove global link (this is OK if package wasn't linked): ${error.message}`);
+            logger.warn(`UNLINK_GLOBAL_SKIP: Failed to remove global link | Error: ${error.message} | Impact: OK if package wasn't linked | Status: continuing`);
         }
 
         if (cleanNodeModules) {
             // Step 2: Clean node_modules and package-lock.json
-            logger.info('Step 2: Cleaning node_modules and package-lock.json...');
+            logger.info('UNLINK_CLEANING: Cleaning node_modules and package-lock.json | Command: rm -rf | Purpose: Remove symlinked dependencies');
             try {
                 await run('rm -rf node_modules package-lock.json');
-                logger.info('✅ Cleaned node_modules and package-lock.json');
+                logger.info('UNLINK_CLEAN_SUCCESS: Successfully cleaned node_modules and package-lock.json | Status: removed | Next: Fresh install');
             } catch (error: any) {
-                logger.warn(`⚠️ Failed to clean node_modules/package-lock.json: ${error.message}`);
+                logger.warn(`UNLINK_CLEAN_FAILED: Failed to clean directories | Error: ${error.message} | Impact: May need manual cleanup`);
             }
 
             // Step 3: Install dependencies
-            logger.info('Step 3: Installing dependencies...');
+            logger.info('UNLINK_INSTALLING: Installing dependencies from registry | Command: npm install | Purpose: Restore registry versions');
             try {
                 await run('npm install');
-                logger.info('✅ Dependencies installed');
+                logger.info('UNLINK_INSTALL_SUCCESS: Dependencies installed successfully | Source: npm registry | Status: completed');
             } catch (error: any) {
-                logger.error(`❌ Failed to install dependencies: ${error.message}`);
+                logger.error(`UNLINK_INSTALL_FAILED: Failed to install dependencies | Error: ${error.message} | Impact: Package may be in inconsistent state`);
                 throw error;
             }
 
             // Step 4: Check for remaining links (suppress output and errors)
-            logger.info('Step 4: Checking for remaining links...');
+            logger.info('UNLINK_CHECK_REMAINING: Checking for remaining symlinks | Purpose: Verify clean unlink | Action: Scan node_modules');
         } else {
             // Step 2: Check for remaining links (suppress output and errors)
-            logger.info('Step 2: Checking for remaining links...');
+            logger.info('UNLINK_CHECK_REMAINING: Checking for remaining symlinks | Mode: skip-reinstall | Purpose: Verify unlink | Action: Scan node_modules');
             logger.info('Note: Use --clean-node-modules flag to also clean and reinstall dependencies');
         }
 
@@ -429,23 +429,23 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                     const scopeLinkedPackages = linkedPackages.filter(pkg => pkg.startsWith(packageScope + '/'));
 
                     if (scopeLinkedPackages.length > 0) {
-                        logger.warn(`⚠️ Found remaining links to packages in scope ${packageScope}: ${scopeLinkedPackages.join(', ')}`);
-                        logger.verbose('This may be expected if other packages in your workspace are still linked');
+                        logger.warn(`UNLINK_REMAINING_LINKS: Found remaining links to packages in scope | Scope: ${packageScope} | Packages: ${scopeLinkedPackages.join(', ')} | Note: May be expected if workspace packages linked`);
+                        logger.verbose('UNLINK_REMAINING_NOTE: Remaining links may be expected | Reason: Other workspace packages still linked | Status: normal');
                     } else {
-                        logger.info('✅ No problematic links found');
+                        logger.info('UNLINK_VERIFY_CLEAN: No problematic links found | Status: clean | Verification: passed');
                     }
                 } catch {
                     // If JSON parsing fails, fall back to basic check
                     logger.verbose('Failed to parse npm ls --link --json output, using basic check');
                     if (result.stdout.includes(packageScope)) {
-                        logger.warn(`⚠️ Found remaining links to packages in scope ${packageScope}`);
-                        logger.verbose('This may be expected if other packages in your workspace are still linked');
+                        logger.warn(`UNLINK_REMAINING_LINKS_BASIC: Found remaining links to scope | Scope: ${packageScope} | Check: basic | Note: May be expected`);
+                        logger.verbose('UNLINK_REMAINING_NOTE: Remaining links may be expected | Reason: Other workspace packages still linked | Status: normal');
                     } else {
-                        logger.info('✅ No problematic links found');
+                        logger.info('UNLINK_VERIFY_CLEAN: No problematic links found | Status: clean | Verification: passed');
                     }
                 }
             } else {
-                logger.info('✅ No problematic links found');
+                logger.info('UNLINK_VERIFY_CLEAN: No problematic links found | Status: clean | Verification: passed');
             }
         } catch {
             // npm ls --link returns non-zero when there are no links, which is what we want
@@ -459,7 +459,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
     }
 
     // New scope-based unlinking behavior
-    logger.info(`🔓 Unlinking scope/package: ${packageArgument}`);
+    logger.info(`UNLINK_EXPLICIT_MODE: Unlinking specific scope/package | Target: ${packageArgument} | Mode: explicit | Purpose: Remove symlinks for package`);
 
     const { scope, packageName } = parsePackageArgument(packageArgument);
     logger.verbose(`Parsed scope: ${scope}, package: ${packageName || 'all packages in scope'}`);
@@ -506,14 +506,14 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                         } else {
                             logger.verbose(`Running 'npm unlink ${pkg.name}' in consumer: ${consumer.path}`);
                             await runSecure('npm', ['unlink', pkg.name]);
-                            logger.info(`✅ Consumer unlinked: ${consumer.name} -/-> ${pkg.name}`);
+                            logger.info(`UNLINK_CONSUMER_SUCCESS: Consumer unlinked from package | Consumer: ${consumer.name} | Package: ${pkg.name} | Status: unlinked`);
                         }
                     } finally {
                         process.chdir(consumerOriginalCwd);
                     }
                 } catch (error: any) {
                     // npm unlink can fail if package wasn't linked, but that's OK
-                    logger.warn(`⚠️ Failed to unlink ${pkg.name} in ${consumer.name}: ${error.message}`);
+                    logger.warn(`UNLINK_CONSUMER_FAILED: Failed to unlink consumer | Consumer: ${consumer.name} | Package: ${pkg.name} | Error: ${error.message}`);
                 }
             }
         }
@@ -529,7 +529,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
                 } else {
                     logger.verbose(`Running 'npm unlink' in source: ${pkg.path}`);
                     await run('npm unlink');
-                    logger.info(`✅ Source unlinked: ${pkg.name}`);
+                    logger.info(`UNLINK_SOURCE_SUCCESS: Source package unlinked | Package: ${pkg.name} | Status: unlinked`);
                 }
             } finally {
                 process.chdir(originalCwd);
@@ -538,7 +538,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
             unlinkedPackages.push(pkg.name);
         } catch (error: any) {
             // npm unlink can fail if package wasn't linked, but that's OK
-            logger.warn(`⚠️ Failed to unlink source package ${pkg.name}: ${error.message}`);
+            logger.warn(`UNLINK_SOURCE_FAILED: Failed to unlink source package | Package: ${pkg.name} | Error: ${error.message}`);
             unlinkedPackages.push(pkg.name); // Still count as success
         }
     }
@@ -557,9 +557,9 @@ const executeStatus = async (runConfig: Config): Promise<string> => {
     const targetDirectories = runConfig.tree?.directories || [process.cwd()];
 
     if (targetDirectories.length === 1) {
-        logger.info(`🔍 Checking link status in: ${targetDirectories[0]}`);
+        logger.info(`UNLINK_STATUS_CHECK: Checking link status in directory | Directory: ${targetDirectories[0]} | Purpose: Show current symlinks`);
     } else {
-        logger.info(`🔍 Checking link status in: ${targetDirectories.join(', ')}`);
+        logger.info(`UNLINK_STATUS_CHECK: Checking link status in directories | Directories: ${targetDirectories.join(', ')} | Count: ${targetDirectories.length} | Purpose: Show current symlinks`);
     }
 
     // Find all packages in the workspace

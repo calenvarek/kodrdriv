@@ -447,9 +447,9 @@ describe('safety.ts', () => {
 
             logFileDependencyWarning(issues);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('⚠️  WARNING: Found file: dependencies that should not be committed during operation:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('  📄 packages/component:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('    - local-utils: file:../utils (dependencies)');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_WARNING: Found file: dependencies that should not be committed | Context: operation | Count: 1 | Impact: May cause build issues');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_PACKAGE: Package with file dependencies | Package: packages/component');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: Dependency details | Name: local-utils | Version: file:../utils | Type: dependencies');
             expect(mockLogger.warn).toHaveBeenCalledWith('');
         });
 
@@ -465,7 +465,7 @@ describe('safety.ts', () => {
 
             logFileDependencyWarning(issues, 'commit');
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('⚠️  WARNING: Found file: dependencies that should not be committed during commit:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_WARNING: Found file: dependencies that should not be committed | Context: commit | Count: 1 | Impact: May cause build issues');
         });
 
         it('should handle multiple issues with multiple dependencies', () => {
@@ -487,12 +487,12 @@ describe('safety.ts', () => {
 
             logFileDependencyWarning(issues, 'link check');
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('⚠️  WARNING: Found file: dependencies that should not be committed during link check:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('  📄 packages/component:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('    - utils: file:../utils (dependencies)');
-            expect(mockLogger.warn).toHaveBeenCalledWith('    - shared: file:../shared (devDependencies)');
-            expect(mockLogger.warn).toHaveBeenCalledWith('  📄 packages/tools:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('    - common: file:../common (peerDependencies)');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_WARNING: Found file: dependencies that should not be committed | Context: link check | Count: 2 | Impact: May cause build issues');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_PACKAGE: Package with file dependencies | Package: packages/component');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: Dependency details | Name: utils | Version: file:../utils | Type: dependencies');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: Dependency details | Name: shared | Version: file:../shared | Type: devDependencies');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_PACKAGE: Package with file dependencies | Package: packages/tools');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_DETAIL: Dependency details | Name: common | Version: file:../common | Type: peerDependencies');
             expect(mockLogger.warn).toHaveBeenCalledWith('');
         });
     });
@@ -505,46 +505,46 @@ describe('safety.ts', () => {
         it('should log suggestions with unlink capability enabled (default)', () => {
             logFileDependencySuggestions();
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('💡 To resolve this:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   1. Run "kodrdriv unlink" to restore registry versions');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   2. Complete your commit');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   3. Run "kodrdriv link" again for local development');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_RESOLUTION: Steps to resolve file dependency issues:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_1: Restore registry versions | Command: kodrdriv unlink');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_2: Complete commit operation | Command: git commit');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_3: Restore local development links | Command: kodrdriv link');
             expect(mockLogger.warn).toHaveBeenCalledWith('');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   Or to bypass this check:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   - Add --skip-file-check flag to your command');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   - Or use git commit --no-verify to skip all hooks');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_BYPASS: Alternative bypass options:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   OPTION_1: Skip file check | Flag: --skip-file-check');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   OPTION_2: Skip all hooks | Command: git commit --no-verify');
             expect(mockLogger.warn).toHaveBeenCalledWith('');
         });
 
         it('should log suggestions with unlink capability explicitly enabled', () => {
             logFileDependencySuggestions(true);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('💡 To resolve this:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   1. Run "kodrdriv unlink" to restore registry versions');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   2. Complete your commit');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   3. Run "kodrdriv link" again for local development');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_RESOLUTION: Steps to resolve file dependency issues:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_1: Restore registry versions | Command: kodrdriv unlink');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_2: Complete commit operation | Command: git commit');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_3: Restore local development links | Command: kodrdriv link');
         });
 
         it('should log suggestions with unlink capability disabled', () => {
             logFileDependencySuggestions(false);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('💡 To resolve this:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   1. Manually restore registry versions in package.json files');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   2. Complete your commit');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   3. Re-link your local dependencies');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_RESOLUTION: Steps to resolve file dependency issues:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_1: Manually restore registry versions in package.json files');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_2: Complete commit operation | Command: git commit');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   STEP_3: Re-link local dependencies for development');
             expect(mockLogger.warn).toHaveBeenCalledWith('');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   Or to bypass this check:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   - Add --skip-file-check flag to your command');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   - Or use git commit --no-verify to skip all hooks');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_BYPASS: Alternative bypass options:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   OPTION_1: Skip file check | Flag: --skip-file-check');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   OPTION_2: Skip all hooks | Command: git commit --no-verify');
             expect(mockLogger.warn).toHaveBeenCalledWith('');
         });
 
         it('should log all bypass suggestions regardless of unlink capability', () => {
             logFileDependencySuggestions(false);
 
-            expect(mockLogger.warn).toHaveBeenCalledWith('   Or to bypass this check:');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   - Add --skip-file-check flag to your command');
-            expect(mockLogger.warn).toHaveBeenCalledWith('   - Or use git commit --no-verify to skip all hooks');
+            expect(mockLogger.warn).toHaveBeenCalledWith('FILE_DEPS_BYPASS: Alternative bypass options:');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   OPTION_1: Skip file check | Flag: --skip-file-check');
+            expect(mockLogger.warn).toHaveBeenCalledWith('   OPTION_2: Skip all hooks | Command: git commit --no-verify');
         });
     });
 });

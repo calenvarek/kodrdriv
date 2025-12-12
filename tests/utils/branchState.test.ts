@@ -88,21 +88,33 @@ describe('branchState utilities', () => {
     describe('auditBranchState', () => {
         it('should audit multiple packages', async () => {
             vi.mocked(gitTools.run)
-                // Package 1: all good
+                // Package 1: all good (on main, same as target)
                 .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' })
                 .mockResolvedValueOnce({ stdout: '', stderr: '' })
                 .mockResolvedValueOnce({ stdout: '0\t0\n', stderr: '' })
-                // Package 2: ahead of remote
+                // No merge conflict check since branch == targetBranch
+                // checkTargetBranchSync for package 1
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }) // git rev-parse --verify main
+                .mockResolvedValueOnce({ stdout: 'abc123\trefs/heads/main\n', stderr: '' }) // git ls-remote
+                // Package 2: ahead of remote (on working, different from main)
                 .mockResolvedValueOnce({ stdout: 'working\n', stderr: '' })
                 .mockResolvedValueOnce({ stdout: '', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '0\t2\n', stderr: '' });
+                .mockResolvedValueOnce({ stdout: '0\t2\n', stderr: '' })
+                // Merge conflict check (branch != targetBranch)
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: 'no conflicts', stderr: '' }) // git merge-tree
+                // checkTargetBranchSync for package 2
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }) // git rev-parse --verify main
+                .mockResolvedValueOnce({ stdout: 'abc123\trefs/heads/main\n', stderr: '' }); // git ls-remote
 
             const packages = [
                 { name: '@pkg/good', path: '/path/to/good' },
                 { name: '@pkg/ahead', path: '/path/to/ahead' },
             ];
 
-            const result = await branchState.auditBranchState(packages, 'main');
+            const result = await branchState.auditBranchState(packages, 'main', { checkPR: false, checkVersions: false });
 
             expect(result.totalPackages).toBe(2);
             expect(result.goodPackages).toBe(1);
@@ -120,13 +132,20 @@ describe('branchState utilities', () => {
             vi.mocked(gitTools.run)
                 .mockResolvedValueOnce({ stdout: 'wrong-branch\n', stderr: '' })
                 .mockResolvedValueOnce({ stdout: '', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '2\t3\n', stderr: '' });
+                .mockResolvedValueOnce({ stdout: '2\t3\n', stderr: '' })
+                // Merge conflict check (branch != targetBranch)
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: 'no conflicts', stderr: '' }) // git merge-tree
+                // checkTargetBranchSync
+                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
+                .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }) // git rev-parse --verify main
+                .mockResolvedValueOnce({ stdout: 'abc123\trefs/heads/main\n', stderr: '' }); // git ls-remote
 
             const packages = [{ name: '@pkg/issues', path: '/path' }];
-            const result = await branchState.auditBranchState(packages, 'main');
+            const result = await branchState.auditBranchState(packages, 'main', { checkPR: false, checkVersions: false });
 
             const audit = result.audits[0];
-            expect(audit.issues.some(i => i.includes('wrong branch'))).toBe(true);
+            expect(audit.issues.some(i => i.includes("On branch 'wrong-branch'"))).toBe(true);
             expect(audit.issues.some(i => i.includes('Ahead of remote'))).toBe(true);
             expect(audit.issues.some(i => i.includes('Behind remote'))).toBe(true);
         });
@@ -138,6 +157,8 @@ describe('branchState utilities', () => {
                 totalPackages: 2,
                 goodPackages: 2,
                 issuesFound: 0,
+                versionIssues: 0,
+                targetBranchSyncIssues: 0,
                 audits: [
                     {
                         packageName: '@pkg/one',
@@ -185,6 +206,8 @@ describe('branchState utilities', () => {
                 totalPackages: 1,
                 goodPackages: 0,
                 issuesFound: 1,
+                versionIssues: 0,
+                targetBranchSyncIssues: 0,
                 audits: [
                     {
                         packageName: '@pkg/bad',
@@ -207,10 +230,10 @@ describe('branchState utilities', () => {
 
             const formatted = branchState.formatAuditResults(result);
 
-            expect(formatted).toContain('Issues Found (1 package)');
+            expect(formatted).toContain('Branch State Audit');
             expect(formatted).toContain('@pkg/bad');
-            expect(formatted).toContain('wrong branch');
-            expect(formatted).toContain('Fix:');
+            expect(formatted).toContain('wrong');
+            expect(formatted).toContain('Fix Commands');
         });
     });
 

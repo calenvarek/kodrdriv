@@ -71,7 +71,7 @@ export async function improveContentWithLLM<T>(
 ): Promise<T> {
     const logger = getDryRunLogger(false);
 
-    logger.info(`🤖 Requesting LLM to improve the ${improvementConfig.contentType}...`);
+    logger.info(`INTERACTIVE_LLM_IMPROVING: Requesting LLM to improve content | Content Type: ${improvementConfig.contentType} | Service: AI | Purpose: Enhance quality`);
 
     // Create the improved prompt using the provided function
     const improvedPromptResult = await improvementConfig.createImprovedPrompt(
@@ -88,6 +88,6 @@ export async function improveContentWithLLM<T>(
         ? improvementConfig.processResponse(improvedResponse)
         : improvedResponse;
 
-    logger.info(`✅ LLM has provided improved ${improvementConfig.contentType}`);
+    logger.info(`INTERACTIVE_LLM_IMPROVED: LLM provided improved content | Content Type: ${improvementConfig.contentType} | Status: enhanced`);
     return finalResult;
 }

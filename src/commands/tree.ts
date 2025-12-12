@@ -812,9 +812,12 @@ export const executePackage = async (
                     });
 
                     try {
-                        const { stdout } = await Promise.race([commandPromise, commandTimeoutPromise]);
+                        const { stdout, stderr } = await Promise.race([commandPromise, commandTimeoutPromise]);
                         // Detect explicit skip marker from publish to avoid propagating versions
-                        if (builtInCommandName === 'publish' && stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) {
+                        // Check both stdout (where we now write it) and stderr (winston logger output, for backward compat)
+                        if (builtInCommandName === 'publish' &&
+                            ((stdout && stdout.includes('KODRDRIV_PUBLISH_SKIPPED')) ||
+                             (stderr && stderr.includes('KODRDRIV_PUBLISH_SKIPPED')))) {
                             packageLogger.info('Publish skipped for this package; will not record or propagate a version.');
                             publishWasSkipped = true;
                         }

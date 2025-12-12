@@ -133,11 +133,11 @@ async function handleInteractiveReleaseFeedback(
 
     while (true) {
         // Display the current release notes
-        logger.info('\n📋 Generated Release Notes:');
+        logger.info('\nRELEASE_NOTES_GENERATED: Generated release notes from AI | Title Length: ' + currentSummary.title.length + ' | Body Length: ' + currentSummary.body.length);
         logger.info('─'.repeat(50));
-        logger.info('Title: %s', currentSummary.title);
+        logger.info('RELEASE_NOTES_TITLE: %s', currentSummary.title);
         logger.info('');
-        logger.info('Body:');
+        logger.info('RELEASE_NOTES_BODY: Release notes content:');
         logger.info(currentSummary.body);
         logger.info('─'.repeat(50));
 
@@ -163,7 +163,7 @@ async function handleInteractiveReleaseFeedback(
                 try {
                     currentSummary = await editReleaseNotesInteractively(currentSummary);
                 } catch (error: any) {
-                    logger.error(`Failed to edit release notes: ${error.message}`);
+                    logger.error(`RELEASE_NOTES_EDIT_FAILED: Unable to edit release notes | Error: ${error.message} | Impact: Using original notes`);
                     // Continue the loop to show options again
                 }
                 break;
@@ -183,7 +183,7 @@ async function handleInteractiveReleaseFeedback(
                         diffContent
                     );
                 } catch (error: any) {
-                    logger.error(`Failed to improve release notes: ${error.message}`);
+                    logger.error(`RELEASE_NOTES_IMPROVE_FAILED: Unable to improve release notes | Error: ${error.message} | Impact: Using current version`);
                     // Continue the loop to show options again
                 }
                 break;
@@ -282,13 +282,13 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     const milestonesEnabled = !runConfig.release?.noMilestones;
 
     if (milestonesEnabled) {
-        logger.info('🔍 Checking for milestone issues to include in release notes...');
+        logger.info('RELEASE_MILESTONE_CHECK: Checking for milestone issues | Purpose: Include in release notes | Source: GitHub milestones');
         const versions = await determineVersionsForMilestones();
 
         if (versions.length > 0) {
             milestoneIssuesContent = await GitHub.getMilestoneIssuesForRelease(versions, 50000);
             if (milestoneIssuesContent) {
-                logger.info('📋 Incorporated milestone issues into release notes context');
+                logger.info('RELEASE_MILESTONE_INCLUDED: Incorporated milestone issues into context | Count: ' + (milestoneIssuesContent?.length || 0) + ' | Purpose: Enrich release notes');
             } else {
                 logger.debug('No milestone issues found to incorporate');
             }
@@ -329,7 +329,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
 
     // Create retry callback that reduces diff size on token limit errors
     const createRetryCallback = (originalDiffContent: string, originalLogContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
-        logger.info('Retrying release generation with reduced diff size (attempt %d)', attempt);
+        logger.info('RELEASE_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
 
         // Progressively reduce the diff size on retries
         const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
@@ -395,9 +395,9 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         );
 
         if (interactiveResult.action === 'skip') {
-            logger.info('❌ Release notes generation aborted by user');
+            logger.info('RELEASE_ABORTED: Release notes generation aborted by user | Reason: User choice | Status: cancelled');
         } else {
-            logger.info('✅ Release notes finalized');
+            logger.info('RELEASE_FINALIZED: Release notes finalized and accepted | Status: ready | Next: Create release or save');
         }
 
         releaseSummary = interactiveResult.finalSummary;
@@ -414,13 +414,13 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         await storage.writeFile(outputPath, releaseNotesContent, 'utf-8');
         logger.debug('Saved timestamped release notes: %s', outputPath);
     } catch (error: any) {
-        logger.warn('Failed to save timestamped release notes: %s', error.message);
+        logger.warn('RELEASE_SAVE_FAILED: Failed to save timestamped release notes | Error: %s | Impact: Notes not persisted to file', error.message);
     }
 
     if (isDryRun) {
-        logger.info('Generated release summary:');
-        logger.info('Title: %s', releaseSummary.title);
-        logger.info('Body: %s', releaseSummary.body);
+        logger.info('RELEASE_SUMMARY_COMPLETE: Generated release summary successfully | Status: completed');
+        logger.info('RELEASE_SUMMARY_TITLE: %s', releaseSummary.title);
+        logger.info('RELEASE_SUMMARY_BODY: %s', releaseSummary.body);
     }
 
     return releaseSummary;

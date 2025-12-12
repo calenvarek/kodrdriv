@@ -116,7 +116,7 @@ export async function scanForPackageJsonFiles(
             }
         }
     } catch (error) {
-        logger.error(`Failed to scan directory ${directory}: ${error}`);
+        logger.error(`DEPENDENCY_GRAPH_SCAN_FAILED: Failed to scan directory | Directory: ${directory} | Error: ${error}`);
         throw error;
     }
 
@@ -164,7 +164,7 @@ export async function parsePackageJson(packageJsonPath: string): Promise<Package
             localDependencies: new Set() // Will be populated later
         };
     } catch (error) {
-        logger.error(`Failed to parse package.json at ${packageJsonPath}: ${error}`);
+        logger.error(`DEPENDENCY_GRAPH_PARSE_FAILED: Failed to parse package.json | Path: ${packageJsonPath} | Error: ${error}`);
         throw error;
     }
 }

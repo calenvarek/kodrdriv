@@ -141,7 +141,7 @@ describe('audio-review command', () => {
                 expect(result).toContain('Batch Audio Review Results (2 files)');
                 expect(result).toContain('File: file1.wav');
                 expect(result).toContain('File: file2.mp3');
-                expect(mockLogger.info).toHaveBeenCalledWith('Found 2 audio files in directory: /test/directory');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_FILES_FOUND: Found audio files in directory | Count: 2 | Directory: /test/directory | Status: ready-for-processing');
             });
 
             it('should handle empty directory', async () => {
@@ -159,7 +159,7 @@ describe('audio-review command', () => {
                 const result = await execute(config);
 
                 expect(result).toBe('No audio files found to process');
-                expect(mockLogger.warn).toHaveBeenCalledWith('No audio files found in directory: %s', '/test/directory');
+                expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_REVIEW_NO_FILES: No audio files found in directory | Directory: %s | Extensions: .mp3, .wav, .m4a, .ogg | Action: Nothing to process', '/test/directory');
             });
 
             it('should handle directory processing error', async () => {
@@ -175,7 +175,7 @@ describe('audio-review command', () => {
                 mockStorage.isDirectoryReadable.mockRejectedValue(error);
 
                 await expect(execute(config)).rejects.toThrow('Directory error');
-                expect(mockLogger.error).toHaveBeenCalledWith('Directory batch processing failed: %s', 'Directory error');
+                expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_REVIEW_BATCH_FAILED: Directory batch processing failed | Error: %s | Impact: Batch incomplete', 'Directory error');
             });
         });
 
@@ -192,9 +192,8 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('Would process audio file: %s', '/test/audio.wav');
-                expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for review analysis');
-                expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular review command');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_FILE_DRY_RUN: Would process audio file | Mode: dry-run | File: %s | Action: Transcribe + analyze', '/test/audio.wav');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_WORKFLOW_DRY_RUN: Would transcribe and analyze | Mode: dry-run | Purpose: Review context from audio');
                 expect(result).toBe('DRY RUN: Would process audio, transcribe it, and perform review analysis with audio context');
                 // Should not call the actual review command in dry run
                 expect(executeReview).not.toHaveBeenCalled();
@@ -208,9 +207,8 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('Would start audio recording for review context');
-                expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for review analysis');
-                expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular review command');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_RECORD_DRY_RUN: Would start audio recording | Mode: dry-run | Purpose: Review context');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_TRANSCRIPT_DRY_RUN: Would transcribe and analyze | Mode: dry-run | Purpose: Extract review content');
                 expect(result).toBe('DRY RUN: Would process audio, transcribe it, and perform review analysis with audio context');
                 // Should not call the actual review command in dry run
                 expect(executeReview).not.toHaveBeenCalled();
@@ -228,8 +226,8 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('Would discover and process all audio files in directory: %s', '/test/directory');
-                expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe each audio file and run review analysis');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_BATCH_STARTING: Starting directory batch audio review | Directory: %s | Mode: batch | Purpose: Process all audio files', '/test/directory');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_BATCH_DRY_RUN: Would discover and process audio files | Mode: dry-run | Directory: %s | Action: Discover + transcribe + analyze', '/test/directory');
                 expect(result).toBe('DRY RUN: Directory batch processing would be performed');
             });
         });
@@ -290,7 +288,7 @@ describe('audio-review command', () => {
                 await expect(execute(config)).rejects.toThrow('Audio review cancelled by user');
 
                 // Verify the cancellation was logged
-                expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio review cancelled by user');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_CANCELLED: Audio review cancelled by user | Reason: User choice | Status: aborted');
             });
 
             it('should handle audio processing error gracefully', async () => {
@@ -304,8 +302,8 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Audio processing failed');
-                expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with review analysis without audio context...');
+                expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_REVIEW_PROCESSING_FAILED: Audio processing failed | Error: %s | Impact: No audio context available', 'Audio processing failed');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_FALLBACK: Proceeding without audio context | Mode: fallback | Next: Standard review analysis');
                 expect(result).toBe(mockReviewResult);
             });
 
@@ -324,7 +322,7 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
+                expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_REVIEW_NO_CONTENT: No audio content transcribed | Reason: Empty or invalid | Action: Proceeding without audio context');
                 expect(result).toBe(mockReviewResult);
             });
         });
@@ -345,8 +343,8 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for review context...');
-                expect(mockLogger.info).toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_RECORDING_STARTING: Starting audio recording | Purpose: Capture review context | Tool: unplayable');
+                expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_RECORDING_ACTIVE: Recording in progress | Action: Press ENTER to stop | Alternative: Press C to cancel');
                 expect(result).toBe(mockReviewResult);
             });
 
@@ -367,7 +365,7 @@ describe('audio-review command', () => {
 
                 const result = await execute(config);
 
-                expect(mockLogger.warn).toHaveBeenCalledWith('Using generated filename for recorded audio: %s', path.join('output', mockTimestampedFilename));
+                expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_REVIEW_FILENAME_NOTE: Filename mismatch possible | Tool: unplayable | Impact: May need manual file lookup');
                 expect(result).toBe(mockReviewResult);
             });
         });

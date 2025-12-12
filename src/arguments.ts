@@ -32,6 +32,8 @@ export const InputSchema = z.object({
     from: z.string().optional(),
     to: z.string().optional(),
     targetVersion: z.string().optional(),
+    skipAlreadyPublished: z.boolean().optional(),
+    forceRepublish: z.boolean().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     excludedPaths: z.array(z.string()).optional(),
     exclude: z.array(z.string()).optional(), // Alias for excludedPatterns
@@ -75,6 +77,8 @@ export const InputSchema = z.object({
     tagWorkingBranch: z.boolean().optional(), // Tag working branch with release version before bumping to dev
     createRetroactiveTags: z.boolean().optional(), // Create tags for past releases found in git history
     workingTagPrefix: z.string().optional(), // Tag prefix for working branch tags
+    updateDeps: z.string().optional(), // Scope for inter-project dependency updates in publish command
+    interProject: z.boolean().optional(), // Update inter-project dependencies in updates command
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -145,15 +149,20 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.targetVersion !== undefined ||
         finalCliArgs.interactive !== undefined ||
         finalCliArgs.syncTarget !== undefined ||
+        finalCliArgs.skipAlreadyPublished !== undefined ||
+        finalCliArgs.forceRepublish !== undefined ||
         (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.noMilestones !== undefined))
     ) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
-        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined) && finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
+        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.skipAlreadyPublished !== undefined || finalCliArgs.forceRepublish !== undefined) && finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
         if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.publish.targetVersion = finalCliArgs.targetVersion;
         if (finalCliArgs.interactive !== undefined) transformedCliArgs.publish.interactive = finalCliArgs.interactive;
         if (finalCliArgs.syncTarget !== undefined) transformedCliArgs.publish.syncTarget = finalCliArgs.syncTarget;
-        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined) && finalCliArgs.noMilestones !== undefined) transformedCliArgs.publish.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.skipAlreadyPublished !== undefined) transformedCliArgs.publish.skipAlreadyPublished = finalCliArgs.skipAlreadyPublished;
+        if (finalCliArgs.forceRepublish !== undefined) transformedCliArgs.publish.forceRepublish = finalCliArgs.forceRepublish;
+        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.skipAlreadyPublished !== undefined || finalCliArgs.forceRepublish !== undefined) && finalCliArgs.noMilestones !== undefined) transformedCliArgs.publish.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.updateDeps !== undefined) transformedCliArgs.publish.updateDeps = finalCliArgs.updateDeps;
     }
 
     // Nested mappings for 'development' options
@@ -356,10 +365,11 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'updates' options
-    if (commandName === 'updates' && (finalCliArgs.scope !== undefined || finalCliArgs.directories !== undefined)) {
+    if (commandName === 'updates' && (finalCliArgs.scope !== undefined || finalCliArgs.directories !== undefined || finalCliArgs.interProject !== undefined)) {
         transformedCliArgs.updates = {};
         if (finalCliArgs.scope !== undefined) transformedCliArgs.updates.scope = finalCliArgs.scope;
         if (finalCliArgs.directories !== undefined) transformedCliArgs.updates.directories = finalCliArgs.directories;
+        if (finalCliArgs.interProject !== undefined) transformedCliArgs.updates.interProject = finalCliArgs.interProject;
     }
 
     // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
@@ -729,8 +739,11 @@ export async function getCliConfig(
         .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .option('--sync-target', 'attempt to automatically sync target branch with remote before publishing')
+        .option('--skip-already-published', 'skip packages that are already published at target version on npm')
+        .option('--force-republish', 'delete existing tags and force republish even if tag exists')
         .option('--no-milestones', 'disable GitHub milestone integration')
         .option('--from-main', 'force comparison against main branch instead of previous release tag')
+        .option('--update-deps <scope>', 'update inter-project dependencies before publish (e.g., --update-deps @fjell)')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
@@ -933,9 +946,10 @@ Examples:
     addSharedOptions(versionsCommand);
 
     const updatesCommand = program
-        .command('updates <scope>')
+        .command('updates [scope]')
         .option('--directories [directories...]', 'directories to scan for packages (tree mode, defaults to current directory)')
-        .description('Update dependencies matching a specific scope using npm-check-updates (e.g., kodrdriv updates @fjell)');
+        .option('--inter-project', 'update inter-project dependencies based on tree state (requires --scope)')
+        .description('Update dependencies matching a specific scope using npm-check-updates (e.g., kodrdriv updates @fjell) or update inter-project dependencies (kodrdriv updates --inter-project @fjell)');
     addSharedOptions(updatesCommand);
 
     const selectAudioCommand = program
@@ -1316,7 +1330,7 @@ export async function validateConfigDir(configDir: string): Promise<string> {
         // Check if the path exists
         if (!(await storage.exists(absoluteConfigDir))) {
             // Directory doesn't exist, warn and fall back to defaults
-            logger.warn(`Config directory does not exist: ${absoluteConfigDir}. Using default configuration.`);
+            logger.warn(`CONFIG_DIR_NOT_FOUND: Config directory does not exist | Directory: ${absoluteConfigDir} | Action: Using default configuration | Status: fallback`);
             return absoluteConfigDir; // Return the path anyway, app will use defaults
         }
 
@@ -1330,7 +1344,7 @@ export async function validateConfigDir(configDir: string): Promise<string> {
             throw new Error(`Config directory is not writable: ${absoluteConfigDir}`);
         }
     } catch (error: any) {
-        logger.error(`Failed to validate config directory: ${absoluteConfigDir}`, error);
+        logger.error(`CONFIG_DIR_VALIDATION_FAILED: Failed to validate config directory | Directory: ${absoluteConfigDir} | Error: ` + error);
         throw new Error(`Failed to validate config directory: ${absoluteConfigDir}: ${error.message}`);
     }
 
@@ -1350,10 +1364,10 @@ export async function validateContextDirectories(contextDirectories: string[]): 
             if (await storage.isDirectoryReadable(dir)) {
                 validDirectories.push(dir);
             } else {
-                logger.warn(`Directory not readable: ${dir}`);
+                logger.warn(`DIRECTORY_NOT_READABLE: Directory not readable | Directory: ${dir} | Impact: Cannot scan for packages`);
             }
         } catch (error: any) {
-            logger.warn(`Error validating directory ${dir}: ${error.message}`);
+            logger.warn(`DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: ${dir} | Error: ${error.message}`);
         }
     }
 

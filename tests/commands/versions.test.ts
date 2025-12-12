@@ -293,7 +293,7 @@ describe('versions command', () => {
             expect(mockStorage.writeFile).not.toHaveBeenCalled();
             // Check if any info call contains the expected dry run message pattern
             const infoCallsWithUpdates = mockLogger.info.mock.calls.filter((call: any[]) =>
-                call[0] && call[0].includes('Would update dependencies.')
+                call[0] && (call[0].includes('Would update dependencies.') || call[0].includes('VERSIONS_WOULD_NORMALIZE'))
             );
             expect(infoCallsWithUpdates.length).toBeGreaterThan(0);
         });
@@ -349,7 +349,7 @@ describe('versions command', () => {
             const result = await execute(config);
 
             expect(result).toBe('No packages found to process.');
-            expect(mockLogger.warn).toHaveBeenCalledWith('No packages found in the specified directories');
+            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('VERSIONS_NO_PACKAGES'));
         });
 
         it('should update devDependencies and peerDependencies', async () => {

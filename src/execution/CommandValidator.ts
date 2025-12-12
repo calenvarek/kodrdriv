@@ -89,23 +89,23 @@ export class CommandValidator {
      */
     static logValidation(result: ValidationResult): void {
         if (!result.valid) {
-            this.logger.error('❌ Command validation failed for parallel execution:');
+            this.logger.error('VALIDATOR_FAILED: Command validation failed for parallel execution | Error Count: ' + result.issues.length + ' | Impact: Cannot proceed safely');
             for (const issue of result.issues) {
-                this.logger.error(`   • ${issue}`);
+                this.logger.error(`VALIDATOR_ERROR_DETAIL: Validation issue | Issue: ${issue}`);
             }
         }
 
         if (result.warnings.length > 0) {
-            this.logger.warn('⚠️  Parallel execution warnings:');
+            this.logger.warn('VALIDATOR_WARNINGS: Command validation warnings for parallel execution | Warning Count: ' + result.warnings.length + ' | Impact: May cause issues');
             for (const warning of result.warnings) {
-                this.logger.warn(`   • ${warning}`);
+                this.logger.warn(`VALIDATOR_WARNING_DETAIL: Validation warning | Warning: ${warning}`);
             }
         }
 
         if (result.recommendations.length > 0 && (this.logger as any).verbose) {
-            this.logger.info('💡 Recommendations:');
+            this.logger.info('VALIDATOR_RECOMMENDATIONS: Command validation recommendations | Count: ' + result.recommendations.length + ' | Purpose: Improve parallel execution');
             for (const rec of result.recommendations) {
-                this.logger.info(`   • ${rec}`);
+                this.logger.info(`VALIDATOR_RECOMMENDATION_DETAIL: ${rec}`);
             }
         }
     }

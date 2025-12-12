@@ -64,7 +64,7 @@ export class RecoveryManager {
      * Accepts either package names (e.g., "@eldrforge/git-tools") or directory names (e.g., "git-tools")
      */
     async markCompleted(packages: string[]): Promise<void> {
-        this.logger.info(`Marking ${packages.length} package(s) as completed...`);
+        this.logger.info(`RECOVERY_MARKING_COMPLETED: Marking packages as completed | Package Count: ${packages.length} | Action: Update checkpoint state | Purpose: Manual recovery`);
 
         for (const pkgIdentifier of packages) {
             // Resolve identifier to package name
@@ -80,7 +80,7 @@ export class RecoveryManager {
 
             // Validate not already completed
             if (this.checkpoint.state.completed.includes(pkg)) {
-                this.logger.warn(`Package ${pkg} already completed`);
+                this.logger.warn(`RECOVERY_ALREADY_COMPLETED: Package already marked as completed | Package: ${pkg} | Action: Skipping | Status: already-completed`);
                 continue;
             }
 
@@ -90,23 +90,43 @@ export class RecoveryManager {
             // Add to completed
             this.checkpoint.state.completed.push(pkg);
 
-            this.logger.info(`✓ Marked ${pkg} as completed`);
+            this.logger.info(`RECOVERY_PACKAGE_COMPLETED: Package marked as completed | Package: ${pkg} | Status: completed | Checkpoint: Updated`);
         }
 
-        // Update ready queue
+        // Update ready queue and count what got unblocked
+        const beforeSkipped = this.checkpoint.state.skipped.length;
+        const beforeReady = this.checkpoint.state.ready.length;
+
         this.updateReadyState();
+
+        const afterSkipped = this.checkpoint.state.skipped.length;
+        const afterReady = this.checkpoint.state.ready.length;
+
+        const unblockedCount = beforeSkipped - afterSkipped;
+        const newReadyCount = afterReady - beforeReady;
 
         // Save checkpoint
         await this.saveCheckpoint();
 
         this.logger.info('State updated successfully');
+
+        if (unblockedCount > 0) {
+            this.logger.info(`✓ Unblocked ${unblockedCount} package(s)`);
+        }
+        if (newReadyCount > 0) {
+            this.logger.info(`✓ ${newReadyCount} package(s) ready to execute`);
+        }
+        if (unblockedCount === 0 && newReadyCount === 0 && this.checkpoint.state.skipped.length > 0) {
+            this.logger.warn(`⚠️  No packages unblocked. ${this.checkpoint.state.skipped.length} packages still blocked by dependencies.`);
+            this.logger.warn('   Use --status to see what\'s blocking them.');
+        }
     }
 
     /**
      * Mark packages as failed
      */
     async markFailed(packages: string[], reason: string = 'Manually marked as failed'): Promise<void> {
-        this.logger.info(`Marking ${packages.length} package(s) as failed...`);
+        this.logger.info(`RECOVERY_MARKING_FAILED: Marking packages as failed | Package Count: ${packages.length} | Action: Update checkpoint state | Purpose: Skip dependent packages`);
 
         for (const pkg of packages) {
             // Validate package exists
@@ -130,14 +150,14 @@ export class RecoveryManager {
 
             this.checkpoint.state.failed.push(failureInfo);
 
-            this.logger.info(`✗ Marked ${pkg} as failed`);
+            this.logger.info(`RECOVERY_PACKAGE_FAILED: Package marked as failed | Package: ${pkg} | Status: failed | Checkpoint: Updated`);
 
             // Cascade to dependents
             const dependents = findAllDependents(pkg, this.graph);
             for (const dep of dependents) {
                 this.removeFromAllStates(dep);
                 this.checkpoint.state.skipped.push(dep);
-                this.logger.warn(`⊘ Skipped ${dep} (depends on failed ${pkg})`);
+                this.logger.warn(`RECOVERY_DEPENDENT_SKIPPED: Dependent package skipped | Package: ${dep} | Failed Dependency: ${pkg} | Reason: dependency-failed`);
             }
         }
 
@@ -167,7 +187,7 @@ export class RecoveryManager {
             if (!this.checkpoint.state.skipped.includes(pkg)) {
                 this.checkpoint.state.skipped.push(pkg);
             }
-            this.logger.info(`⊘ Skipped ${pkg}`);
+            this.logger.info(`RECOVERY_PACKAGE_SKIPPED: Package marked as skipped | Package: ${pkg} | Status: skipped | Checkpoint: Updated`);
         }
 
         await this.saveCheckpoint();
@@ -180,11 +200,11 @@ export class RecoveryManager {
         const failed = this.checkpoint.state.failed;
 
         if (failed.length === 0) {
-            this.logger.info('No failed packages to retry');
+            this.logger.info('RECOVERY_NO_FAILED: No failed packages found | Action: Nothing to retry | Status: All packages succeeded or skipped');
             return;
         }
 
-        this.logger.info(`Retrying ${failed.length} failed package(s)...`);
+        this.logger.info(`RECOVERY_RETRY_STARTING: Initiating retry for failed packages | Failed Count: ${failed.length} | Action: Reset to pending and retry`);
 
         const retriable: FailedPackageSnapshot[] = [];
         const nonRetriable: FailedPackageSnapshot[] = [];
@@ -219,11 +239,11 @@ export class RecoveryManager {
                 if (this.checkpoint.state.skipped.includes(dependent)) {
                     this.checkpoint.state.skipped = this.checkpoint.state.skipped.filter(p => p !== dependent);
                     this.checkpoint.state.pending.push(dependent);
-                    this.logger.info(`↻ ${dependent} moved back to pending (was skipped)`);
+                    this.logger.info(`RECOVERY_DEPENDENT_RESTORED: Dependent package moved back to pending | Package: ${dependent} | Previous Status: skipped | New Status: pending | Reason: Retry parent package`);
                 }
             }
 
-            this.logger.info(`↻ ${failedPkg.name} moved to pending for retry`);
+            this.logger.info(`RECOVERY_PACKAGE_PENDING: Package moved to pending for retry | Package: ${failedPkg.name} | Previous Status: failed | New Status: pending | Action: Will retry`);
         }
 
         // Keep only non-retriable failures in failed state
@@ -234,7 +254,7 @@ export class RecoveryManager {
 
         await this.saveCheckpoint();
 
-        this.logger.info(`${retriable.length} package(s) reset for retry`);
+        this.logger.info(`RECOVERY_RETRY_READY: Packages reset and ready for retry | Package Count: ${retriable.length} | Status: pending | Next: Will execute`);
     }
 
     /**
@@ -244,25 +264,25 @@ export class RecoveryManager {
         const failed = this.checkpoint.state.failed.map(f => f.name);
 
         if (failed.length === 0) {
-            this.logger.info('No failed packages to skip');
+            this.logger.info('RECOVERY_NO_FAILED_TO_SKIP: No failed packages found | Action: Nothing to skip | Status: Clean state');
             return;
         }
 
-        this.logger.info(`Skipping ${failed.length} failed package(s) and their dependents...`);
+        this.logger.info(`RECOVERY_SKIP_FAILED: Skipping failed packages and dependents | Failed Count: ${failed.length} | Action: Mark as skipped | Purpose: Continue with remaining packages`);
 
         await this.skipPackages(failed);
 
         // Clear failed state
         this.checkpoint.state.failed = [];
 
-        this.logger.info('Failed packages skipped, execution can continue');
+        this.logger.info('RECOVERY_SKIP_COMPLETE: Failed packages skipped successfully | Status: Execution can continue | Next: Process remaining packages');
     }
 
     /**
      * Reset specific package to initial state
      */
     async resetPackage(packageName: string): Promise<void> {
-        this.logger.info(`Resetting package: ${packageName}`);
+        this.logger.info(`RECOVERY_PACKAGE_RESETTING: Resetting package to initial state | Package: ${packageName} | Action: Clear all state | Purpose: Fresh start`);
 
         if (!this.graph.packages.has(packageName)) {
             throw new Error(`Package not found: ${packageName}`);
@@ -282,7 +302,7 @@ export class RecoveryManager {
 
         await this.saveCheckpoint();
 
-        this.logger.info(`✓ ${packageName} reset to initial state`);
+        this.logger.info(`RECOVERY_PACKAGE_RESET: Package reset to initial state | Package: ${packageName} | Status: pending | Checkpoint: Updated`);
     }
 
     /**
@@ -469,6 +489,54 @@ export class RecoveryManager {
             lines.push('');
         }
 
+        // Skipped packages with dependency details
+        if (skipped > 0) {
+            lines.push('🔒 Blocked Packages (dependency issues):');
+            for (const pkgName of this.checkpoint.state.skipped) {
+                const deps = this.graph.edges.get(pkgName) || new Set();
+                const depStatus = Array.from(deps).map(dep => {
+                    if (this.checkpoint.state.completed.includes(dep) ||
+                        this.checkpoint.state.skippedNoChanges.includes(dep)) {
+                        return `${dep} ✓`;
+                    } else if (this.checkpoint.state.failed.some(f => f.name === dep)) {
+                        return `${dep} ❌`;
+                    } else if (this.checkpoint.state.running.some(r => r.name === dep)) {
+                        return `${dep} ⏳`;
+                    } else if (this.checkpoint.state.skipped.includes(dep)) {
+                        return `${dep} 🔒`;
+                    } else if (this.checkpoint.state.pending.includes(dep) ||
+                               this.checkpoint.state.ready.includes(dep)) {
+                        return `${dep} ⏳`;
+                    } else {
+                        return `${dep} ❓`;
+                    }
+                });
+
+                lines.push(`  • ${pkgName}`);
+                if (depStatus.length > 0) {
+                    lines.push(`    Dependencies: ${depStatus.join(', ')}`);
+                }
+            }
+            lines.push('');
+            lines.push('Legend: ✓ = complete, ❌ = failed, ⏳ = pending/running, 🔒 = blocked');
+            lines.push('');
+        }
+
+        // Ready to execute
+        if (this.checkpoint.state.ready.length > 0) {
+            lines.push('⏳ Ready to Execute:');
+            for (const pkgName of this.checkpoint.state.ready) {
+                const deps = this.graph.edges.get(pkgName) || new Set();
+                if (deps.size === 0) {
+                    lines.push(`  • ${pkgName} (no dependencies)`);
+                } else {
+                    const depList = Array.from(deps).join(', ');
+                    lines.push(`  • ${pkgName} (depends on: ${depList})`);
+                }
+            }
+            lines.push('');
+        }
+
         // Recovery hints
         const hints = this.generateRecoveryHints();
         if (hints.length > 0) {
@@ -508,7 +576,7 @@ export class RecoveryManager {
      * Apply multiple recovery options at once
      */
     async applyRecoveryOptions(options: RecoveryOptions): Promise<void> {
-        this.logger.info('Applying recovery options...');
+        this.logger.info('RECOVERY_OPTIONS_APPLYING: Applying recovery options to checkpoint | Purpose: Modify execution state | Options: Complete, fail, skip, retry, reset');
 
         if (options.markCompleted && options.markCompleted.length > 0) {
             await this.markCompleted(options.markCompleted);
@@ -534,7 +602,7 @@ export class RecoveryManager {
             await this.resetPackage(options.resetPackage);
         }
 
-        this.logger.info('Recovery options applied successfully');
+        this.logger.info('RECOVERY_OPTIONS_APPLIED: Recovery options applied successfully | Status: Checkpoint updated | Next: Resume execution or exit');
     }
 
     /**
@@ -557,13 +625,42 @@ export class RecoveryManager {
     }
 
     private updateReadyState(): void {
+        // CRITICAL FIX: First, re-evaluate skipped packages
+        // Packages that were skipped due to failed dependencies might now be eligible
+        // to run if those dependencies have been completed (e.g., via --mark-completed)
+        const unblocked: string[] = [];
+        for (const pkg of this.checkpoint.state.skipped) {
+            const deps = this.graph.edges.get(pkg) || new Set();
+            const allDepsCompleted = Array.from(deps).every(dep =>
+                this.checkpoint.state.completed.includes(dep) ||
+                this.checkpoint.state.skippedNoChanges.includes(dep)
+            );
+
+            // Check if any dependencies are still failed
+            const anyDepsFailed = Array.from(deps).some(dep =>
+                this.checkpoint.state.failed.some(f => f.name === dep)
+            );
+
+            if (allDepsCompleted && !anyDepsFailed) {
+                unblocked.push(pkg);
+            }
+        }
+
+        // Move unblocked packages back to pending
+        for (const pkg of unblocked) {
+            this.checkpoint.state.skipped = this.checkpoint.state.skipped.filter(p => p !== pkg);
+            this.checkpoint.state.pending.push(pkg);
+            this.logger.info(`RECOVERY_PACKAGE_UNBLOCKED: Package unblocked due to satisfied dependencies | Package: ${pkg} | Previous Status: skipped | New Status: pending | Reason: Dependencies satisfied`);
+        }
+
         // Move packages from pending to ready if dependencies met
         const nowReady: string[] = [];
 
         for (const pkg of this.checkpoint.state.pending) {
             const deps = this.graph.edges.get(pkg) || new Set();
             const allDepsCompleted = Array.from(deps).every(dep =>
-                this.checkpoint.state.completed.includes(dep)
+                this.checkpoint.state.completed.includes(dep) ||
+                this.checkpoint.state.skippedNoChanges.includes(dep)
             );
 
             if (allDepsCompleted) {

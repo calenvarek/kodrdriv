@@ -2238,7 +2238,7 @@ describe('review command', () => {
 
             expect(mockLogger.info).toHaveBeenCalledWith('📁 Processing review files in directory: test-reviews');
             expect(mockLogger.info).toHaveBeenCalledWith('📁 Found 3 files to process');
-            expect(mockLogger.info).toHaveBeenCalledWith('Auto-selecting all 3 files for processing (--sendit mode)');
+            expect(mockLogger.info).toHaveBeenCalledWith('REVIEW_AUTO_SELECT: Auto-selecting all files for processing | Mode: sendit | File Count: 3 | Confirmation: automatic');
             expect(result).toContain('📝 Review Results');
             expect(result).toContain('📋 Summary:');
             expect(result).toContain('📊 Total Issues Found:');
@@ -2357,10 +2357,10 @@ describe('review command', () => {
 
             const result = await Review.execute(runConfig);
 
-            expect(mockLogger.info).toHaveBeenCalledWith('\n📁 File Selection Phase');
-            expect(mockLogger.info).toHaveBeenCalledWith('Found 2 files to review. Select which ones to process:');
-            expect(mockLogger.info).toHaveBeenCalledWith('✅ File selected for processing: test-directory/file1.md');
-            expect(mockLogger.info).toHaveBeenCalledWith('⏭️  File skipped: test-directory/file2.md');
+            expect(mockLogger.info).toHaveBeenCalledWith('\nREVIEW_SELECTION_PHASE: Starting file selection phase | File Count: 2 | Purpose: Choose files to process');
+            expect(mockLogger.info).toHaveBeenCalledWith('REVIEW_SELECTION_FILES: Found files to review | Count: 2 | Action: Select files for processing');
+            expect(mockLogger.info).toHaveBeenCalledWith('REVIEW_FILE_SELECTED: File selected for processing | File: test-directory/file1.md | Action: Will be processed');
+            expect(mockLogger.info).toHaveBeenCalledWith('REVIEW_FILE_SKIPPED: File skipped during selection | File: test-directory/file2.md | Action: Will not be processed');
             expect(result).toContain('📝 Review Results');
             expect(result).toContain('📋 Summary:');
             expect(result).toContain('📊 Total Issues Found:');
@@ -2383,7 +2383,7 @@ describe('review command', () => {
             };
 
             await expect(Review.execute(runConfig)).rejects.toThrow('Review process aborted by user');
-            expect(mockLogger.info).toHaveBeenCalledWith('🛑 Aborting review process as requested');
+            expect(mockLogger.info).toHaveBeenCalledWith('REVIEW_ABORTED: User aborted review process | Action: Aborting | Reason: User request');
         });
 
         it('should handle no files selected during file selection', async () => {

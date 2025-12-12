@@ -69,7 +69,7 @@ const discoverPackages = async (
                 }
             }
         } catch (error: any) {
-            logger.warn(`Failed to process ${directory}: ${error.message}`);
+            logger.warn(`VERSIONS_DIR_PROCESS_FAILED: Failed to process directory | Directory: ${directory} | Error: ${error.message}`);
         }
     }
 
@@ -155,9 +155,9 @@ const updateDependenciesMinor = async (
 
                     if (currentVersion !== normalizedVersion) {
                         if (isDryRun) {
-                            logger.info(`Would update ${section}.${depName}: ${currentVersion} → ${normalizedVersion}`);
+                            logger.info(`VERSIONS_WOULD_NORMALIZE: Would normalize dependency version | Mode: dry-run | Section: ${section} | Dependency: ${depName} | Current: ${currentVersion} | Normalized: ${normalizedVersion}`);
                         } else {
-                            logger.info(`Updating ${section}.${depName}: ${currentVersion} → ${normalizedVersion}`);
+                            logger.info(`VERSIONS_NORMALIZING: Normalizing dependency version | Section: ${section} | Dependency: ${depName} | Current: ${currentVersion} | Normalized: ${normalizedVersion}`);
                             deps[depName] = normalizedVersion;
                         }
                         hasChanges = true;
@@ -173,13 +173,13 @@ const updateDependenciesMinor = async (
                 JSON.stringify(packageJson, null, 2) + '\n',
                 'utf-8'
             );
-            logger.info(`Updated dependencies in ${packageInfo.name}`);
+            logger.info(`VERSIONS_PACKAGE_UPDATED: Updated dependencies in package | Package: ${packageInfo.name} | Status: saved`);
         }
 
         return hasChanges;
 
     } catch (error: any) {
-        logger.warn(`Failed to update dependencies in ${packageInfo.name}: ${error.message}`);
+        logger.warn(`VERSIONS_PACKAGE_UPDATE_FAILED: Failed to update dependencies | Package: ${packageInfo.name} | Error: ${error.message}`);
         return false;
     }
 };
@@ -191,7 +191,7 @@ const executeMinor = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
     const isDryRun = runConfig.dryRun || false;
 
-    logger.info('🔄 Normalizing same-scope dependencies to major.minor format...');
+    logger.info('VERSIONS_NORMALIZE_STARTING: Normalizing same-scope dependencies | Format: major.minor | Purpose: Standardize version format across packages');
 
     // Determine directories to scan
     const directories = runConfig.versions?.directories ||
@@ -208,11 +208,11 @@ const executeMinor = async (runConfig: Config): Promise<string> => {
     const allPackages = await discoverPackages(directories, logger);
 
     if (allPackages.length === 0) {
-        logger.warn('No packages found in the specified directories');
+        logger.warn('VERSIONS_NO_PACKAGES: No packages found in specified directories | Directories: ' + (runConfig.tree?.directories || []).join(', ') + ' | Action: Nothing to normalize');
         return 'No packages found to process.';
     }
 
-    logger.info(`Found ${allPackages.length} packages`);
+    logger.info(`VERSIONS_PACKAGES_FOUND: Found packages for normalization | Count: ${allPackages.length} | Status: Analyzing`);
 
     // Group packages by scope
     const packagesByScope = new Map<string, PackageInfo[]>();
@@ -230,9 +230,9 @@ const executeMinor = async (runConfig: Config): Promise<string> => {
         }
     }
 
-    logger.info(`Found ${packagesByScope.size} scopes: ${Array.from(packagesByScope.keys()).join(', ')}`);
+    logger.info(`VERSIONS_SCOPES_FOUND: Found package scopes | Count: ${packagesByScope.size} | Scopes: ${Array.from(packagesByScope.keys()).join(', ')}`);
     if (unscopedPackages.length > 0) {
-        logger.info(`Found ${unscopedPackages.length} unscoped packages (will be skipped)`);
+        logger.info(`VERSIONS_UNSCOPED_PACKAGES: Found unscoped packages | Count: ${unscopedPackages.length} | Action: Will be skipped | Reason: Only scoped packages supported`);
         // Log each unscoped package being skipped
         for (const pkg of unscopedPackages) {
             logger.verbose(`Skipping ${pkg.name} - not a scoped package`);
@@ -244,7 +244,7 @@ const executeMinor = async (runConfig: Config): Promise<string> => {
 
     // Process each scope
     for (const [scope, packages] of packagesByScope) {
-        logger.info(`\n📦 Processing scope: ${scope} (${packages.length} packages)`);
+        logger.info(`\nVERSIONS_SCOPE_PROCESSING: Processing packages in scope | Scope: ${scope} | Package Count: ${packages.length} | Action: Normalize versions`);
 
         for (const pkg of packages) {
             const hasChanges = await updateDependenciesMinor(pkg, allPackages, isDryRun, logger);
@@ -259,10 +259,10 @@ const executeMinor = async (runConfig: Config): Promise<string> => {
     const summary = `${verb} ${totalChanges} of ${totalUpdated} packages with dependency changes.`;
 
     if (isDryRun) {
-        logger.info(`\n✅ Dry run complete. ${summary}`);
+        logger.info(`\nVERSIONS_DRY_RUN_COMPLETE: Dry run completed | Mode: dry-run | Summary: ${summary}`);
         return `Dry run complete. ${summary}`;
     } else {
-        logger.info(`\n✅ Dependencies updated successfully. ${summary}`);
+        logger.info(`\nVERSIONS_UPDATE_COMPLETE: Dependencies updated successfully | Status: completed | Summary: ${summary}`);
         return `Dependencies updated successfully. ${summary}`;
     }
 };
