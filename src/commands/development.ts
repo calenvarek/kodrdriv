@@ -255,7 +255,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 const remoteExists = await run(`git ls-remote --exit-code --heads origin ${workingBranch}`).then(() => true).catch(() => false);
 
                 if (remoteExists) {
-                    await run(`git pull origin ${workingBranch} --no-edit`);
+                    // Use explicit fetch+merge instead of pull to avoid git config conflicts
+                    await run(`git fetch origin ${workingBranch}`);
+                    await run(`git merge origin/${workingBranch} --no-ff --no-edit`);
                     logger.info(`✅ Synced ${workingBranch} with remote`);
                 } else {
                     logger.info(`ℹ️ No remote ${workingBranch} branch found, will be created on first push`);

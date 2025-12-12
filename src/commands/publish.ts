@@ -392,7 +392,12 @@ const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun
 
         const equalExceptVersion = JSON.stringify(baseSorted) === JSON.stringify(headSorted);
         if (equalExceptVersion) {
-            return { necessary: false, reason: 'Only version changed in package.json (plus lockfile)' };
+            const currentVersion = headPkg.version;
+            const targetVersion = basePkg.version;
+            return {
+                necessary: false,
+                reason: `No meaningful changes detected:\n   • Current version: ${currentVersion}\n   • Target branch version: ${targetVersion}\n   • Only package.json version field differs\n\n   To force republish: Add meaningful code changes or use --force (not yet implemented)`
+            };
         }
 
         // Other fields changed inside package.json
@@ -463,10 +468,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const remoteExists = await run(`git ls-remote --exit-code --heads origin ${currentBranch}`).then(() => true).catch(() => false);
 
             if (remoteExists) {
-                // Wrap git pull with lock to prevent concurrent pulls in same repo
+                // Use explicit fetch+merge instead of pull to avoid git config conflicts
                 await runGitWithLock(process.cwd(), async () => {
-                    await run(`git pull origin ${currentBranch} --no-edit`);
-                }, `pull ${currentBranch}`);
+                    await run(`git fetch origin ${currentBranch}`);
+                    await run(`git merge origin/${currentBranch} --no-ff --no-edit`);
+                }, `sync ${currentBranch}`);
                 logger.info(`✅ Synced ${currentBranch} with remote`);
             } else {
                 logger.info(`ℹ️ No remote ${currentBranch} branch found, will be created on first push`);
@@ -558,7 +564,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
     try {
         const necessity = await isReleaseNecessaryComparedToTarget(targetBranch, isDryRun);
         if (!necessity.necessary) {
-            logger.info(`Skipping publish: ${necessity.reason}.`);
+            logger.info(`\n⏭️  Skipping publish: ${necessity.reason}`);
             // Emit a machine-readable marker so tree mode can detect skip and avoid propagating versions
             logger.info('KODRDRIV_PUBLISH_SKIPPED');
             return;
@@ -993,8 +999,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
                 if (remoteExists) {
                     await runGitWithLock(process.cwd(), async () => {
-                        await run(`git pull origin ${targetBranch} --no-edit`);
-                    }, `pull ${targetBranch}`);
+                        await run(`git fetch origin ${targetBranch}`);
+                        await run(`git merge origin/${targetBranch} --no-ff --no-edit`);
+                    }, `sync ${targetBranch}`);
                     logger.info(`✅ Synced ${targetBranch} with remote`);
                 } else {
                     logger.info(`ℹ️ No remote ${targetBranch} branch found, will be created on first push`);
@@ -1237,6 +1244,31 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.info(`Resetting ${currentBranch} to ${targetBranch} (squash merge)...`);
             await run(`git reset --hard ${targetBranch}`);
             logger.info(`✅ Reset ${currentBranch} to ${targetBranch}`);
+
+            // After squash merge and reset, we need to force push
+            // This is safe because we just merged to main and are syncing working branch
+            logger.info(`🔄 Force pushing ${currentBranch} to remote (post-squash sync)...`);
+
+            try {
+                // Verify that remote working branch is ancestor of main (safety check)
+                try {
+                    await run(`git fetch origin ${currentBranch}`);
+                    await run(`git merge-base --is-ancestor origin/${currentBranch} ${targetBranch}`);
+                    logger.verbose(`✓ Safety check passed: origin/${currentBranch} is ancestor of ${targetBranch}`);
+                } catch {
+                    // Remote branch might not exist yet, or already in sync - both OK
+                    logger.verbose(`Remote ${currentBranch} does not exist or is already synced`);
+                }
+
+                // Use --force-with-lease for safer force push
+                await run(`git push --force-with-lease origin ${currentBranch}`);
+                logger.info(`✅ Force pushed ${currentBranch} to remote`);
+            } catch (pushError: any) {
+                // If force push fails, provide helpful message
+                logger.warn(`⚠️  Could not force push ${currentBranch}: ${pushError.message}`);
+                logger.warn(`   You may need to manually force push:`);
+                logger.warn(`   git push --force-with-lease origin ${currentBranch}`);
+            }
         } else {
             // For merge/rebase methods, try to merge target back into source
             logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
@@ -1297,11 +1329,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.warn(`   Please push manually: git push origin ${currentBranch}`);
         }
     } else {
-        if (mergeMethod === 'squash') {
-            logger.info(`Would reset ${currentBranch} to ${targetBranch} (squash merge)`);
-        } else {
-            logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
-        }
+        logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
         logger.info(`Would bump version to next development version`);
         logger.info(`Would push ${currentBranch} to origin`);
     }
