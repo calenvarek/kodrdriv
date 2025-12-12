@@ -10,6 +10,11 @@ export interface BranchStatus {
     hasUnpushedCommits: boolean;
     needsSync: boolean;
     remoteExists: boolean;
+    hasMergeConflicts?: boolean;
+    conflictsWith?: string;
+    hasOpenPR?: boolean;
+    prUrl?: string;
+    prNumber?: number;
 }
 
 export interface PackageBranchAudit {
@@ -32,7 +37,9 @@ export interface BranchAuditResult {
  */
 export async function checkBranchStatus(
     packagePath: string,
-    expectedBranch?: string
+    expectedBranch?: string,
+    targetBranch: string = 'main',
+    checkPR: boolean = false
 ): Promise<BranchStatus> {
     const logger = getLogger();
     const originalCwd = process.cwd();
@@ -68,6 +75,48 @@ export async function checkBranchStatus(
             }
         }
 
+        // Check for merge conflicts with target branch
+        let hasMergeConflicts = false;
+        let conflictsWith: string | undefined;
+        
+        if (branch !== targetBranch) {
+            try {
+                // Fetch latest to ensure we're checking against current target
+                await run('git fetch origin --quiet');
+                
+                // Use git merge-tree to test for conflicts without actually merging
+                const { stdout: mergeTree } = await run(`git merge-tree $(git merge-base ${branch} origin/${targetBranch}) ${branch} origin/${targetBranch}`);
+                
+                // If merge-tree output contains conflict markers, there are conflicts
+                if (mergeTree.includes('<<<<<<<') || mergeTree.includes('=======') || mergeTree.includes('>>>>>>>')) {
+                    hasMergeConflicts = true;
+                    conflictsWith = targetBranch;
+                }
+            } catch (error: any) {
+                // If merge-tree fails, might be due to git version or other issues
+                logger.verbose(`Could not check merge conflicts for ${packagePath}: ${error.message}`);
+            }
+        }
+
+        // Check for existing PR if requested
+        let hasOpenPR = false;
+        let prUrl: string | undefined;
+        let prNumber: number | undefined;
+        
+        if (checkPR) {
+            try {
+                const { findOpenPullRequestByHeadRef } = await import('@eldrforge/github-tools');
+                const pr = await findOpenPullRequestByHeadRef(branch);
+                if (pr) {
+                    hasOpenPR = true;
+                    prUrl = pr.html_url;
+                    prNumber = pr.number;
+                }
+            } catch (error: any) {
+                logger.verbose(`Could not check for PR for ${packagePath}: ${error.message}`);
+            }
+        }
+
         const isOnExpectedBranch = !expectedBranch || branch === expectedBranch;
         const hasUnpushedCommits = ahead > 0;
         const needsSync = behind > 0;
@@ -81,6 +130,11 @@ export async function checkBranchStatus(
             hasUnpushedCommits,
             needsSync,
             remoteExists,
+            hasMergeConflicts,
+            conflictsWith,
+            hasOpenPR,
+            prUrl,
+            prNumber,
         };
     } finally {
         process.chdir(originalCwd);
@@ -92,10 +146,18 @@ export async function checkBranchStatus(
  */
 export async function auditBranchState(
     packages: Array<{ name: string; path: string }>,
-    expectedBranch?: string
+    expectedBranch?: string,
+    options: {
+        targetBranch?: string;
+        checkPR?: boolean;
+        checkConflicts?: boolean;
+    } = {}
 ): Promise<BranchAuditResult> {
     const logger = getLogger();
     const audits: PackageBranchAudit[] = [];
+    const targetBranch = options.targetBranch || 'main';
+    const checkPR = options.checkPR !== false; // Default true
+    const checkConflicts = options.checkConflicts !== false; // Default true
 
     logger.info(`📋 Auditing branch state for ${packages.length} package(s)...`);
 
@@ -123,7 +185,12 @@ export async function auditBranchState(
     }
 
     for (const pkg of packages) {
-        const status = await checkBranchStatus(pkg.path, actualExpectedBranch);
+        const status = await checkBranchStatus(
+            pkg.path,
+            actualExpectedBranch,
+            targetBranch,
+            checkPR
+        );
         const issues: string[] = [];
         const fixes: string[] = [];
 
@@ -131,6 +198,16 @@ export async function auditBranchState(
         if (!status.isOnExpectedBranch && actualExpectedBranch) {
             issues.push(`On branch '${status.name}' (most packages are on '${actualExpectedBranch}')`);
             fixes.push(`cd ${pkg.path} && git checkout ${actualExpectedBranch}`);
+        }
+
+        if (checkConflicts && status.hasMergeConflicts && status.conflictsWith) {
+            issues.push(`⚠️  MERGE CONFLICTS with '${status.conflictsWith}'`);
+            fixes.push(`cd ${pkg.path} && git merge origin/${status.conflictsWith}  # Resolve conflicts manually`);
+        }
+
+        if (checkPR && status.hasOpenPR) {
+            issues.push(`Has existing PR #${status.prNumber}: ${status.prUrl}`);
+            fixes.push(`# Review PR: ${status.prUrl}`);
         }
 
         if (status.hasUnpushedCommits) {
@@ -180,7 +257,7 @@ export function formatAuditResults(result: BranchAuditResult): string {
         const branch = audit.status.name;
         branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
     }
-    
+
     let commonBranch: string | undefined;
     let maxCount = 0;
     for (const [branch, count] of branchCounts.entries()) {
@@ -216,13 +293,33 @@ export function formatAuditResults(result: BranchAuditResult): string {
     }
 
     if (result.issuesFound > 0) {
+        // Count critical issues (merge conflicts, existing PRs)
+        const conflictCount = result.audits.filter(a => a.status.hasMergeConflicts).length;
+        const prCount = result.audits.filter(a => a.status.hasOpenPR).length;
+        
+        if (conflictCount > 0 || prCount > 0) {
+            lines.push(`🚨 CRITICAL ISSUES:`);
+            if (conflictCount > 0) {
+                lines.push(`   ⚠️  ${conflictCount} package${conflictCount === 1 ? '' : 's'} with merge conflicts`);
+            }
+            if (prCount > 0) {
+                lines.push(`   📋 ${prCount} package${prCount === 1 ? '' : 's'} with existing PRs`);
+            }
+            lines.push('');
+        }
+        
         lines.push(`⚠️  Issues Found (${result.issuesFound} package${result.issuesFound === 1 ? '' : 's'}):`);
         lines.push('');
 
         result.audits.filter(a => a.issues.length > 0).forEach(audit => {
-            lines.push(`${audit.packageName}:`);
+            // Highlight critical issues
+            const hasCritical = audit.status.hasMergeConflicts || audit.status.hasOpenPR;
+            const prefix = hasCritical ? '🚨 ' : '';
+            
+            lines.push(`${prefix}${audit.packageName}:`);
             audit.issues.forEach(issue => {
-                lines.push(`   ❌ ${issue}`);
+                const icon = issue.includes('MERGE CONFLICTS') ? '⚠️ ' : issue.includes('PR') ? '📋 ' : '❌ ';
+                lines.push(`   ${icon}${issue}`);
             });
             audit.fixes.forEach(fix => {
                 lines.push(`   💡 Fix: ${fix}`);

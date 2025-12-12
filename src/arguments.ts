@@ -752,7 +752,7 @@ export async function getCliConfig(
         .option('--continue', 'continue from previous tree publish execution using saved checkpoint state')
         .option('--status', 'check status of running tree publish processes')
         .option('--status-parallel', 'show detailed parallel execution status with package states, timing, and errors')
-        .option('--audit-branches', 'audit git branch state across all packages (checks branch name, sync status, unpushed commits)')
+        .option('--audit-branches', 'audit git branch state across all packages (checks branch consistency, merge conflicts with target, existing PRs, sync status, unpushed commits)')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
         .option('--mark-completed <packages>', 'mark packages as completed using directory names (comma-separated, for recovery)')
         .option('--skip <packages>', 'skip packages and their dependents (comma-separated)')

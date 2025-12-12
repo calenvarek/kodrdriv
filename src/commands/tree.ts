@@ -1096,10 +1096,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         const { auditBranchState, formatAuditResults } = await import('../utils/branchState');
         
-        // For publish workflows, we check that all packages are on the same branch
-        // (typically 'working'), NOT that they're on 'main'
-        // Don't pass an expected branch - let the audit just check for consistency
-        const auditResult = await auditBranchState(packages, undefined);
+        // For publish workflows, check branch consistency, merge conflicts, and existing PRs
+        // Don't pass an expected branch - let the audit find the most common branch
+        const targetBranch = runConfig.publish?.targetBranch || 'main';
+        
+        logger.info(`Checking for merge conflicts with '${targetBranch}' and existing pull requests...`);
+        
+        const auditResult = await auditBranchState(packages, undefined, {
+            targetBranch,
+            checkPR: true,
+            checkConflicts: true,
+        });
         const formatted = formatAuditResults(auditResult);
 
         logger.info('\n' + formatted);
