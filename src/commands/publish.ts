@@ -1229,29 +1229,33 @@ export const execute = async (runConfig: Config): Promise<void> => {
     await runWithDryRunSupport(`git checkout ${currentBranch}`, isDryRun);
 
     if (!isDryRun) {
-        // Merge target into source
+        // Sync target into source
         // Note: With squash merging, fast-forward will fail because commit histories diverge
-        logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
+        if (mergeMethod === 'squash') {
+            // For squash merges, reset to target branch to avoid conflicts
+            // The squash merge created a single commit on target that represents all source commits
+            logger.info(`Resetting ${currentBranch} to ${targetBranch} (squash merge)...`);
+            await run(`git reset --hard ${targetBranch}`);
+            logger.info(`✅ Reset ${currentBranch} to ${targetBranch}`);
+        } else {
+            // For merge/rebase methods, try to merge target back into source
+            logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
 
-        // Try fast-forward first (works with merge/rebase methods)
-        // Use runSecure to avoid error output for expected failure
-        let fastForwardSucceeded = false;
-        try {
-            await runSecure('git', ['merge', targetBranch, '--ff-only']);
-            fastForwardSucceeded = true;
-            logger.info(`✅ Fast-forward merged ${targetBranch} into ${currentBranch}`);
-        } catch {
-            // Fast-forward failed - expected when using squash merge method
-            if (mergeMethod === 'squash') {
-                logger.verbose('Fast-forward not possible (expected with squash merge), performing regular merge...');
-            } else {
+            // Try fast-forward first (works with merge/rebase methods)
+            // Use runSecure to avoid error output for expected failure
+            let fastForwardSucceeded = false;
+            try {
+                await runSecure('git', ['merge', targetBranch, '--ff-only']);
+                fastForwardSucceeded = true;
+                logger.info(`✅ Fast-forward merged ${targetBranch} into ${currentBranch}`);
+            } catch {
                 logger.verbose(`Fast-forward merge not possible, performing regular merge...`);
             }
-        }
 
-        if (!fastForwardSucceeded) {
-            await run(`git merge ${targetBranch} --no-edit`);
-            logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
+            if (!fastForwardSucceeded) {
+                await run(`git merge ${targetBranch} --no-edit`);
+                logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
+            }
         }
 
         // Determine version bump based on branch configuration
@@ -1293,7 +1297,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.warn(`   Please push manually: git push origin ${currentBranch}`);
         }
     } else {
-        logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
+        if (mergeMethod === 'squash') {
+            logger.info(`Would reset ${currentBranch} to ${targetBranch} (squash merge)`);
+        } else {
+            logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
+        }
         logger.info(`Would bump version to next development version`);
         logger.info(`Would push ${currentBranch} to origin`);
     }
