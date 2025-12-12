@@ -1595,7 +1595,7 @@ describe('Argument Parsing and Configuration', () => {
             const result = await validateContextDirectories(inputDirs);
 
             expect(result).toEqual(expectedDirs);
-            expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Error validating directory path/to/dir2: Permission denied'));
+            expect(mockLogger.warn).toHaveBeenCalledWith('DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: path/to/dir2 | Error: Permission denied');
         });
 
         it('should handle an empty input array', async () => {
@@ -3158,7 +3158,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result.contextDirectories).toEqual(['src', 'tests']); // Only readable directories
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory docs: Permission denied')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: docs | Error: Permission denied'
             );
         });
 
@@ -3273,8 +3273,7 @@ describe('Argument Parsing and Configuration', () => {
             await expect(validateConfigDir(configDir)).rejects.toThrow('Failed to validate config directory');
             expect(mockStorage.exists).toHaveBeenCalled();
             expect(mockLogger.error).toHaveBeenCalledWith(
-                expect.stringContaining('Failed to validate config directory'),
-                storageError
+                'CONFIG_DIR_VALIDATION_FAILED: Failed to validate config directory | Directory: /absolute/./error-config | Error: Error: Storage system failure'
             );
         });
 
@@ -4081,10 +4080,10 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result).toEqual(['/readable', '/another-readable']);
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory /permission-denied: EACCES: permission denied')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: /permission-denied | Error: EACCES: permission denied'
             );
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Directory not readable: /not-readable')
+                'DIRECTORY_NOT_READABLE: Directory not readable | Directory: /not-readable | Impact: Cannot scan for packages'
             );
         });
 
@@ -4096,7 +4095,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result).toEqual([]);
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory /timeout-dir: ETIMEDOUT: operation timed out')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: /timeout-dir | Error: ETIMEDOUT: operation timed out'
             );
         });
 
@@ -4108,7 +4107,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result).toEqual([]);
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory /network-dir: ENETUNREACH: network unreachable')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: /network-dir | Error: ENETUNREACH: network unreachable'
             );
         });
 
@@ -4120,7 +4119,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result).toEqual([]);
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory /device-error-dir: EIO: I/O error')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: /device-error-dir | Error: EIO: I/O error'
             );
         });
 
@@ -4152,8 +4151,7 @@ describe('Argument Parsing and Configuration', () => {
                 'Failed to validate config directory'
             );
             expect(mockLogger.error).toHaveBeenCalledWith(
-                expect.stringContaining('Failed to validate config directory'),
-                writeError
+                'CONFIG_DIR_VALIDATION_FAILED: Failed to validate config directory | Directory: /absolute/./write-check-failing | Error: Error: EPERM: operation not permitted'
             );
         });
     });
@@ -4546,8 +4544,7 @@ describe('Argument Parsing and Configuration', () => {
             );
 
             expect(mockLogger.error).toHaveBeenCalledWith(
-                expect.stringContaining('Failed to validate config directory'),
-                complexError
+                'CONFIG_DIR_VALIDATION_FAILED: Failed to validate config directory | Directory: /absolute/./complex-error-config | Error: Error: Complex storage failure'
             );
         });
 
@@ -4564,7 +4561,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result).toEqual([]);
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory /restricted/path: Permission denied')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: /restricted/path | Error: Permission denied'
             );
         });
 
@@ -4602,7 +4599,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result.length).toBeLessThan(dirs.length);
             expect(mockLogger.warn).toHaveBeenCalledWith(
-                expect.stringContaining('Error validating directory /dir2: Nested async error 2')
+                'DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: /dir2 | Error: Nested async error 2'
             );
         });
     });

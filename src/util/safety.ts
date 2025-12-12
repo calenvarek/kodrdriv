@@ -163,11 +163,11 @@ export const logFileDependencyWarning = (issues: FileDependencyIssue[], context:
         return;
     }
 
-    logger.warn(`⚠️  WARNING: Found file: dependencies that should not be committed during ${context}:`);
+    logger.warn(`FILE_DEPS_WARNING: Found file: dependencies that should not be committed | Context: ${context} | Count: ${issues.length} | Impact: May cause build issues`);
     for (const issue of issues) {
-        logger.warn(`  📄 ${issue.packagePath}:`);
+        logger.warn(`FILE_DEPS_PACKAGE: Package with file dependencies | Package: ${issue.packagePath}`);
         for (const dep of issue.dependencies) {
-            logger.warn(`    - ${dep.name}: ${dep.version} (${dep.dependencyType})`);
+            logger.warn(`FILE_DEPS_DETAIL: Dependency details | Name: ${dep.name} | Version: ${dep.version} | Type: ${dep.dependencyType}`);
         }
     }
     logger.warn('');
@@ -180,19 +180,19 @@ export const logFileDependencyWarning = (issues: FileDependencyIssue[], context:
 export const logFileDependencySuggestions = (hasUnlinkCapability: boolean = true): void => {
     const logger = getLogger();
 
-    logger.warn('💡 To resolve this:');
+    logger.warn('FILE_DEPS_RESOLUTION: Steps to resolve file dependency issues:');
     if (hasUnlinkCapability) {
-        logger.warn('   1. Run "kodrdriv unlink" to restore registry versions');
-        logger.warn('   2. Complete your commit');
-        logger.warn('   3. Run "kodrdriv link" again for local development');
+        logger.warn('   STEP_1: Restore registry versions | Command: kodrdriv unlink');
+        logger.warn('   STEP_2: Complete commit operation | Command: git commit');
+        logger.warn('   STEP_3: Restore local development links | Command: kodrdriv link');
     } else {
-        logger.warn('   1. Manually restore registry versions in package.json files');
-        logger.warn('   2. Complete your commit');
-        logger.warn('   3. Re-link your local dependencies');
+        logger.warn('   STEP_1: Manually restore registry versions in package.json files');
+        logger.warn('   STEP_2: Complete commit operation | Command: git commit');
+        logger.warn('   STEP_3: Re-link local dependencies for development');
     }
     logger.warn('');
-    logger.warn('   Or to bypass this check:');
-    logger.warn('   - Add --skip-file-check flag to your command');
-    logger.warn('   - Or use git commit --no-verify to skip all hooks');
+    logger.warn('FILE_DEPS_BYPASS: Alternative bypass options:');
+    logger.warn('   OPTION_1: Skip file check | Flag: --skip-file-check');
+    logger.warn('   OPTION_2: Skip all hooks | Command: git commit --no-verify');
     logger.warn('');
 };

@@ -32,6 +32,8 @@ export const InputSchema = z.object({
     from: z.string().optional(),
     to: z.string().optional(),
     targetVersion: z.string().optional(),
+    skipAlreadyPublished: z.boolean().optional(),
+    forceRepublish: z.boolean().optional(),
     excludedPatterns: z.array(z.string()).optional(),
     excludedPaths: z.array(z.string()).optional(),
     exclude: z.array(z.string()).optional(), // Alias for excludedPatterns
@@ -75,6 +77,8 @@ export const InputSchema = z.object({
     tagWorkingBranch: z.boolean().optional(), // Tag working branch with release version before bumping to dev
     createRetroactiveTags: z.boolean().optional(), // Create tags for past releases found in git history
     workingTagPrefix: z.string().optional(), // Tag prefix for working branch tags
+    updateDeps: z.string().optional(), // Scope for inter-project dependency updates in publish command
+    interProject: z.boolean().optional(), // Update inter-project dependencies in updates command
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -145,15 +149,20 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.targetVersion !== undefined ||
         finalCliArgs.interactive !== undefined ||
         finalCliArgs.syncTarget !== undefined ||
+        finalCliArgs.skipAlreadyPublished !== undefined ||
+        finalCliArgs.forceRepublish !== undefined ||
         (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.noMilestones !== undefined))
     ) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
-        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined) && finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
+        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.skipAlreadyPublished !== undefined || finalCliArgs.forceRepublish !== undefined) && finalCliArgs.from !== undefined) transformedCliArgs.publish.from = finalCliArgs.from;
         if (finalCliArgs.targetVersion !== undefined) transformedCliArgs.publish.targetVersion = finalCliArgs.targetVersion;
         if (finalCliArgs.interactive !== undefined) transformedCliArgs.publish.interactive = finalCliArgs.interactive;
         if (finalCliArgs.syncTarget !== undefined) transformedCliArgs.publish.syncTarget = finalCliArgs.syncTarget;
-        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined) && finalCliArgs.noMilestones !== undefined) transformedCliArgs.publish.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.skipAlreadyPublished !== undefined) transformedCliArgs.publish.skipAlreadyPublished = finalCliArgs.skipAlreadyPublished;
+        if (finalCliArgs.forceRepublish !== undefined) transformedCliArgs.publish.forceRepublish = finalCliArgs.forceRepublish;
+        if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.skipAlreadyPublished !== undefined || finalCliArgs.forceRepublish !== undefined) && finalCliArgs.noMilestones !== undefined) transformedCliArgs.publish.noMilestones = finalCliArgs.noMilestones;
+        if (finalCliArgs.updateDeps !== undefined) transformedCliArgs.publish.updateDeps = finalCliArgs.updateDeps;
     }
 
     // Nested mappings for 'development' options
@@ -285,12 +294,17 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         const packageArgument = (finalCliArgs as any).packageArgument;
 
         // Only create tree object if there are actual tree-specific options
+        const cliArgs = finalCliArgs as any;
         if (finalCliArgs.directories !== undefined || finalCliArgs.directory !== undefined ||
             finalCliArgs.startFrom !== undefined ||
             finalCliArgs.stopAt !== undefined || finalCliArgs.cmd !== undefined ||
             builtInCommand !== undefined || finalCliArgs.continue !== undefined ||
             packageArgument !== undefined || finalCliArgs.cleanNodeModules !== undefined ||
-            finalCliArgs.externals !== undefined) {
+            finalCliArgs.externals !== undefined ||
+            cliArgs.statusParallel !== undefined || cliArgs.auditBranches !== undefined ||
+            cliArgs.parallel !== undefined || cliArgs.markCompleted !== undefined ||
+            cliArgs.skip !== undefined || cliArgs.retryFailed !== undefined ||
+            cliArgs.skipFailed !== undefined || cliArgs.validateState !== undefined) {
 
             transformedCliArgs.tree = {};
             if (finalCliArgs.directories !== undefined) transformedCliArgs.tree.directories = finalCliArgs.directories;
@@ -306,8 +320,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (finalCliArgs.cleanNodeModules !== undefined) transformedCliArgs.tree.cleanNodeModules = finalCliArgs.cleanNodeModules;
             if (finalCliArgs.externals !== undefined) transformedCliArgs.tree.externals = finalCliArgs.externals;
 
-            // Parallel execution options (using any cast for new properties)
-            const cliArgs = finalCliArgs as any;
+            // Parallel execution options
             if (cliArgs.parallel !== undefined) transformedCliArgs.tree.parallel = cliArgs.parallel;
             if (cliArgs.maxConcurrency !== undefined) transformedCliArgs.tree.maxConcurrency = cliArgs.maxConcurrency;
             if (cliArgs.maxRetries !== undefined || cliArgs.retryDelay !== undefined) {
@@ -321,6 +334,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
 
             // Recovery options
             if (cliArgs.statusParallel !== undefined) transformedCliArgs.tree.statusParallel = cliArgs.statusParallel;
+            if (cliArgs.auditBranches !== undefined) transformedCliArgs.tree.auditBranches = cliArgs.auditBranches;
             if (cliArgs.markCompleted !== undefined) {
                 transformedCliArgs.tree.markCompleted = cliArgs.markCompleted.split(',').map((s: string) => s.trim());
             }
@@ -351,10 +365,11 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     }
 
     // Nested mappings for 'updates' options
-    if (commandName === 'updates' && (finalCliArgs.scope !== undefined || finalCliArgs.directories !== undefined)) {
+    if (commandName === 'updates' && (finalCliArgs.scope !== undefined || finalCliArgs.directories !== undefined || finalCliArgs.interProject !== undefined)) {
         transformedCliArgs.updates = {};
         if (finalCliArgs.scope !== undefined) transformedCliArgs.updates.scope = finalCliArgs.scope;
         if (finalCliArgs.directories !== undefined) transformedCliArgs.updates.directories = finalCliArgs.directories;
+        if (finalCliArgs.interProject !== undefined) transformedCliArgs.updates.interProject = finalCliArgs.interProject;
     }
 
     // Handle excluded patterns (Commander.js converts --excluded-paths to excludedPaths)
@@ -724,8 +739,11 @@ export async function getCliConfig(
         .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .option('--sync-target', 'attempt to automatically sync target branch with remote before publishing')
+        .option('--skip-already-published', 'skip packages that are already published at target version on npm')
+        .option('--force-republish', 'delete existing tags and force republish even if tag exists')
         .option('--no-milestones', 'disable GitHub milestone integration')
         .option('--from-main', 'force comparison against main branch instead of previous release tag')
+        .option('--update-deps <scope>', 'update inter-project dependencies before publish (e.g., --update-deps @fjell)')
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
@@ -736,22 +754,48 @@ export async function getCliConfig(
         .option('--start-from <startFrom>', 'resume execution from this package directory name (useful for restarting failed builds)')
         .option('--stop-at <stopAt>', 'stop execution at this package directory name (the specified package will not be executed)')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
+
+        // Parallel Execution Options
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--max-concurrency <number>', 'maximum number of packages to execute concurrently (default: number of CPU cores)', parseInt)
         .option('--max-retries <number>', 'maximum retry attempts for failed packages (default: 3)', parseInt)
         .option('--retry-delay <ms>', 'initial retry delay in milliseconds (default: 5000)', parseInt)
-        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
-        .option('--continue', 'continue from previous tree publish execution')
+
+        // Recovery & Status Options
+        .option('--continue', 'continue from previous tree publish execution using saved checkpoint state')
         .option('--status', 'check status of running tree publish processes')
-        .option('--status-parallel', 'show detailed parallel execution status')
+        .option('--status-parallel', 'show detailed parallel execution status with package states, timing, and errors')
+        .option('--audit-branches', 'audit git branch state across all packages (checks branch consistency, merge conflicts with target, existing PRs, sync status, unpushed commits)')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
         .option('--mark-completed <packages>', 'mark packages as completed using directory names (comma-separated, for recovery)')
         .option('--skip <packages>', 'skip packages and their dependents (comma-separated)')
-        .option('--retry-failed', 'retry all previously failed packages')
-        .option('--skip-failed', 'skip failed packages and continue with remaining')
-        .option('--validate-state', 'validate checkpoint state integrity')
+        .option('--retry-failed', 'retry all previously failed packages from checkpoint')
+        .option('--skip-failed', 'skip failed packages and continue with remaining packages')
+        .option('--validate-state', 'validate checkpoint state integrity before continuing')
+
+        // Package Filtering
+        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
+
+        // Link/Unlink Options
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
-        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run, checkout');
+        .description(`Analyze package dependencies in workspace and execute commands in dependency order.
+
+Built-in commands:
+  commit      - Run 'kodrdriv commit' in each package
+  publish     - Run 'kodrdriv publish' in each package (supports --parallel)
+  link        - Create file: dependencies for local development
+  unlink      - Restore npm registry dependencies
+  development - Switch to development branch with version bump
+  branches    - Show branch information for all packages
+  run         - Execute custom shell command (use --cmd)
+  checkout    - Checkout specified branch in all packages
+
+Examples:
+  kodrdriv tree publish --parallel --model "gpt-5-mini"
+  kodrdriv tree --cmd "npm test"
+  kodrdriv tree publish --continue --retry-failed
+  kodrdriv tree publish --audit-branches
+  kodrdriv tree publish --status-parallel`);
     addSharedOptions(treeCommand);
 
     const linkCommand = program
@@ -902,9 +946,10 @@ export async function getCliConfig(
     addSharedOptions(versionsCommand);
 
     const updatesCommand = program
-        .command('updates <scope>')
+        .command('updates [scope]')
         .option('--directories [directories...]', 'directories to scan for packages (tree mode, defaults to current directory)')
-        .description('Update dependencies matching a specific scope using npm-check-updates (e.g., kodrdriv updates @fjell)');
+        .option('--inter-project', 'update inter-project dependencies based on tree state (requires --scope)')
+        .description('Update dependencies matching a specific scope using npm-check-updates (e.g., kodrdriv updates @fjell) or update inter-project dependencies (kodrdriv updates --inter-project @fjell)');
     addSharedOptions(updatesCommand);
 
     const selectAudioCommand = program
@@ -1285,7 +1330,7 @@ export async function validateConfigDir(configDir: string): Promise<string> {
         // Check if the path exists
         if (!(await storage.exists(absoluteConfigDir))) {
             // Directory doesn't exist, warn and fall back to defaults
-            logger.warn(`Config directory does not exist: ${absoluteConfigDir}. Using default configuration.`);
+            logger.warn(`CONFIG_DIR_NOT_FOUND: Config directory does not exist | Directory: ${absoluteConfigDir} | Action: Using default configuration | Status: fallback`);
             return absoluteConfigDir; // Return the path anyway, app will use defaults
         }
 
@@ -1299,7 +1344,7 @@ export async function validateConfigDir(configDir: string): Promise<string> {
             throw new Error(`Config directory is not writable: ${absoluteConfigDir}`);
         }
     } catch (error: any) {
-        logger.error(`Failed to validate config directory: ${absoluteConfigDir}`, error);
+        logger.error(`CONFIG_DIR_VALIDATION_FAILED: Failed to validate config directory | Directory: ${absoluteConfigDir} | Error: ` + error);
         throw new Error(`Failed to validate config directory: ${absoluteConfigDir}: ${error.message}`);
     }
 
@@ -1319,10 +1364,10 @@ export async function validateContextDirectories(contextDirectories: string[]): 
             if (await storage.isDirectoryReadable(dir)) {
                 validDirectories.push(dir);
             } else {
-                logger.warn(`Directory not readable: ${dir}`);
+                logger.warn(`DIRECTORY_NOT_READABLE: Directory not readable | Directory: ${dir} | Impact: Cannot scan for packages`);
             }
         } catch (error: any) {
-            logger.warn(`Error validating directory ${dir}: ${error.message}`);
+            logger.warn(`DIRECTORY_VALIDATION_ERROR: Error validating directory | Directory: ${dir} | Error: ${error.message}`);
         }
     }
 

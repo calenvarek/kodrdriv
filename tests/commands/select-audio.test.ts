@@ -75,8 +75,8 @@ describe('select-audio', () => {
             const result = await SelectAudio.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would start audio device selection process');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', expect.any(String));
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_SELECT_DRY_RUN: Would start audio device selection | Mode: dry-run | Purpose: Choose input device');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_SELECT_SAVE_DRY_RUN: Would save device to config | Mode: dry-run | Path: %s', expect.any(String));
             expect(result).toBe('Audio device selection completed (dry run)');
             expect(Unplayable.selectAndConfigureAudioDevice).not.toHaveBeenCalled();
         });
@@ -93,8 +93,8 @@ describe('select-audio', () => {
             const result = await SelectAudio.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would start audio device selection process');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', expect.any(String));
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_SELECT_DRY_RUN: Would start audio device selection | Mode: dry-run | Purpose: Choose input device');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_SELECT_SAVE_DRY_RUN: Would save device to config | Mode: dry-run | Path: %s', expect.any(String));
             expect(result).toBe('Audio device selection completed (dry run)');
         });
 
@@ -226,7 +226,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Audio device selection failed');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Audio device selection failed');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_COMMAND_FAILED: Audio device selection command failed | Error: %s | Status: failed', 'Audio device selection failed');
         });
 
         it('should handle errors with custom error messages', async () => {
@@ -241,7 +241,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: No audio devices found');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'No audio devices found');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_COMMAND_FAILED: Audio device selection command failed | Error: %s | Status: failed', 'No audio devices found');
         });
 
         it('should handle errors without message property', async () => {
@@ -257,7 +257,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Custom error object');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Custom error object');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_COMMAND_FAILED: Audio device selection command failed | Error: %s | Status: failed', 'Custom error object');
         });
     });
 
@@ -320,7 +320,7 @@ describe('select-audio', () => {
             SelectAudio.execute(mockConfig);
 
             expect(path.join).toHaveBeenCalledWith('/test/home', '.unplayable', 'audio-device.json');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would save selected device to %s', '/test/home/.unplayable/audio-device.json');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_SELECT_SAVE_DRY_RUN: Would save device to config | Mode: dry-run | Path: %s', '/test/home/.unplayable/audio-device.json');
         });
 
         it('should handle home directory error in dry run mode', async () => {
@@ -340,7 +340,7 @@ describe('select-audio', () => {
             const result = await SelectAudio.execute(mockConfig);
 
             // Assert
-            expect(mockLogger.warn).toHaveBeenCalledWith('Error determining config path: %s', 'Failed to determine home directory: Home directory not found');
+            expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_SELECT_CONFIG_PATH_ERROR: Error determining config path | Error: %s | Impact: Cannot show save location', 'Failed to determine home directory: Home directory not found');
             expect(result).toBe('Audio device selection completed (dry run)');
         });
     });
@@ -360,7 +360,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Cannot access home directory');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Cannot access home directory');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_COMMAND_FAILED: Audio device selection command failed | Error: %s | Status: failed', 'Cannot access home directory');
         });
 
         it('should handle specific home directory error message patterns', async () => {
@@ -377,7 +377,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: ENOENT: no such file or directory');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'ENOENT: no such file or directory');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_COMMAND_FAILED: Audio device selection command failed | Error: %s | Status: failed', 'ENOENT: no such file or directory');
         });
 
         it('should handle path.join error during normal execution', async () => {
@@ -395,7 +395,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Audio device selection failed: Path join failed');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ Audio device selection failed: %s', 'Path join failed');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_COMMAND_FAILED: Audio device selection command failed | Error: %s | Status: failed', 'Path join failed');
         });
 
         it('should handle home directory error with specific error message check', async () => {
@@ -412,7 +412,7 @@ describe('select-audio', () => {
 
             // Act & Assert
             await expect(SelectAudio.execute(mockConfig)).rejects.toThrow('Failed to determine home directory: permission denied');
-            expect(mockLogger.error).toHaveBeenCalledWith('❌ %s', 'Failed to determine home directory: permission denied');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_SELECT_FAILED: Audio device selection failed | Error: %s', 'Failed to determine home directory: permission denied');
         });
     });
 });

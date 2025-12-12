@@ -34,12 +34,12 @@ const discoverAudioFiles = async (directory: string): Promise<string[]> => {
             .map(file => path.join(directory, file))
             .sort(); // Sort for consistent processing order
 
-        logger.info(`Found ${audioFiles.length} audio files in directory: ${directory}`);
+        logger.info(`AUDIO_REVIEW_FILES_FOUND: Found audio files in directory | Count: ${audioFiles.length} | Directory: ${directory} | Status: ready-for-processing`);
         logger.debug('Audio files found: %s', audioFiles.join(', '));
 
         return audioFiles;
     } catch (error: any) {
-        logger.error('Failed to discover audio files in directory: %s', error.message);
+        logger.error('AUDIO_REVIEW_DISCOVERY_FAILED: Failed to discover audio files | Directory: %s | Error: %s | Impact: Cannot process batch', directory, error.message);
         throw error;
     }
 };
@@ -51,10 +51,10 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
     const logger = getLogger();
 
     try {
-        logger.info('🎵 Processing audio file: %s', path.basename(audioFilePath));
+        logger.info('AUDIO_REVIEW_PROCESSING: Processing audio file | File: %s | Action: Transcribe and analyze', path.basename(audioFilePath));
 
         // Use kodrdriv's transcription functionality
-        logger.info('🤖 Transcribing audio using OpenAI Whisper...');
+        logger.info('AUDIO_REVIEW_TRANSCRIBING: Transcribing audio using OpenAI Whisper | Service: OpenAI Whisper | Purpose: Convert speech to text');
 
         const aiStorageAdapter = createStorageAdapter();
         const aiLogger = createLoggerAdapter(runConfig.dryRun || false);
@@ -77,15 +77,15 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
         const audioContext = transcription.text;
 
         if (!audioContext.trim()) {
-            logger.warn('No audio content was transcribed from: %s', audioFilePath);
+            logger.warn('AUDIO_REVIEW_NO_TRANSCRIPT: No audio content transcribed | File: %s | Reason: Empty or invalid audio | Action: Skipping', audioFilePath);
             return '';
         } else {
-            logger.info('📝 Successfully transcribed audio from: %s', path.basename(audioFilePath));
+            logger.info('AUDIO_REVIEW_TRANSCRIBED: Successfully transcribed audio | File: %s | Length: %d characters | Status: ready', path.basename(audioFilePath), audioContext.length);
             logger.debug('Transcribed text: %s', audioContext);
         }
 
         // Now delegate to the regular review command with the audio context
-        logger.info('🤖 Analyzing review for: %s', path.basename(audioFilePath));
+        logger.info('AUDIO_REVIEW_ANALYZING: Analyzing review from transcript | File: %s | Action: AI analysis | Purpose: Extract issues', path.basename(audioFilePath));
         const result = await executeReview({
             ...runConfig,
             review: {
@@ -108,7 +108,7 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
         return result;
 
     } catch (error: any) {
-        logger.error('Failed to process audio file %s: %s', audioFilePath, error.message);
+        logger.error('AUDIO_REVIEW_FILE_FAILED: Failed to process audio file | File: %s | Error: %s | Impact: File not analyzed', audioFilePath, error.message);
         return `Failed to process ${path.basename(audioFilePath)}: ${error.message}`;
     }
 };
@@ -125,11 +125,11 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     if (directory) {
         // Directory batch processing mode
-        logger.info('🎵 Starting directory batch audio review for: %s', directory);
+        logger.info('AUDIO_REVIEW_BATCH_STARTING: Starting directory batch audio review | Directory: %s | Mode: batch | Purpose: Process all audio files', directory);
 
         if (isDryRun) {
-            logger.info('Would discover and process all audio files in directory: %s', directory);
-            logger.info('Would transcribe each audio file and run review analysis');
+            logger.info('AUDIO_REVIEW_BATCH_DRY_RUN: Would discover and process audio files | Mode: dry-run | Directory: %s | Action: Discover + transcribe + analyze', directory);
+            logger.info('AUDIO_REVIEW_BATCH_WORKFLOW: Would transcribe and analyze each file | Mode: dry-run | Purpose: Review analysis from audio');
             return 'DRY RUN: Directory batch processing would be performed';
         }
 
@@ -138,7 +138,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             const audioFiles = await discoverAudioFiles(directory);
 
             if (audioFiles.length === 0) {
-                logger.warn('No audio files found in directory: %s', directory);
+                logger.warn('AUDIO_REVIEW_NO_FILES: No audio files found in directory | Directory: %s | Extensions: .mp3, .wav, .m4a, .ogg | Action: Nothing to process', directory);
                 return 'No audio files found to process';
             }
 
@@ -147,18 +147,18 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Process each audio file
             for (let i = 0; i < audioFiles.length; i++) {
                 const audioFile = audioFiles[i];
-                logger.info(`\n📁 Processing file ${i + 1} of ${audioFiles.length}: ${path.basename(audioFile)}`);
+                logger.info(`\nAUDIO_REVIEW_BATCH_FILE: Processing batch file | Progress: ${i + 1}/${audioFiles.length} | File: ${path.basename(audioFile)}`);
 
                 const result = await processSingleAudioFile(audioFile, runConfig);
                 results.push(`File: ${path.basename(audioFile)}\n${result}`);
 
                 // Add a separator between files (except for the last one)
                 if (i < audioFiles.length - 1) {
-                    logger.info('✅ Completed processing: %s\n', path.basename(audioFile));
+                    logger.info('AUDIO_REVIEW_FILE_COMPLETE: Completed file processing | File: %s | Status: completed\n', path.basename(audioFile));
                 }
             }
 
-            logger.info('🎉 Completed batch processing of %d audio files', audioFiles.length);
+            logger.info('AUDIO_REVIEW_BATCH_COMPLETE: Completed batch processing | Files Processed: %d | Status: all-completed', audioFiles.length);
 
             // Combine all results
             const combinedResults = `Batch Audio Review Results (${audioFiles.length} files):\n\n` +
@@ -167,7 +167,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             return combinedResults;
 
         } catch (error: any) {
-            logger.error('Directory batch processing failed: %s', error.message);
+            logger.error('AUDIO_REVIEW_BATCH_FAILED: Directory batch processing failed | Error: %s | Impact: Batch incomplete', error.message);
             throw error;
         }
     }
@@ -175,13 +175,13 @@ export const execute = async (runConfig: Config): Promise<string> => {
     // Original single file/recording logic
     if (isDryRun) {
         if (runConfig.audioReview?.file) {
-            logger.info('Would process audio file: %s', runConfig.audioReview.file);
-            logger.info('Would transcribe audio and use as context for review analysis');
+            logger.info('AUDIO_REVIEW_FILE_DRY_RUN: Would process audio file | Mode: dry-run | File: %s | Action: Transcribe + analyze', runConfig.audioReview.file);
+            logger.info('AUDIO_REVIEW_WORKFLOW_DRY_RUN: Would transcribe and analyze | Mode: dry-run | Purpose: Review context from audio');
         } else {
-            logger.info('Would start audio recording for review context');
-            logger.info('Would transcribe audio and use as context for review analysis');
+            logger.info('AUDIO_REVIEW_RECORD_DRY_RUN: Would start audio recording | Mode: dry-run | Purpose: Review context');
+            logger.info('AUDIO_REVIEW_TRANSCRIPT_DRY_RUN: Would transcribe and analyze | Mode: dry-run | Purpose: Extract review content');
         }
-        logger.info('Would then delegate to regular review command');
+        logger.info('AUDIO_REVIEW_DELEGATE_DRY_RUN: Would delegate to regular review command | Mode: dry-run | Next: Standard review flow');
 
         // Return preview without calling real commands
         return 'DRY RUN: Would process audio, transcribe it, and perform review analysis with audio context';
@@ -191,10 +191,10 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     try {
         // Step 1: Record audio using unplayable with new key handling
-        logger.info('🎙️  Starting audio recording for review context...');
+        logger.info('AUDIO_REVIEW_RECORDING_STARTING: Starting audio recording | Purpose: Capture review context | Tool: unplayable');
 
         if (!runConfig.audioReview?.file) {
-            logger.info('Press ENTER to stop recording or C to cancel');
+            logger.info('AUDIO_REVIEW_RECORDING_ACTIVE: Recording in progress | Action: Press ENTER to stop | Alternative: Press C to cancel');
         }
 
         // Start countdown timer if recording (not processing a file) and maxRecordingTime is set
@@ -228,7 +228,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
         // Check if recording was cancelled
         if (audioResult.cancelled) {
-            logger.info('❌ Audio review cancelled by user');
+            logger.info('AUDIO_REVIEW_CANCELLED: Audio review cancelled by user | Reason: User choice | Status: aborted');
             throw new CancellationError('Audio review cancelled by user');
         }
 
@@ -245,12 +245,12 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Fallback to generated filename (this should rarely happen now)
             const outputDir = runConfig.outputDirectory || 'output';
             audioFilePath = path.join(outputDir, getTimestampedAudioFilename());
-            logger.warn('Using generated filename for recorded audio: %s', audioFilePath);
-            logger.warn('Note: This may not match the actual file created by unplayable');
+            logger.warn('AUDIO_REVIEW_FILENAME_GENERATED: Using generated filename for audio | Filename: %s | Warning: May not match actual file from unplayable', audioFilePath);
+            logger.warn('AUDIO_REVIEW_FILENAME_NOTE: Filename mismatch possible | Tool: unplayable | Impact: May need manual file lookup');
         }
 
         // Step 3: Use kodrdriv's transcription functionality
-        logger.info('🤖 Transcribing audio locally using OpenAI Whisper...');
+        logger.info('AUDIO_REVIEW_TRANSCRIBING_LOCAL: Transcribing audio locally | Service: OpenAI Whisper | Mode: local | Purpose: Convert speech to text');
 
         const aiStorageAdapter = createStorageAdapter();
         const aiLogger = createLoggerAdapter(isDryRun);
@@ -273,10 +273,10 @@ export const execute = async (runConfig: Config): Promise<string> => {
         audioContext = transcription.text;
 
         if (!audioContext.trim()) {
-            logger.warn('No audio content was transcribed. Proceeding without audio context.');
+            logger.warn('AUDIO_REVIEW_NO_CONTENT: No audio content transcribed | Reason: Empty or invalid | Action: Proceeding without audio context');
             audioContext = '';
         } else {
-            logger.info('📝 Successfully transcribed audio using kodrdriv');
+            logger.info('AUDIO_REVIEW_TRANSCRIPT_SUCCESS: Successfully transcribed audio | Tool: kodrdriv | Length: ' + audioContext.length + ' characters | Status: ready');
             logger.debug('Transcribed text: %s', audioContext);
         }
 
@@ -286,13 +286,13 @@ export const execute = async (runConfig: Config): Promise<string> => {
             throw error;
         }
 
-        logger.error('Audio processing failed: %s', error.message);
-        logger.info('Proceeding with review analysis without audio context...');
+        logger.error('AUDIO_REVIEW_PROCESSING_FAILED: Audio processing failed | Error: %s | Impact: No audio context available', error.message);
+        logger.info('AUDIO_REVIEW_FALLBACK: Proceeding without audio context | Mode: fallback | Next: Standard review analysis');
         audioContext = '';
     }
 
     // Now delegate to the regular review command with the audio context
-    logger.info('🤖 Analyzing review using audio context...');
+    logger.info('AUDIO_REVIEW_ANALYSIS_STARTING: Analyzing review with audio context | Source: transcript | Purpose: Extract actionable issues');
     const result = await executeReview({
         ...runConfig,
         review: {

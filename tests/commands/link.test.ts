@@ -194,7 +194,7 @@ describe('Link Command', () => {
 
             const config: Config = { configDirectory: '/test', discoveredConfigDirs: [], resolvedConfigDirs: [] } as any;
             const result = await Link.execute(config);
-            expect(result).toContain('Current package must have a scoped name');
+            expect(result).toContain('PACKAGE_SCOPE_MISSING');
             expect(mockRun).not.toHaveBeenCalled();
         });
 

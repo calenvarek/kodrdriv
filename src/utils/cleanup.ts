@@ -50,11 +50,11 @@ export async function cleanDirectory(
             const backup = `${dirPath}.backup.${Date.now()}`;
             logger.verbose(`Attempting to move ${dirPath} to ${backup}...`);
             await fs.rename(dirPath, backup);
-            logger.warn(`⚠️  Could not delete ${dirPath}, moved to ${backup}`);
-            logger.warn(`   You may want to clean this up manually later`);
+            logger.warn(`CLEANUP_MOVED_TO_BACKUP: Could not delete directory, moved to backup | Original: ${dirPath} | Backup: ${backup} | Action: Manual cleanup may be needed`);
+            logger.warn(`CLEANUP_MANUAL_ACTION: Manual cleanup recommended | Path: ${backup} | Purpose: Remove backup directory when safe`);
             return { success: true, movedToBackup: backup };
         } catch (moveError: any) {
-            logger.error(`❌ Failed to delete or move ${dirPath}: ${moveError.message}`);
+            logger.error(`CLEANUP_DELETE_FAILED: Failed to delete or move directory | Path: ${dirPath} | Error: ${moveError.message} | Impact: Directory remains`);
             return { success: false, error: moveError.message };
         }
     }
@@ -98,17 +98,17 @@ export async function cleanDist(options: CleanupOptions = {}): Promise<void> {
     const logger = getLogger();
     const distPath = 'dist';
 
-    logger.info(`🧹 Cleaning ${distPath} directory...`);
+    logger.info(`CLEANUP_DIST_STARTING: Cleaning dist directory | Directory: ${distPath} | Purpose: Remove old build artifacts`);
 
     // Check for processes using the directory
     const processes = await checkProcessesUsingDirectory(distPath);
     if (processes.length > 0) {
-        logger.warn(`⚠️  Found ${processes.length} process(es) using ${distPath}:`);
-        processes.slice(0, 5).forEach(proc => logger.warn(`   ${proc}`));
+        logger.warn(`CLEANUP_PROCESSES_FOUND: Found processes using directory | Directory: ${distPath} | Process Count: ${processes.length} | Impact: May interfere with cleanup`);
+        processes.slice(0, 5).forEach(proc => logger.warn(`CLEANUP_PROCESS_DETAIL: ${proc}`));
         if (processes.length > 5) {
-            logger.warn(`   ... and ${processes.length - 5} more`);
+            logger.warn(`CLEANUP_PROCESSES_MORE: Additional processes not shown | Count: ${processes.length - 5}`);
         }
-        logger.warn(`   These processes may interfere with cleanup`);
+        logger.warn(`CLEANUP_INTERFERENCE_WARNING: Processes may interfere with cleanup | Action: Consider stopping processes first`);
     }
 
     const result = await cleanDirectory(distPath, options);
@@ -118,9 +118,9 @@ export async function cleanDist(options: CleanupOptions = {}): Promise<void> {
     }
 
     if (result.movedToBackup) {
-        logger.info(`✅ Cleaned ${distPath} (moved old directory to ${result.movedToBackup})`);
+        logger.info(`CLEANUP_DIST_SUCCESS_BACKUP: Cleaned directory with backup | Directory: ${distPath} | Backup: ${result.movedToBackup} | Status: completed`);
     } else {
-        logger.info(`✅ Cleaned ${distPath}`);
+        logger.info(`CLEANUP_DIST_SUCCESS: Cleaned directory | Directory: ${distPath} | Status: completed`);
     }
 }
 

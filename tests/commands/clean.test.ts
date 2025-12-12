@@ -90,9 +90,9 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would remove output directory: custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would check if output directory exists: custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would remove directory if it exists');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_DRY_RUN: Would remove output directory | Mode: dry-run | Directory: custom/output | Action: Would delete if exists');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_CHECK_DRY_RUN: Would check directory existence | Mode: dry-run | Directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_REMOVE_DRY_RUN: Would remove directory if present | Mode: dry-run | Action: Delete');
             // Storage operations should not be called in dry run
             expect(mockStorage.exists).not.toHaveBeenCalled();
             expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
@@ -109,9 +109,9 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would remove output directory: custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would check if output directory exists: custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would remove directory if it exists');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_DRY_RUN: Would remove output directory | Mode: dry-run | Directory: custom/output | Action: Would delete if exists');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_CHECK_DRY_RUN: Would check directory existence | Mode: dry-run | Directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_REMOVE_DRY_RUN: Would remove directory if present | Mode: dry-run | Action: Delete');
             // Storage operations should not be called in dry run
             expect(mockStorage.exists).not.toHaveBeenCalled();
             expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would remove output directory: output/kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_DRY_RUN: Would remove output directory | Mode: dry-run | Directory: output/kodrdriv | Action: Would delete if exists');
             // Storage operations should not be called in dry run
             expect(mockStorage.exists).not.toHaveBeenCalled();
             expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
@@ -148,10 +148,10 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: custom/output | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.exists).toHaveBeenCalledWith('custom/output');
             expect(mockStorage.removeDirectory).toHaveBeenCalledWith('custom/output');
-            expect(mockLogger.info).toHaveBeenCalledWith('Successfully removed output directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_SUCCESS: Successfully removed output directory | Directory: custom/output | Status: deleted');
         });
 
         it('should log message when directory does not exist', async () => {
@@ -166,10 +166,10 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: custom/output | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.exists).toHaveBeenCalledWith('custom/output');
             expect(mockStorage.removeDirectory).not.toHaveBeenCalled();
-            expect(mockLogger.info).toHaveBeenCalledWith('Output directory does not exist: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_NOT_EXISTS: Output directory does not exist | Directory: custom/output | Status: nothing-to-clean');
         });
 
         it('should use default output directory when not specified', async () => {
@@ -184,7 +184,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: output/kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: output/kodrdriv | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.exists).toHaveBeenCalledWith('output/kodrdriv');
             expect(mockStorage.removeDirectory).toHaveBeenCalledWith('output/kodrdriv');
         });
@@ -201,7 +201,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: custom/output');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: custom/output | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.removeDirectory).toHaveBeenCalledWith('custom/output');
         });
     });
@@ -219,7 +219,7 @@ describe('clean command', () => {
 
             // Act & Assert
             await expect(Clean.execute(runConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('Failed to clean output directory: Permission denied');
+            expect(mockLogger.error).toHaveBeenCalledWith('CLEAN_FAILED: Failed to clean output directory | Directory: custom/output | Error: Permission denied');
             expect(mockStorage.removeDirectory).toHaveBeenCalledWith('custom/output');
         });
 
@@ -236,7 +236,7 @@ describe('clean command', () => {
 
             // Act & Assert
             await expect(Clean.execute(runConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('Failed to clean output directory: undefined');
+            expect(mockLogger.error).toHaveBeenCalledWith('CLEAN_FAILED: Failed to clean output directory | Directory: custom/output | Error: undefined');
         });
 
         it('should handle non-Error objects thrown from removeDirectory', async () => {
@@ -251,7 +251,7 @@ describe('clean command', () => {
 
             // Act & Assert
             await expect(Clean.execute(runConfig)).rejects.toThrow();
-            expect(mockLogger.error).toHaveBeenCalledWith('Failed to clean output directory: undefined');
+            expect(mockLogger.error).toHaveBeenCalledWith('CLEAN_FAILED: Failed to clean output directory | Directory: custom/output | Error: undefined');
         });
     });
 
@@ -282,7 +282,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: output/kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: output/kodrdriv | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.exists).toHaveBeenCalledWith('output/kodrdriv');
         });
 
@@ -297,7 +297,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: output/kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: output/kodrdriv | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.exists).toHaveBeenCalledWith('output/kodrdriv');
         });
 
@@ -312,7 +312,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Removing output directory: output/kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith('CLEAN_STARTING: Removing output directory | Directory: output/kodrdriv | Action: Delete | Purpose: Clean generated files');
             expect(mockStorage.exists).toHaveBeenCalledWith('output/kodrdriv');
         });
     });

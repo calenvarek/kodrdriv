@@ -332,7 +332,7 @@ export const calculateBranchDependentVersion = async (
             // Look at target branch's version config to determine what version it should have
             const targetConfig = defaultConfig[finalTargetBranch];
 
-            logger.info(`🎯 Using default branch configuration: ${currentBranch} → ${finalTargetBranch}`);
+            logger.info(`VERSION_BRANCH_DEFAULT: Using default branch configuration | Source Branch: ${currentBranch} | Target Branch: ${finalTargetBranch} | Source: default config`);
 
             if (!targetConfig?.version) {
                 const defaultVersion = incrementPatchVersion(currentVersion);
@@ -356,7 +356,7 @@ export const calculateBranchDependentVersion = async (
     // Look at target branch's version config to determine what version it should have
     const targetConfig = branchesConfig[finalTargetBranch];
 
-    logger.info(`🎯 Using branch-dependent targeting: ${currentBranch} → ${finalTargetBranch}`);
+    logger.info(`VERSION_BRANCH_DEPENDENT: Using branch-dependent targeting | Source Branch: ${currentBranch} | Target Branch: ${finalTargetBranch} | Source: branch config`);
 
     if (!targetConfig?.version) {
         // No version config for target, use default increment
@@ -380,7 +380,7 @@ const calculateVersionFromTargetConfig = async (
     if (versionConfig.type === 'release') {
         // Convert to release version (remove prerelease tags)
         const releaseVersion = convertToReleaseVersion(currentVersion);
-        logger.info(`📦 Converting to release version: ${currentVersion} → ${releaseVersion}`);
+        logger.info(`VERSION_RELEASE_CONVERSION: Converting prerelease to release version | Current: ${currentVersion} | Release: ${releaseVersion} | Action: Remove prerelease tag`);
         return { version: releaseVersion, targetBranch };
     } else if (versionConfig.type === 'prerelease') {
         if (!versionConfig.tag) {
@@ -396,19 +396,19 @@ const calculateVersionFromTargetConfig = async (
             if (targetBranchVersion) {
                 // Use the target branch version as the base and increment
                 const newVersion = incrementPrereleaseVersion(targetBranchVersion, tag);
-                logger.info(`📦 Incrementing prerelease in target branch: ${targetBranchVersion} → ${newVersion}`);
+                logger.info(`VERSION_PRERELEASE_INCREMENT: Incrementing prerelease version | Current: ${targetBranchVersion} | New: ${newVersion} | Action: Increment prerelease number`);
                 return { version: newVersion, targetBranch };
             } else {
                 // No version in target branch, use current version as base
                 const newVersion = incrementPrereleaseVersion(currentVersion, tag);
-                logger.info(`📦 Creating new prerelease version: ${currentVersion} → ${newVersion}`);
+                logger.info(`VERSION_PRERELEASE_CREATE: Creating new prerelease version | Current: ${currentVersion} | New: ${newVersion} | Action: Add prerelease tag`);
                 return { version: newVersion, targetBranch };
             }
         } else {
             // Just add/change the prerelease tag without incrementing
             const baseVersion = convertToReleaseVersion(currentVersion);
             const newVersion = `${baseVersion}-${tag}.0`;
-            logger.info(`📦 Setting prerelease tag: ${currentVersion} → ${newVersion}`);
+            logger.info(`VERSION_PRERELEASE_TAG: Setting prerelease tag | Current: ${currentVersion} | New: ${newVersion} | Tag: ${versionConfig.tag}`);
             return { version: newVersion, targetBranch };
         }
     }
@@ -488,11 +488,11 @@ export const confirmVersionInteractively = async (currentVersion: string, propos
     requireTTY('Interactive version confirmation requires a terminal.');
 
     const logger = getLogger();
-    logger.info(`\n📦 Version Confirmation:`);
-    logger.info(`   Current version: ${currentVersion}`);
-    logger.info(`   Proposed version: ${proposedVersion}`);
+    logger.info(`\nVERSION_CONFIRMATION: Version confirmation required | Current: ${currentVersion} | Proposed: ${proposedVersion}`);
+    logger.info(`VERSION_CURRENT: Current package version | Version: ${currentVersion}`);
+    logger.info(`VERSION_PROPOSED: Proposed new version | Version: ${proposedVersion}`);
     if (targetVersionInput) {
-        logger.info(`   Target input: ${targetVersionInput}`);
+        logger.info(`VERSION_TARGET_INPUT: Target version provided | Input: ${targetVersionInput}`);
     }
 
     const choices = [
@@ -512,7 +512,7 @@ export const confirmVersionInteractively = async (currentVersion: string, propos
                 throw new Error(`Invalid version format: ${customVersion}. Expected format: "x.y.z"`);
             }
             const cleanCustomVersion = customVersion.startsWith('v') ? customVersion.slice(1) : customVersion;
-            logger.info(`✅ Using custom version: ${cleanCustomVersion}`);
+            logger.info(`VERSION_CUSTOM_SELECTED: Using custom version from user input | Version: ${cleanCustomVersion} | Source: interactive input`);
             return cleanCustomVersion;
         }
         case 'a':
@@ -618,7 +618,7 @@ export const archiveAudio = async (
             await storage.writeFile(archivedAudioPath, audioBuffer, 'binary');
             logger.debug('Archived audio file to: %s', archivedAudioPath);
         } else {
-            logger.warn('Original audio file not found or not readable: %s', originalAudioPath);
+            logger.warn('AUDIO_FILE_NOT_FOUND: Original audio file not accessible | Path: %s | Impact: Cannot archive original', originalAudioPath);
         }
 
         // Save transcription text
@@ -626,7 +626,7 @@ export const archiveAudio = async (
         await storage.writeFile(archivedTranscriptPath, transcriptContent, 'utf8');
         logger.debug('Archived transcription to: %s', archivedTranscriptPath);
 
-        logger.info('📁 Audio archived successfully - Audio: %s, Transcript: %s', archivedAudioFilename, archivedTranscriptFilename);
+        logger.info('AUDIO_ARCHIVED: Audio and transcript archived successfully | Audio: %s | Transcript: %s | Status: archived', archivedAudioFilename, archivedTranscriptFilename);
 
         return {
             audioPath: archivedAudioPath,
@@ -634,7 +634,186 @@ export const archiveAudio = async (
         };
 
     } catch (error: any) {
-        logger.error('Failed to archive audio: %s', error.message);
+        logger.error('AUDIO_ARCHIVE_FAILED: Failed to archive audio files | Error: %s | Impact: Audio not preserved', error.message);
         throw new Error(`Audio archiving failed: ${error.message}`);
     }
+};
+
+/**
+ * Query npm registry for published version of a package
+ * Returns null if package is not published or on error
+ */
+export const getNpmPublishedVersion = async (packageName: string): Promise<string | null> => {
+    const logger = getLogger();
+    try {
+        const { runSecure } = await import('@eldrforge/git-tools');
+
+        // Use npm view to get the latest published version
+        // --json flag ensures parseable output
+        const { stdout } = await runSecure('npm', ['view', packageName, 'version', '--json']);
+
+        if (!stdout || stdout.trim() === '') {
+            logger.verbose(`Package ${packageName} not found on npm registry`);
+            return null;
+        }
+
+        // npm view returns just the version string for a single version
+        const version = stdout.trim().replace(/^["']|["']$/g, ''); // Remove quotes if present
+        logger.verbose(`Found ${packageName}@${version} on npm registry`);
+        return version;
+    } catch (error: any) {
+        // Package not found or network error
+        logger.verbose(`Could not query npm for ${packageName}: ${error.message}`);
+        return null;
+    }
+};
+
+/**
+ * Check if a package version already exists on npm registry
+ */
+export const isVersionPublishedOnNpm = async (packageName: string, version: string): Promise<boolean> => {
+    const logger = getLogger();
+    try {
+        const { runSecure } = await import('@eldrforge/git-tools');
+
+        // Use npm view to check for specific version
+        const { stdout } = await runSecure('npm', ['view', `${packageName}@${version}`, 'version', '--json']);
+
+        if (!stdout || stdout.trim() === '') {
+            logger.verbose(`Version ${packageName}@${version} not found on npm registry`);
+            return false;
+        }
+
+        logger.verbose(`Version ${packageName}@${version} exists on npm registry`);
+        return true;
+    } catch (error: any) {
+        // Version not found
+        logger.verbose(`Version ${packageName}@${version} not published: ${error.message}`);
+        return false;
+    }
+};
+
+/**
+ * Get detailed info about a tag including the version it points to
+ */
+export const getTagInfo = async (tagName: string): Promise<{ exists: boolean; commit?: string; version?: string } | null> => {
+    try {
+        const { runSecure, validateGitRef } = await import('@eldrforge/git-tools');
+
+        if (!validateGitRef(tagName)) {
+            throw new Error(`Invalid tag name: ${tagName}`);
+        }
+
+        // Check if tag exists
+        const { stdout: tagList } = await runSecure('git', ['tag', '-l', tagName]);
+        if (tagList.trim() !== tagName) {
+            return { exists: false };
+        }
+
+        // Get the commit the tag points to
+        const { stdout: commit } = await runSecure('git', ['rev-list', '-n', '1', tagName]);
+
+        // Extract version from tag name (assumes format like v1.2.3 or working/v1.2.3)
+        const versionMatch = tagName.match(/v?(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?)/);
+        const version = versionMatch ? versionMatch[1] : undefined;
+
+        return {
+            exists: true,
+            commit: commit.trim(),
+            version
+        };
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Check if a version is a development/prerelease version (has prerelease tag)
+ */
+export const isDevelopmentVersion = (version: string): boolean => {
+    // Development versions have prerelease tags: 1.2.3-dev.0, 1.2.3-alpha.1, etc.
+    return version.includes('-');
+};
+
+/**
+ * Check if a version is a release version (no prerelease tag)
+ */
+export const isReleaseVersion = (version: string): boolean => {
+    // Release versions are X.Y.Z without any suffix
+    return /^\d+\.\d+\.\d+$/.test(version);
+};
+
+/**
+ * Get expected version pattern for a branch
+ */
+export const getExpectedVersionPattern = (branchName: string): { pattern: RegExp; description: string; isDevelopment: boolean } => {
+    // Development/working branches should have prerelease versions
+    const devBranchPatterns = /^(working|development|dev|feature\/|wip\/)/i;
+
+    if (devBranchPatterns.test(branchName)) {
+        return {
+            pattern: /^\d+\.\d+\.\d+-[a-zA-Z0-9.-]+$/,
+            description: 'X.Y.Z-<tag> (e.g., 1.2.3-dev.0)',
+            isDevelopment: true
+        };
+    }
+
+    // Main/master/production branches should have release versions
+    const releaseBranchPatterns = /^(main|master|production|release\/)/i;
+
+    if (releaseBranchPatterns.test(branchName)) {
+        return {
+            pattern: /^\d+\.\d+\.\d+$/,
+            description: 'X.Y.Z (e.g., 1.2.3)',
+            isDevelopment: false
+        };
+    }
+
+    // For other branches, allow both but prefer release versions
+    return {
+        pattern: /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/,
+        description: 'X.Y.Z or X.Y.Z-<tag>',
+        isDevelopment: false
+    };
+};
+
+/**
+ * Validate version against branch expectations
+ */
+export const validateVersionForBranch = (version: string, branchName: string): {
+    valid: boolean;
+    issue?: string;
+    fix?: string;
+} => {
+    const expected = getExpectedVersionPattern(branchName);
+
+    if (!expected.pattern.test(version)) {
+        return {
+            valid: false,
+            issue: `Invalid version format for branch '${branchName}'`,
+            fix: `Version should match ${expected.description}`
+        };
+    }
+
+    const isDevVersion = isDevelopmentVersion(version);
+
+    // Development branches should have development versions
+    if (expected.isDevelopment && !isDevVersion) {
+        return {
+            valid: false,
+            issue: `Release version on development branch '${branchName}'`,
+            fix: 'Run kodrdriv development to update to development version'
+        };
+    }
+
+    // Release branches should NOT have development versions
+    if (!expected.isDevelopment && branchName.match(/^(main|master|production|release\/)/) && isDevVersion) {
+        return {
+            valid: false,
+            issue: `Development version on release branch '${branchName}'`,
+            fix: 'Do not commit development versions to release branches'
+        };
+    }
+
+    return { valid: true };
 };

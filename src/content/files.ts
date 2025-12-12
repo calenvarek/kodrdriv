@@ -182,7 +182,7 @@ export const create = async (options: {
                 logger.debug('Added file %s (%d bytes, total: %d bytes)', file, contentSize, totalBytes);
             }
 
-            logger.info('Collected content from %d files (%d bytes total, %d files skipped)',
+            logger.info('FILES_COLLECTED: Collected file content successfully | Files Collected: %d | Total Bytes: %d | Files Skipped: %d | Status: completed',
                 filesProcessed, totalBytes, filesSkipped);
 
             if (fileContents.length === 0) {
@@ -200,7 +200,7 @@ export const create = async (options: {
             return summary;
 
         } catch (error: any) {
-            logger.error('Error occurred during file content collection: %s %s', error.message, error.stack);
+            logger.error('FILES_COLLECTION_ERROR: Error during file content collection | Error: %s | Stack: %s | Impact: Cannot collect file content', error.message, error.stack);
             throw new Error('Error occurred during file content collection');
         }
     }

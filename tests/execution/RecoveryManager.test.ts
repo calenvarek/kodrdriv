@@ -78,6 +78,136 @@ describe('RecoveryManager', () => {
             expect(updated.state.ready).toContain('c'); // c should now be ready
         });
 
+        it('should unblock skipped packages when dependencies are marked completed', async () => {
+            // CRITICAL BUG FIX TEST: Simulates the scenario where:
+            // 1. Package A fails, causing dependents B, C to be skipped
+            // 2. User marks A as completed (e.g., manually published)
+            // 3. B and C should move from skipped -> pending -> ready
+            const checkpoint = createMockCheckpoint({
+                buildOrder: ['common-config', 'logging', 'docs-template', 'core'],
+                state: {
+                    pending: [],
+                    ready: [],
+                    running: [],
+                    completed: [],
+                    failed: [],
+                    skipped: ['logging', 'docs-template', 'core'], // All blocked
+                    skippedNoChanges: []
+                }
+            });
+
+            const graph = createMockGraph({
+                'common-config': [],
+                'logging': ['common-config'],
+                'docs-template': ['common-config'],
+                'core': ['logging', 'common-config']
+            });
+
+            const manager = new RecoveryManager(checkpoint, graph, checkpointManager);
+            await manager.markCompleted(['common-config']);
+
+            const updated = manager.getCheckpoint();
+
+            // common-config should be completed
+            expect(updated.state.completed).toContain('common-config');
+
+            // logging and docs-template should be unblocked and ready
+            // (their only dependency is common-config which is now complete)
+            expect(updated.state.skipped).not.toContain('logging');
+            expect(updated.state.skipped).not.toContain('docs-template');
+            expect(updated.state.ready).toContain('logging');
+            expect(updated.state.ready).toContain('docs-template');
+
+            // core should REMAIN skipped
+            // (depends on logging which is ready but NOT YET completed)
+            // It will only be unblocked once logging completes
+            expect(updated.state.skipped).toContain('core');
+            expect(updated.state.pending).not.toContain('core');
+            expect(updated.state.ready).not.toContain('core');
+        });
+
+        it('should handle multi-level dependency unblocking', async () => {
+            // Test cascading unblock: A -> B -> C
+            // When A is marked complete, B should be ready
+            // When B is then marked complete, C should be ready
+            const checkpoint = createMockCheckpoint({
+                buildOrder: ['a', 'b', 'c'],
+                state: {
+                    pending: [],
+                    ready: [],
+                    running: [],
+                    completed: [],
+                    failed: [],
+                    skipped: ['b', 'c'],
+                    skippedNoChanges: []
+                }
+            });
+
+            const graph = createMockGraph({
+                'a': [],
+                'b': ['a'],
+                'c': ['b']
+            });
+
+            const manager = new RecoveryManager(checkpoint, graph, checkpointManager);
+
+            // Step 1: Mark A complete
+            await manager.markCompleted(['a']);
+            let updated = manager.getCheckpoint();
+
+            expect(updated.state.completed).toContain('a');
+            expect(updated.state.ready).toContain('b');
+            expect(updated.state.skipped).toContain('c'); // Still blocked by b
+
+            // Step 2: Mark B complete
+            await manager.markCompleted(['b']);
+            updated = manager.getCheckpoint();
+
+            expect(updated.state.completed).toContain('b');
+            expect(updated.state.ready).toContain('c'); // Now unblocked
+            expect(updated.state.skipped).not.toContain('c');
+        });
+
+        it('should not unblock packages if some dependencies still failed', async () => {
+            // Test that packages stay blocked if ANY dependency is failed
+            const checkpoint = createMockCheckpoint({
+                buildOrder: ['a', 'b', 'c'],
+                state: {
+                    pending: [],
+                    ready: [],
+                    running: [],
+                    completed: [],
+                    failed: [{
+                        name: 'b',
+                        error: 'Build failed',
+                        isRetriable: false,
+                        attemptNumber: 1,
+                        failedAt: new Date().toISOString(),
+                        dependencies: [],
+                        dependents: ['c']
+                    }],
+                    skipped: ['c'],
+                    skippedNoChanges: []
+                }
+            });
+
+            const graph = createMockGraph({
+                'a': [],
+                'b': ['a'],
+                'c': ['a', 'b'] // Depends on both a and b
+            });
+
+            const manager = new RecoveryManager(checkpoint, graph, checkpointManager);
+            await manager.markCompleted(['a']);
+
+            const updated = manager.getCheckpoint();
+
+            // c should still be skipped because b is failed
+            expect(updated.state.skipped).toContain('c');
+            expect(updated.state.ready).not.toContain('c');
+            expect(updated.state.pending).not.toContain('c');
+        });
+
         it('should throw error for non-existent package', async () => {
             const checkpoint = createMockCheckpoint();
             const graph = createMockGraph({ 'a': [] });

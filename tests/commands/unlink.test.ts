@@ -328,7 +328,7 @@ describe('Unlink Command', () => {
 
                 expect(result).toHaveLength(0);
                 expect(mockLogger.warn).toHaveBeenCalledWith(
-                    'Failed to check linked dependencies in @test/package: File read failed'
+                    'UNLINK_CHECK_FAILED: Unable to check linked dependencies | Package: @test/package | Error: File read failed'
                 );
             });
         });

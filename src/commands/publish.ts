@@ -36,11 +36,11 @@ const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
             }
 
         } catch (error: any) {
-            logger.warn(`Failed to read .npmrc file at ${npmrcPath}: ${error.message}`);
-            logger.verbose('This may affect environment variable detection for publishing');
+            logger.warn(`NPMRC_READ_FAILED: Unable to read .npmrc configuration file | Path: ${npmrcPath} | Error: ${error.message}`);
+            logger.verbose('NPMRC_READ_IMPACT: Environment variable detection for publishing may be affected due to failed .npmrc read');
         }
     } else {
-        logger.debug('.npmrc file not found, skipping environment variable scan');
+        logger.debug('NPMRC_NOT_FOUND: No .npmrc file present in current directory | Action: Skipping environment variable scan | Path: ' + npmrcPath);
     }
 
     return envVars;
@@ -60,7 +60,7 @@ const cleanupNpmLinkReferences = async (isDryRun: boolean): Promise<void> => {
             await fs.access(packageLockPath);
         } catch {
             // No package-lock.json, nothing to clean
-            logger.verbose('No package-lock.json found, skipping npm link cleanup');
+            logger.verbose('PACKAGE_LOCK_NOT_FOUND: No package-lock.json file exists | Action: Skipping npm link cleanup | Path: ' + packageLockPath);
             return;
         }
 
@@ -79,7 +79,7 @@ const cleanupNpmLinkReferences = async (isDryRun: boolean): Promise<void> => {
                     const resolvedPath = pkgInfo.resolved.replace('file:', '');
                     if (resolvedPath.startsWith('../') || resolvedPath.startsWith('./')) {
                         hasFileReferences = true;
-                        logger.verbose(`Found npm link reference: ${pkgPath} -> ${pkgInfo.resolved}`);
+                        logger.verbose(`NPM_LINK_DETECTED: Found npm link reference in packages section | Package: ${pkgPath} | Resolved: ${pkgInfo.resolved} | Type: relative_file_dependency`);
                         break;
                     }
                 }
@@ -93,7 +93,7 @@ const cleanupNpmLinkReferences = async (isDryRun: boolean): Promise<void> => {
                     const versionPath = pkgInfo.version.replace('file:', '');
                     if (versionPath.startsWith('../') || versionPath.startsWith('./')) {
                         hasFileReferences = true;
-                        logger.verbose(`Found npm link reference: ${pkgName} -> ${pkgInfo.version}`);
+                        logger.verbose(`NPM_LINK_DETECTED: Found npm link reference in dependencies section | Package: ${pkgName} | Version: ${pkgInfo.version} | Type: relative_file_dependency`);
                         break;
                     }
                 }
@@ -101,28 +101,28 @@ const cleanupNpmLinkReferences = async (isDryRun: boolean): Promise<void> => {
         }
 
         if (hasFileReferences) {
-            logger.info('⚠️  Detected npm link references in package-lock.json');
-            logger.info('🧹 Cleaning up package-lock.json to remove relative file: dependencies...');
+            logger.info('NPM_LINK_CLEANUP_REQUIRED: Detected npm link references in package-lock.json | File: package-lock.json | Impact: Must be cleaned before publish');
+            logger.info('NPM_LINK_CLEANUP_STARTING: Removing package-lock.json and regenerating clean version | Action: Remove file with relative dependencies');
 
             if (isDryRun) {
-                logger.info('DRY RUN: Would remove package-lock.json and regenerate it');
+                logger.info('DRY_RUN_OPERATION: Would remove package-lock.json and regenerate it | Mode: dry-run | File: package-lock.json');
             } else {
                 // Remove package-lock.json
                 await fs.unlink(packageLockPath);
-                logger.verbose('Removed package-lock.json with npm link references');
+                logger.verbose('NPM_LINK_CLEANUP_FILE_REMOVED: Deleted package-lock.json containing npm link references | Path: ' + packageLockPath);
 
                 // Regenerate clean package-lock.json
-                logger.verbose('Regenerating package-lock.json from package.json...');
+                logger.verbose('NPM_LOCK_REGENERATING: Executing npm install to regenerate package-lock.json from package.json | Command: npm install --package-lock-only --no-audit --no-fund');
                 await runWithDryRunSupport('npm install --package-lock-only --no-audit --no-fund', isDryRun);
-                logger.info('✅ Regenerated clean package-lock.json');
+                logger.info('NPM_LOCK_REGENERATED: Successfully regenerated clean package-lock.json without link references | Path: ' + packageLockPath);
             }
         } else {
-            logger.verbose('No npm link references found in package-lock.json');
+            logger.verbose('NPM_LINK_CHECK_CLEAN: No npm link references found in package-lock.json | Status: Ready for publish | File: ' + packageLockPath);
         }
     } catch (error: any) {
         // Log warning but don't fail - let npm update handle any issues
-        logger.warn(`⚠️  Failed to check/clean npm link references: ${error.message}`);
-        logger.verbose('Continuing with publish process...');
+        logger.warn(`NPM_LINK_CHECK_FAILED: Unable to check or clean npm link references | Error: ${error.message} | Impact: Continuing with publish, npm will handle issues`);
+        logger.verbose('PUBLISH_PROCESS_CONTINUING: Proceeding with publish workflow despite npm link check failure | Next: Standard npm publish validation');
     }
 };
 
@@ -138,9 +138,9 @@ const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boole
 
     if (missingEnvVars.length > 0) {
         if (isDryRun) {
-            logger.warn(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+            logger.warn(`ENV_VARS_MISSING: Required environment variables not set | Variables: ${missingEnvVars.join(', ')} | Mode: dry-run | Impact: Would fail in real publish`);
         } else {
-            logger.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+            logger.error(`ENV_VARS_MISSING: Required environment variables not set | Variables: ${missingEnvVars.join(', ')} | Action: Must set before publish | Source: .npmrc configuration`);
             throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}. Please set these environment variables before running publish.`);
         }
     }
@@ -151,12 +151,12 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
     const logger = getDryRunLogger(isDryRun);
     const storage = createStorage({ log: logger.info });
 
-    logger.info('Running prechecks...');
+    logger.info('PRECHECK_STARTING: Executing publish prechecks | Phase: validation | Target: ' + (targetBranch || 'default'));
 
     // Check if we're in a git repository
     try {
         if (isDryRun) {
-            logger.info('Would check git repository with: git rev-parse --git-dir');
+            logger.info('PRECHECK_GIT_REPO: Would verify git repository | Mode: dry-run | Command: git rev-parse --git-dir');
         } else {
             await run('git rev-parse --git-dir');
         }
@@ -170,10 +170,10 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
     }
 
     // Check for uncommitted changes
-    logger.info('Checking for uncommitted changes...');
+    logger.info('PRECHECK_GIT_STATUS: Checking for uncommitted changes | Command: git status --porcelain | Requirement: Clean working directory');
     try {
         if (isDryRun) {
-            logger.info('Would check git status with: git status --porcelain');
+            logger.info('PRECHECK_GIT_STATUS: Would verify clean working directory | Mode: dry-run | Command: git status --porcelain');
         } else {
             const { stdout } = await run('git status --porcelain');
             if (stdout.trim()) {
@@ -193,9 +193,9 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
     const effectiveTargetBranch = targetBranch || runConfig.publish?.targetBranch || 'main';
 
     // Check that we're not running from the target branch
-    logger.info('Checking current branch...');
+    logger.info('PRECHECK_BRANCH: Verifying current branch is not target branch | Target: ' + effectiveTargetBranch + ' | Requirement: Must run from feature branch');
     if (isDryRun) {
-        logger.info(`Would verify current branch is not the target branch (${effectiveTargetBranch})`);
+        logger.info(`PRECHECK_BRANCH: Would verify current branch is not target branch | Mode: dry-run | Target: ${effectiveTargetBranch}`);
     } else {
         const currentBranch = await GitHub.getCurrentBranchName();
         if (currentBranch === effectiveTargetBranch) {
@@ -204,9 +204,9 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
     }
 
     // Check target branch sync with remote
-    logger.info(`Checking target branch '${effectiveTargetBranch}' sync with remote...`);
+    logger.info(`PRECHECK_BRANCH_SYNC: Checking target branch sync with remote | Branch: ${effectiveTargetBranch} | Remote: origin | Requirement: Branches must be synchronized`);
     if (isDryRun) {
-        logger.info(`Would verify target branch '${effectiveTargetBranch}' is in sync with remote origin`);
+        logger.info(`PRECHECK_BRANCH_SYNC: Would verify target branch is in sync with remote | Mode: dry-run | Branch: ${effectiveTargetBranch} | Remote: origin`);
     } else {
         // Only check if local target branch exists (it's okay if it doesn't exist locally)
         const targetBranchExists = await localBranchExists(effectiveTargetBranch);
@@ -214,38 +214,37 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
             const syncStatus = await isBranchInSyncWithRemote(effectiveTargetBranch);
 
             if (!syncStatus.inSync) {
-                logger.error(`❌ Target branch '${effectiveTargetBranch}' is not in sync with remote.`);
+                logger.error(`BRANCH_SYNC_FAILED: Target branch not synchronized with remote | Branch: ${effectiveTargetBranch} | Status: out-of-sync | Impact: Cannot proceed with publish`);
                 logger.error('');
 
                 if (syncStatus.error) {
-                    logger.error(`   Error: ${syncStatus.error}`);
+                    logger.error(`BRANCH_SYNC_ERROR: ${syncStatus.error}`);
                 } else if (syncStatus.localSha && syncStatus.remoteSha) {
-                    logger.error(`   Local:  ${syncStatus.localSha.substring(0, 8)}`);
-                    logger.error(`   Remote: ${syncStatus.remoteSha.substring(0, 8)}`);
+                    logger.error(`BRANCH_SYNC_DIVERGENCE: Local and remote commits differ | Local SHA: ${syncStatus.localSha.substring(0, 8)} | Remote SHA: ${syncStatus.remoteSha.substring(0, 8)}`);
                 }
 
                 logger.error('');
-                logger.error('📋 To resolve this issue:');
-                logger.error(`   1. Switch to the target branch: git checkout ${effectiveTargetBranch}`);
-                logger.error(`   2. Pull the latest changes: git pull origin ${effectiveTargetBranch}`);
-                logger.error('   3. Resolve any merge conflicts if they occur');
-                logger.error('   4. Switch back to your feature branch and re-run publish');
+                logger.error('RESOLUTION_STEPS: Manual intervention required to sync branches:');
+                logger.error(`   Step 1: Switch to target branch | Command: git checkout ${effectiveTargetBranch}`);
+                logger.error(`   Step 2: Pull latest changes | Command: git pull origin ${effectiveTargetBranch}`);
+                logger.error('   Step 3: Resolve merge conflicts if present');
+                logger.error('   Step 4: Return to feature branch and retry publish');
                 logger.error('');
-                logger.error('💡 Alternatively, run "kodrdriv publish --sync-target" to attempt automatic sync.');
+                logger.error(`ALTERNATIVE_OPTION: Automatic sync available | Command: kodrdriv publish --sync-target | Branch: ${effectiveTargetBranch}`);
 
                 throw new Error(`Target branch '${effectiveTargetBranch}' is not in sync with remote. Please sync the branch before running publish.`);
             } else {
-                logger.info(`✅ Target branch '${effectiveTargetBranch}' is in sync with remote.`);
+                logger.info(`BRANCH_SYNC_VERIFIED: Target branch is synchronized with remote | Branch: ${effectiveTargetBranch} | Status: in-sync`);
             }
         } else {
-            logger.info(`ℹ️  Target branch '${effectiveTargetBranch}' does not exist locally - will be created when needed.`);
+            logger.info(`BRANCH_NOT_LOCAL: Target branch does not exist locally | Branch: ${effectiveTargetBranch} | Action: Will be created during publish process`);
         }
     }
 
     // Check GitHub Actions workflow configuration
-    logger.info('Checking GitHub Actions workflow configuration...');
+    logger.info('PRECHECK_WORKFLOW: Checking GitHub Actions workflow configuration | Target: PR automation | Requirement: Workflows should trigger on pull requests');
     if (isDryRun) {
-        logger.info('Would check if GitHub Actions workflows are configured for pull requests');
+        logger.info('PRECHECK_WORKFLOW: Would check if GitHub Actions workflows are configured for pull requests | Mode: dry-run');
     } else {
         try {
             // TODO: Re-enable when checkWorkflowConfiguration is exported from github-tools
@@ -258,35 +257,35 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
             };
 
             if (!workflowConfig.hasWorkflows) {
-                logger.warn('⚠️  No GitHub Actions workflows are configured in this repository.');
-                logger.warn('   The publish process will create a PR but will not wait for any checks to complete.');
-                logger.warn('   Consider adding a workflow file (e.g., .github/workflows/ci.yml) to run tests on PRs.');
+                logger.warn('WORKFLOW_NOT_CONFIGURED: No GitHub Actions workflows found in repository | Impact: PR will be created but no automated checks will run | Recommendation: Add workflow file at .github/workflows/ci.yml');
+                logger.warn('WORKFLOW_BEHAVIOR: Publish process will proceed without waiting for checks | PR State: Will be created | Check Status: None');
+                logger.warn('WORKFLOW_RECOMMENDATION: Consider adding CI workflow to validate PRs automatically | Example: .github/workflows/ci.yml with PR triggers');
             } else if (!workflowConfig.hasPullRequestTriggers) {
-                logger.warn(`⚠️  Found ${workflowConfig.workflowCount} workflow(s), but none are triggered by PRs to ${effectiveTargetBranch}.`);
-                logger.warn('   The publish process will create a PR but will not wait for any checks to complete.');
-                logger.warn(`   Consider updating workflow triggers to include: on.pull_request.branches: [${effectiveTargetBranch}]`);
+                logger.warn(`WORKFLOW_NO_PR_TRIGGER: Found workflows but none trigger on pull requests | Workflow Count: ${workflowConfig.workflowCount} | Target Branch: ${effectiveTargetBranch} | Impact: No checks will run on PR`);
+                logger.warn('WORKFLOW_BEHAVIOR: Publish process will create PR without automated checks | PR State: Will be created | Check Status: None');
+                logger.warn(`WORKFLOW_RECOMMENDATION: Update workflow triggers to include PR events | Configuration: on.pull_request.branches: [${effectiveTargetBranch}]`);
             } else {
-                logger.info(`✅ Found ${workflowConfig.triggeredWorkflowNames.length} workflow(s) that will run on PRs to ${effectiveTargetBranch}:`);
+                logger.info(`WORKFLOW_CONFIGURED: Found workflows that will trigger on pull requests | Target Branch: ${effectiveTargetBranch} | Workflow Count: ${workflowConfig.triggeredWorkflowNames.length}`);
                 for (const workflowName of workflowConfig.triggeredWorkflowNames) {
-                    logger.info(`   - ${workflowName}`);
+                    logger.info(`WORKFLOW_ACTIVE: ${workflowName} | Trigger: pull_request | Target: ${effectiveTargetBranch}`);
                 }
             }
         } catch (error: any) {
             // Don't fail the precheck if we can't verify workflows
             // The wait logic will handle it later
-            logger.debug(`Could not verify workflow configuration: ${error.message}`);
+            logger.debug(`WORKFLOW_CHECK_FAILED: Unable to verify workflow configuration | Error: ${error.message} | Impact: Will proceed with publish | Note: Wait logic will handle checks later`);
         }
     }
 
     // Check if prepublishOnly script exists in package.json
-    logger.info('Checking for prepublishOnly script...');
+    logger.info('PRECHECK_PREPUBLISH: Checking for prepublishOnly script in package.json | Requirement: Must exist to run pre-flight checks | Expected: clean, lint, build, test');
     const packageJsonPath = path.join(process.cwd(), 'package.json');
 
     if (!await storage.exists(packageJsonPath)) {
         if (!isDryRun) {
             throw new Error('package.json not found in current directory.');
         } else {
-            logger.warn('package.json not found in current directory.');
+            logger.warn('PACKAGE_JSON_NOT_FOUND: No package.json in current directory | Mode: dry-run | Impact: Cannot verify prepublishOnly script | Path: ' + packageJsonPath);
         }
     } else {
         let packageJson;
@@ -299,7 +298,7 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
             if (!isDryRun) {
                 throw new Error('Failed to parse package.json. Please ensure it contains valid JSON.');
             } else {
-                logger.warn('Failed to parse package.json. Please ensure it contains valid JSON.');
+                logger.warn('PACKAGE_JSON_PARSE_FAILED: Unable to parse package.json | Mode: dry-run | Impact: Cannot verify prepublishOnly script | Path: ' + packageJsonPath + ' | Requirement: Valid JSON format');
             }
         }
 
@@ -307,25 +306,25 @@ const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<v
             if (!isDryRun) {
                 throw new Error('prepublishOnly script is required in package.json but was not found. Please add a prepublishOnly script that runs your pre-flight checks (e.g., clean, lint, build, test).');
             } else {
-                logger.warn('prepublishOnly script is required in package.json but was not found.');
+                logger.warn('PREPUBLISH_SCRIPT_MISSING: No prepublishOnly script found in package.json | Mode: dry-run | Requirement: Script must exist | Expected Tasks: clean, lint, build, test | Path: ' + packageJsonPath);
             }
         }
     }
 
     // Check required environment variables
-    logger.verbose('Checking required environment variables...');
+    logger.verbose('PRECHECK_ENV_VARS: Checking required environment variables | Source: Configuration and .npmrc | Requirement: All required vars must be set');
     const coreRequiredEnvVars = runConfig.publish?.requiredEnvVars || [];
     const npmrcEnvVars = isDryRun ? [] : await scanNpmrcForEnvVars(storage); // Skip .npmrc scan in dry run
     const allRequiredEnvVars = [...new Set([...coreRequiredEnvVars, ...npmrcEnvVars])];
 
     if (allRequiredEnvVars.length > 0) {
-        logger.verbose(`Required environment variables: ${allRequiredEnvVars.join(', ')}`);
+        logger.verbose(`ENV_VARS_REQUIRED: Environment variables needed for publish | Variables: ${allRequiredEnvVars.join(', ')} | Count: ${allRequiredEnvVars.length} | Source: config + .npmrc`);
         validateEnvironmentVariables(allRequiredEnvVars, isDryRun);
     } else {
-        logger.verbose('No required environment variables specified.');
+        logger.verbose('ENV_VARS_NONE: No required environment variables specified | Status: No validation needed | Source: config + .npmrc');
     }
 
-    logger.info('All prechecks passed.');
+    logger.info('PRECHECK_COMPLETE: All publish prechecks passed successfully | Status: Ready to proceed | Next: Execute publish workflow');
 };
 
 // Helper: deep-sort object keys for stable comparison
@@ -356,7 +355,7 @@ const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun
         await runSecure('git', ['rev-parse', '--verify', targetBranch]);
     } catch (error: any) {
         // Target branch doesn't exist or isn't accessible
-        logger.verbose(`Target branch '${targetBranch}' does not exist or is not accessible. Proceeding with publish.`);
+        logger.verbose(`RELEASE_CHECK_NO_TARGET: Target branch does not exist or is not accessible | Branch: ${targetBranch} | Action: Proceeding with publish | Reason: First release to this branch`);
         return { necessary: true, reason: `Target branch '${targetBranch}' does not exist; first release to this branch` };
     }
 
@@ -404,7 +403,7 @@ const isReleaseNecessaryComparedToTarget = async (targetBranch: string, isDryRun
         return { necessary: true, reason: 'package.json changes beyond version field' };
     } catch (error: any) {
         // Conservative: if we cannot prove it is only a version change, proceed with release
-        logger.verbose(`Could not conclusively compare package.json changes: ${error.message}`);
+        logger.verbose(`RELEASE_CHECK_COMPARISON_FAILED: Unable to conclusively compare package.json changes | Error: ${error.message} | Action: Proceeding conservatively with publish | Reason: Cannot verify version-only change`);
         return { necessary: true, reason: 'Could not compare package.json safely' };
     }
 };
@@ -413,30 +412,30 @@ const handleTargetBranchSyncRecovery = async (runConfig: Config, targetBranch: s
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
 
-    logger.info(`🔄 Attempting to sync target branch '${targetBranch}' with remote...`);
+    logger.info(`BRANCH_SYNC_ATTEMPTING: Initiating sync of target branch with remote | Branch: ${targetBranch} | Remote: origin | Operation: fetch + merge`);
 
     if (isDryRun) {
-        logger.info(`Would attempt to sync '${targetBranch}' with remote`);
+        logger.info(`BRANCH_SYNC_DRY_RUN: Would attempt to sync branch with remote | Mode: dry-run | Branch: ${targetBranch} | Remote: origin`);
         return;
     }
 
     const syncResult = await safeSyncBranchWithRemote(targetBranch);
 
     if (syncResult.success) {
-        logger.info(`✅ Successfully synced '${targetBranch}' with remote.`);
-        logger.info('You can now re-run the publish command.');
+        logger.info(`BRANCH_SYNC_SUCCESS: Successfully synchronized branch with remote | Branch: ${targetBranch} | Remote: origin | Status: in-sync`);
+        logger.info('BRANCH_SYNC_NEXT_STEP: Ready to proceed with publish | Action: Re-run publish command | Branch: ' + targetBranch);
     } else if (syncResult.conflictResolutionRequired) {
-        logger.error(`❌ Failed to sync '${targetBranch}': conflicts detected.`);
+        logger.error(`BRANCH_SYNC_CONFLICTS: Sync failed due to merge conflicts | Branch: ${targetBranch} | Status: conflicts-detected | Resolution: Manual intervention required`);
         logger.error('');
-        logger.error('📋 Manual conflict resolution required:');
-        logger.error(`   1. Switch to the target branch: git checkout ${targetBranch}`);
-        logger.error(`   2. Pull and resolve conflicts: git pull origin ${targetBranch}`);
-        logger.error('   3. Commit the resolved changes');
-        logger.error('   4. Switch back to your feature branch and re-run publish');
+        logger.error('CONFLICT_RESOLUTION_STEPS: Manual conflict resolution required:');
+        logger.error(`   Step 1: Switch to target branch | Command: git checkout ${targetBranch}`);
+        logger.error(`   Step 2: Pull and resolve conflicts | Command: git pull origin ${targetBranch}`);
+        logger.error('   Step 3: Commit resolved changes | Command: git commit');
+        logger.error('   Step 4: Return to feature branch and retry | Command: kodrdriv publish');
         logger.error('');
         throw new Error(`Target branch '${targetBranch}' has conflicts that require manual resolution.`);
     } else {
-        logger.error(`❌ Failed to sync '${targetBranch}': ${syncResult.error}`);
+        logger.error(`BRANCH_SYNC_FAILED: Sync operation failed | Branch: ${targetBranch} | Error: ${syncResult.error} | Remote: origin`);
         throw new Error(`Failed to sync target branch: ${syncResult.error}`);
     }
 };
@@ -454,16 +453,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
         currentBranch = await GitHub.getCurrentBranchName();
 
         // Fetch latest remote information to avoid conflicts
-        logger.info('📡 Fetching latest remote information to avoid conflicts...');
+        logger.info('GIT_FETCH_STARTING: Fetching latest remote information | Remote: origin | Purpose: Avoid conflicts during publish | Command: git fetch origin');
         try {
             await run('git fetch origin');
-            logger.info('✅ Fetched latest remote information');
+            logger.info('GIT_FETCH_SUCCESS: Successfully fetched latest remote information | Remote: origin | Status: up-to-date');
         } catch (error: any) {
-            logger.warn(`⚠️ Could not fetch from remote: ${error.message}`);
+            logger.warn(`GIT_FETCH_FAILED: Unable to fetch from remote | Remote: origin | Error: ${error.message} | Impact: May cause conflicts if remote has changes`);
         }
 
         // Sync current branch with remote to avoid conflicts
-        logger.info(`🔄 Syncing ${currentBranch} with remote to avoid conflicts...`);
+        logger.info(`CURRENT_BRANCH_SYNC: Synchronizing current branch with remote | Branch: ${currentBranch} | Remote: origin | Purpose: Avoid conflicts during publish`);
         try {
             const remoteExists = await run(`git ls-remote --exit-code --heads origin ${currentBranch}`).then(() => true).catch(() => false);
 
@@ -473,21 +472,21 @@ export const execute = async (runConfig: Config): Promise<void> => {
                     await run(`git fetch origin ${currentBranch}`);
                     await run(`git merge origin/${currentBranch} --no-ff --no-edit`);
                 }, `sync ${currentBranch}`);
-                logger.info(`✅ Synced ${currentBranch} with remote`);
+                logger.info(`CURRENT_BRANCH_SYNCED: Successfully synchronized current branch with remote | Branch: ${currentBranch} | Remote: origin/${currentBranch} | Status: in-sync`);
             } else {
-                logger.info(`ℹ️ No remote ${currentBranch} branch found, will be created on first push`);
+                logger.info(`REMOTE_BRANCH_NOT_FOUND: No remote branch exists | Branch: ${currentBranch} | Remote: origin | Action: Will be created on first push`);
             }
         } catch (error: any) {
             if (error.message && error.message.includes('CONFLICT')) {
-                logger.error(`❌ Merge conflicts detected when syncing ${currentBranch} with remote`);
-                logger.error(`   Please resolve the conflicts manually and then run:`);
-                logger.error(`   1. Resolve conflicts in the files`);
-                logger.error(`   2. git add <resolved-files>`);
-                logger.error(`   3. git commit`);
-                logger.error(`   4. kodrdriv publish (to continue)`);
+                logger.error(`MERGE_CONFLICTS_DETECTED: Conflicts found when syncing current branch with remote | Branch: ${currentBranch} | Remote: origin/${currentBranch} | Status: conflicts-require-resolution`);
+                logger.error(`CONFLICT_RESOLUTION_REQUIRED: Manual intervention needed to resolve conflicts and continue:`);
+                logger.error(`   Step 1: Resolve conflicts in affected files`);
+                logger.error(`   Step 2: Stage resolved files | Command: git add <resolved-files>`);
+                logger.error(`   Step 3: Commit resolution | Command: git commit`);
+                logger.error(`   Step 4: Retry publish | Command: kodrdriv publish`);
                 throw new Error(`Merge conflicts detected when syncing ${currentBranch} with remote. Please resolve conflicts manually.`);
             } else {
-                logger.warn(`⚠️ Could not sync with remote ${currentBranch}: ${error.message}`);
+                logger.warn(`CURRENT_BRANCH_SYNC_FAILED: Unable to sync current branch with remote | Branch: ${currentBranch} | Remote: origin/${currentBranch} | Error: ${error.message} | Impact: May cause issues during publish`);
             }
         }
     }
@@ -506,9 +505,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
             targetBranch = branchConfig.targetBranch;
         }
 
-        logger.info(`🎯 Branch-dependent targeting enabled:`);
-        logger.info(`   Source branch: ${currentBranch}`);
-        logger.info(`   Target branch: ${targetBranch}`);
+        logger.info(`BRANCH_DEPENDENT_TARGETING: Branch-specific configuration active | Source: ${currentBranch} | Target: ${targetBranch} | Feature: Branch-dependent versioning and targeting`);
+        logger.info(`BRANCH_CONFIGURATION_SOURCE: Current branch | Branch: ${currentBranch} | Type: source`);
+        logger.info(`BRANCH_CONFIGURATION_TARGET: Target branch for publish | Branch: ${targetBranch} | Type: destination`);
 
         // Look at target branch config to show version strategy
         const targetBranchConfig = runConfig.branches[targetBranch];
@@ -517,10 +516,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
             const versionTag = targetBranchConfig.version.tag;
             const versionIncrement = targetBranchConfig.version.increment;
 
-            logger.info(`   Target branch version strategy: ${versionType}${versionTag ? ` (tag: ${versionTag})` : ''}${versionIncrement ? ' with increment' : ''}`);
+            logger.info(`VERSION_STRATEGY: Target branch version configuration | Branch: ${targetBranch} | Type: ${versionType} | Tag: ${versionTag || 'none'} | Increment: ${versionIncrement ? 'enabled' : 'disabled'}`);
         }
     } else {
-        logger.debug(`No branch-specific targeting configured for '${currentBranch}', using default target: ${targetBranch}`);
+        logger.debug(`BRANCH_TARGETING_DEFAULT: No branch-specific configuration found | Branch: ${currentBranch} | Action: Using default target | Target: ${targetBranch}`);
     }
 
     // Handle --sync-target flag
@@ -530,29 +529,29 @@ export const execute = async (runConfig: Config): Promise<void> => {
     }
 
     // Check if target branch exists and create it if needed
-    logger.info(`Checking if target branch '${targetBranch}' exists...`);
+    logger.info(`TARGET_BRANCH_CHECK: Verifying target branch existence | Branch: ${targetBranch} | Action: Create if missing | Source: Current HEAD`);
     if (isDryRun) {
-        logger.info(`Would check if target branch '${targetBranch}' exists and create if needed`);
+        logger.info(`TARGET_BRANCH_CHECK: Would verify target branch exists and create if needed | Mode: dry-run | Branch: ${targetBranch}`);
     } else {
         const targetBranchExists = await localBranchExists(targetBranch);
         if (!targetBranchExists) {
-            logger.info(`🌟 Target branch '${targetBranch}' does not exist, creating it from current branch...`);
+            logger.info(`TARGET_BRANCH_CREATING: Target branch does not exist, creating from current branch | Branch: ${targetBranch} | Source: HEAD | Remote: origin`);
             try {
                 // Wrap git branch and push operations with lock
                 await runGitWithLock(process.cwd(), async () => {
                     // Create the target branch from the current HEAD
                     await runSecure('git', ['branch', targetBranch, 'HEAD']);
-                    logger.info(`✅ Created target branch: ${targetBranch}`);
+                    logger.info(`TARGET_BRANCH_CREATED: Successfully created target branch locally | Branch: ${targetBranch} | Source: HEAD`);
 
                     // Push the new branch to origin
                     await runSecure('git', ['push', 'origin', targetBranch]);
-                    logger.info(`✅ Pushed new target branch to origin: ${targetBranch}`);
+                    logger.info(`TARGET_BRANCH_PUSHED: Successfully pushed new target branch to remote | Branch: ${targetBranch} | Remote: origin/${targetBranch}`);
                 }, `create and push target branch ${targetBranch}`);
             } catch (error: any) {
                 throw new Error(`Failed to create target branch '${targetBranch}': ${error.message}`);
             }
         } else {
-            logger.info(`✅ Target branch '${targetBranch}' already exists`);
+            logger.info(`TARGET_BRANCH_EXISTS: Target branch already exists locally | Branch: ${targetBranch} | Status: ready`);
         }
     }
 
@@ -560,63 +559,81 @@ export const execute = async (runConfig: Config): Promise<void> => {
     await runPrechecks(runConfig, targetBranch);
 
     // Early check: determine if a release is necessary compared to target branch
-    logger.info('Evaluating if a release is necessary compared to target branch...');
+    logger.info('RELEASE_NECESSITY_CHECK: Evaluating if release is required | Comparison: current branch vs target | Target: ' + targetBranch + ' | Purpose: Avoid unnecessary publishes');
     try {
         const necessity = await isReleaseNecessaryComparedToTarget(targetBranch, isDryRun);
         if (!necessity.necessary) {
-            logger.info(`\n⏭️  Skipping publish: ${necessity.reason}`);
+            logger.info(`\nRELEASE_SKIPPED: No meaningful changes detected, skipping publish | Reason: ${necessity.reason} | Target: ${targetBranch}`);
             // Emit a machine-readable marker so tree mode can detect skip and avoid propagating versions
-            logger.info('KODRDRIV_PUBLISH_SKIPPED');
+            // CRITICAL: Use console.log to write to stdout (logger.info goes to stderr via winston)
+            // eslint-disable-next-line no-console
+            console.log('KODRDRIV_PUBLISH_SKIPPED');
             return;
         } else {
-            logger.verbose(`Proceeding with publish: ${necessity.reason}.`);
+            logger.verbose(`RELEASE_PROCEEDING: Meaningful changes detected, continuing with publish | Reason: ${necessity.reason} | Target: ${targetBranch}`);
         }
     } catch (error: any) {
         // On unexpected errors, proceed with publish to avoid false negatives blocking releases
-        logger.verbose(`Release necessity check encountered an issue (${error.message}). Proceeding with publish.`);
+        logger.verbose(`RELEASE_NECESSITY_CHECK_ERROR: Unable to determine release necessity | Error: ${error.message} | Action: Proceeding conservatively with publish | Rationale: Avoid blocking valid releases`);
     }
 
-    logger.info('Starting release process...');
+    logger.info('RELEASE_PROCESS_STARTING: Initiating release workflow | Target: ' + targetBranch + ' | Phase: dependency updates and version management');
 
 
     let pr: PullRequest | null = null;
 
     if (isDryRun) {
-        logger.info('Would check for existing pull request');
-        logger.info('Assuming no existing PR found for demo purposes');
+        logger.info('PR_CHECK: Would check for existing pull request | Mode: dry-run | Action: Skip PR lookup');
+        logger.info('PR_ASSUMPTION: Assuming no existing PR found | Mode: dry-run | Purpose: Demo workflow');
     } else {
         const branchName = await GitHub.getCurrentBranchName();
         pr = await GitHub.findOpenPullRequestByHeadRef(branchName);
     }
 
     if (pr) {
-        logger.info(`Found existing pull request for branch: ${pr.html_url}`);
+        logger.info(`PR_FOUND: Existing pull request detected for current branch | URL: ${pr.html_url} | Status: open`);
     } else {
-        logger.info('No open pull request found, starting new release publishing process...');
+        logger.info('PR_NOT_FOUND: No open pull request exists for current branch | Action: Starting new release publishing process | Next: Prepare dependencies and version');
 
         // STEP 1: Prepare for release (update dependencies and run prepublish checks) with NO version bump yet
-        logger.verbose('Preparing for release: switching from workspace to remote dependencies.');
+        logger.verbose('RELEASE_PREP_STARTING: Preparing for release | Phase: dependency management | Action: Switch from workspace to remote dependencies | Version Bump: Not yet applied');
 
         // Clean up any npm link references before updating dependencies
-        logger.verbose('Checking for npm link references in package-lock.json...');
+        logger.verbose('NPM_LINK_CHECK: Scanning package-lock.json for npm link references | File: package-lock.json | Purpose: Remove development symlinks before publish');
         await cleanupNpmLinkReferences(isDryRun);
 
-        logger.verbose('Updating dependencies to latest versions from registry');
+        // Update inter-project dependencies if --update-deps flag is present
+        const updateDepsScope = runConfig.publish?.updateDeps;
+        if (updateDepsScope) {
+            logger.info(`INTER_PROJECT_DEPS_UPDATE: Updating inter-project dependencies | Scope: ${updateDepsScope} | Type: inter-project | Command: kodrdriv updates`);
+            const Updates = await import('./updates');
+            const updatesConfig: Config = {
+                ...runConfig,
+                dryRun: isDryRun,
+                updates: {
+                    scope: updateDepsScope,
+                    interProject: true
+                }
+            };
+            await Updates.execute(updatesConfig);
+        }
+
+        logger.verbose('DEPS_UPDATE_REGISTRY: Updating dependencies to latest versions from npm registry | Source: registry | Target: package.json');
         const updatePatterns = runConfig.publish?.dependencyUpdatePatterns;
         if (updatePatterns && updatePatterns.length > 0) {
-            logger.verbose(`Updating dependencies matching patterns: ${updatePatterns.join(', ')}`);
+            logger.verbose(`DEPS_UPDATE_PATTERNS: Updating dependencies matching specified patterns | Patterns: ${updatePatterns.join(', ')} | Count: ${updatePatterns.length} | Command: npm update`);
             const patternsArg = updatePatterns.join(' ');
             await runWithDryRunSupport(`npm update ${patternsArg}`, isDryRun);
         } else {
-            logger.verbose('No dependency update patterns specified, updating all dependencies');
+            logger.verbose('DEPS_UPDATE_ALL: No dependency patterns specified, updating all dependencies | Scope: all | Command: npm update');
             await runWithDryRunSupport('npm update', isDryRun);
         }
 
-        logger.info('Running prepublishOnly script...');
+        logger.info('PREPUBLISH_SCRIPT_RUNNING: Executing prepublishOnly script | Script: prepublishOnly | Purpose: Run pre-flight checks (clean, lint, build, test)');
         await runWithDryRunSupport('npm run prepublishOnly', isDryRun, {}, true); // Use inherited stdio
 
         // STEP 2: Commit dependency updates if any (still no version bump)
-        logger.verbose('Staging dependency updates for commit');
+        logger.verbose('DEPS_STAGING: Staging dependency updates for commit | Files: package.json + package-lock.json | Command: git add | Note: Version bump not yet applied');
         // Check if package-lock.json exists before trying to stage it
         const packageLockExists = await storage.exists('package-lock.json');
         const filesToStage = packageLockExists ? 'package.json package-lock.json' : 'package.json';
@@ -626,18 +643,18 @@ export const execute = async (runConfig: Config): Promise<void> => {
             await runWithDryRunSupport(`git add ${filesToStage}`, isDryRun);
         }, 'stage dependency updates');
 
-        logger.verbose('Checking for staged dependency updates...');
+        logger.verbose('DEPS_COMMIT_CHECK: Checking for staged dependency updates | Command: git status | Purpose: Determine if commit needed');
         if (isDryRun) {
-            logger.verbose('Would create dependency update commit if changes are staged');
+            logger.verbose('DEPS_COMMIT_DRY_RUN: Would create dependency update commit if changes are staged | Mode: dry-run');
         } else {
             if (await Diff.hasStagedChanges()) {
-                logger.verbose('Staged dependency changes found, creating commit...');
+                logger.verbose('DEPS_COMMIT_CREATING: Staged dependency changes detected, creating commit | Files: ' + filesToStage + ' | Action: Execute commit command');
                 // Commit also needs git lock
                 await runGitWithLock(process.cwd(), async () => {
                     await Commit.execute(runConfig);
                 }, 'commit dependency updates');
             } else {
-                logger.verbose('No dependency changes to commit, skipping commit.');
+                logger.verbose('DEPS_COMMIT_SKIPPED: No dependency changes to commit | Files: ' + filesToStage + ' | Action: Skipping commit step');
             }
         }
 
@@ -645,9 +662,9 @@ export const execute = async (runConfig: Config): Promise<void> => {
         const skipPreMerge = runConfig.publish?.skipPrePublishMerge !== false; // Default to true (skip)
 
         if (skipPreMerge) {
-            logger.verbose(`⏭️  Skipping pre-publish merge (post-publish sync will handle branch synchronization)`);
+            logger.verbose(`PRE_MERGE_SKIPPED: Skipping pre-publish merge of target branch | Reason: Post-publish sync handles branch synchronization | Target: ${targetBranch} | Config: skipPrePublishMerge=true`);
         } else {
-            logger.info(`Merging target branch '${targetBranch}' into current branch to avoid version conflicts...`);
+            logger.info(`PRE_MERGE_STARTING: Merging target branch into current branch | Target: ${targetBranch} | Purpose: Avoid version conflicts | Phase: pre-publish`);
             if (isDryRun) {
                 logger.info(`Would merge ${targetBranch} into current branch`);
             } else {
@@ -656,10 +673,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
                     // Fetch the latest target branch
                     try {
                         await run(`git fetch origin ${targetBranch}:${targetBranch}`);
-                        logger.info(`✅ Fetched latest ${targetBranch}`);
+                        logger.info(`TARGET_BRANCH_FETCHED: Successfully fetched latest target branch | Branch: ${targetBranch} | Remote: origin/${targetBranch} | Purpose: Pre-merge sync`);
                     } catch (fetchError: any) {
-                        logger.warn(`⚠️ Could not fetch ${targetBranch}: ${fetchError.message}`);
-                        logger.warn('Continuing without merge - PR may have conflicts...');
+                        logger.warn(`TARGET_BRANCH_FETCH_FAILED: Unable to fetch target branch | Branch: ${targetBranch} | Error: ${fetchError.message} | Impact: Proceeding without merge, PR may have conflicts`);
+                        logger.warn('MERGE_SKIPPED_NO_FETCH: Continuing without pre-merge | Reason: Target branch fetch failed | Impact: PR may require manual conflict resolution');
                     }
 
                     // Check if merge is needed (avoid unnecessary merge commits)
@@ -668,56 +685,56 @@ export const execute = async (runConfig: Config): Promise<void> => {
                         const { stdout: targetCommit } = await run(`git rev-parse ${targetBranch}`);
 
                         if (mergeBase.trim() === targetCommit.trim()) {
-                            logger.info(`ℹ️  Already up-to-date with ${targetBranch}, no merge needed`);
+                            logger.info(`MERGE_NOT_NEEDED: Current branch already up-to-date with target | Branch: ${targetBranch} | Status: in-sync | Action: Skipping merge`);
                         } else {
                         // Try to merge target branch into current branch
                             let mergeSucceeded = false;
                             try {
                                 await run(`git merge ${targetBranch} --no-edit -m "Merge ${targetBranch} to sync before version bump"`);
-                                logger.info(`✅ Merged ${targetBranch} into current branch`);
+                                logger.info(`MERGE_SUCCESS: Successfully merged target branch into current branch | Target: ${targetBranch} | Purpose: Sync before version bump`);
                                 mergeSucceeded = true;
                             } catch (mergeError: any) {
                             // If merge conflicts occur, check if they're only in version-related files
                                 const errorText = [mergeError.message || '', mergeError.stdout || '', mergeError.stderr || ''].join(' ');
                                 if (errorText.includes('CONFLICT')) {
-                                    logger.warn(`⚠️  Merge conflicts detected, attempting automatic resolution...`);
+                                    logger.warn(`MERGE_CONFLICTS_DETECTED: Merge conflicts found, attempting automatic resolution | Target: ${targetBranch} | Strategy: Auto-resolve version files`);
 
                                     // Get list of conflicted files
                                     const { stdout: conflictedFiles } = await run('git diff --name-only --diff-filter=U');
                                     const conflicts = conflictedFiles.trim().split('\n').filter(Boolean);
 
-                                    logger.verbose(`Conflicted files: ${conflicts.join(', ')}`);
+                                    logger.verbose(`MERGE_CONFLICTS_LIST: Conflicted files detected | Files: ${conflicts.join(', ')} | Count: ${conflicts.length}`);
 
                                     // Check if conflicts are only in package.json and package-lock.json
                                     const versionFiles = ['package.json', 'package-lock.json'];
                                     const nonVersionConflicts = conflicts.filter(f => !versionFiles.includes(f));
 
                                     if (nonVersionConflicts.length > 0) {
-                                        logger.error(`❌ Cannot auto-resolve: conflicts in non-version files: ${nonVersionConflicts.join(', ')}`);
+                                        logger.error(`MERGE_AUTO_RESOLVE_FAILED: Cannot auto-resolve conflicts in non-version files | Files: ${nonVersionConflicts.join(', ')} | Count: ${nonVersionConflicts.length} | Resolution: Manual intervention required`);
                                         logger.error('');
-                                        logger.error('Please resolve conflicts manually:');
-                                        logger.error('   1. Resolve conflicts in the files listed above');
-                                        logger.error('   2. git add <resolved-files>');
-                                        logger.error('   3. git commit');
-                                        logger.error('   4. kodrdriv publish (to continue)');
+                                        logger.error('CONFLICT_RESOLUTION_REQUIRED: Manual steps to resolve conflicts:');
+                                        logger.error('   Step 1: Resolve conflicts in the files listed above');
+                                        logger.error('   Step 2: Stage resolved files | Command: git add <resolved-files>');
+                                        logger.error('   Step 3: Complete merge commit | Command: git commit');
+                                        logger.error('   Step 4: Resume publish process | Command: kodrdriv publish');
                                         logger.error('');
                                         throw new Error(`Merge conflicts in non-version files. Please resolve manually.`);
                                     }
 
                                     // Auto-resolve version conflicts by accepting current branch versions
                                     // (keep our working branch's version, which is likely already updated)
-                                    logger.info(`Auto-resolving version conflicts by keeping current branch versions...`);
+                                    logger.info(`MERGE_AUTO_RESOLVING: Automatically resolving version conflicts | Strategy: Keep current branch versions | Files: ${versionFiles.join(', ')}`);
                                     for (const file of conflicts) {
                                         if (versionFiles.includes(file)) {
                                             await run(`git checkout --ours ${file}`);
                                             await run(`git add ${file}`);
-                                            logger.verbose(`Resolved ${file} using current branch version`);
+                                            logger.verbose(`MERGE_FILE_RESOLVED: Resolved file using current branch version | File: ${file} | Strategy: checkout --ours`);
                                         }
                                     }
 
                                     // Complete the merge
                                     await run(`git commit --no-edit -m "Merge ${targetBranch} to sync before version bump (auto-resolved version conflicts)"`);
-                                    logger.info(`✅ Auto-resolved version conflicts and completed merge`);
+                                    logger.info(`MERGE_AUTO_RESOLVE_SUCCESS: Successfully auto-resolved version conflicts and completed merge | Target: ${targetBranch} | Files: ${versionFiles.join(', ')}`);
                                     mergeSucceeded = true;
                                 } else {
                                 // Not a conflict error, re-throw
@@ -728,21 +745,21 @@ export const execute = async (runConfig: Config): Promise<void> => {
                             // Only run npm install if merge actually happened
                             if (mergeSucceeded) {
                             // Run npm install to update package-lock.json based on merged package.json
-                                logger.info('Running npm install after merge...');
+                                logger.info('POST_MERGE_NPM_INSTALL: Running npm install after merge | Purpose: Update package-lock.json based on merged package.json | Command: npm install');
                                 await run('npm install');
-                                logger.info('✅ npm install completed');
+                                logger.info('POST_MERGE_NPM_COMPLETE: npm install completed successfully | Status: Dependencies synchronized');
 
                                 // Commit any changes from npm install (e.g., package-lock.json updates)
                                 const { stdout: mergeChangesStatus } = await run('git status --porcelain');
                                 if (mergeChangesStatus.trim()) {
-                                    logger.verbose('Staging post-merge changes for commit');
+                                    logger.verbose('POST_MERGE_CHANGES_DETECTED: Changes detected after npm install | Action: Staging for commit | Command: git add');
                                     // Check if package-lock.json exists before trying to stage it
                                     const packageLockExistsPostMerge = await storage.exists('package-lock.json');
                                     const filesToStagePostMerge = packageLockExistsPostMerge ? 'package.json package-lock.json' : 'package.json';
                                     await run(`git add ${filesToStagePostMerge}`);
 
                                     if (await Diff.hasStagedChanges()) {
-                                        logger.verbose('Committing post-merge changes...');
+                                        logger.verbose('POST_MERGE_COMMIT: Committing post-merge changes | Files: ' + filesToStagePostMerge + ' | Purpose: Finalize merge');
                                         await Commit.execute(runConfig);
                                     }
                                 }
@@ -750,7 +767,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
                         }
                     } catch (error: any) {
                     // Only catch truly unexpected errors here
-                        logger.error(`❌ Unexpected error during merge: ${error.message}`);
+                        logger.error(`MERGE_UNEXPECTED_ERROR: Unexpected error during merge process | Error: ${error.message} | Target: ${targetBranch} | Action: Aborting publish`);
                         throw error;
                     }
                 }, `merge ${targetBranch} into current branch`);
@@ -784,8 +801,8 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 proposedVersion = branchDependentResult.version;
                 finalTargetBranch = branchDependentResult.targetBranch;
 
-                logger.info(`🎯 Branch-dependent version calculated: ${currentVersion} → ${proposedVersion}`);
-                logger.info(`🎯 Final target branch: ${finalTargetBranch}`);
+                logger.info(`VERSION_BRANCH_DEPENDENT_CALCULATED: Branch-dependent version calculated | Current: ${currentVersion} | Proposed: ${proposedVersion} | Strategy: branch-dependent`);
+                logger.info(`TARGET_BRANCH_FINAL: Final target branch determined | Branch: ${finalTargetBranch} | Source: branch-dependent config`);
 
                 // Update targetBranch for the rest of the function
                 targetBranch = finalTargetBranch;
@@ -797,16 +814,99 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
             const targetTagName = `v${proposedVersion}`;
             const tagExists = await checkIfTagExists(targetTagName);
+
+            // Smart tag conflict handling
             if (tagExists) {
-                throw new Error(`Tag ${targetTagName} already exists. Please choose a different version or delete the existing tag.`);
+                const { getNpmPublishedVersion, getTagInfo } = await import('../util/general');
+
+                logger.warn(`TAG_ALREADY_EXISTS: Tag already exists in repository | Tag: ${targetTagName} | Status: conflict | Action: Check npm registry`);
+
+                // Check if this version is published on npm
+                const npmVersion = await getNpmPublishedVersion(packageJson.name);
+                const tagInfo = await getTagInfo(targetTagName);
+
+                if (npmVersion === proposedVersion) {
+                    // Version is already published on npm
+                    logger.info(`VERSION_ALREADY_PUBLISHED: Version already published on npm registry | Version: ${proposedVersion} | Status: published | Action: Skipping`);
+                    logger.info(`PUBLISH_SKIPPED_DUPLICATE: Skipping publish operation | Reason: Package already at target version | Version: ${proposedVersion}`);
+                    logger.info('');
+                    logger.info('REPUBLISH_OPTIONS: Options if you need to republish:');
+                    logger.info(`   Option 1: Bump version | Command: npm version patch (or minor/major)`);
+                    logger.info(`   Option 2: Re-run publish | Command: kodrdriv publish`);
+                    logger.info('');
+
+                    if (runConfig.publish?.skipAlreadyPublished) {
+                        logger.info('PUBLISH_SKIPPED_FLAG: Skipping package due to flag | Flag: --skip-already-published | Version: ' + proposedVersion + ' | Status: skipped');
+                        // Emit skip marker for tree mode detection
+                        // eslint-disable-next-line no-console
+                        console.log('KODRDRIV_PUBLISH_SKIPPED');
+                        return; // Exit without error
+                    } else {
+                        throw new Error(`Version ${proposedVersion} already published. Use --skip-already-published to continue.`);
+                    }
+                } else {
+                    // Tag exists but version not on npm - likely failed previous publish
+                    logger.warn('');
+                    logger.warn('PUBLISH_SITUATION_ANALYSIS: Analyzing publish conflict situation | Tag: ' + targetTagName + ' | npm: ' + (npmVersion || 'not published'));
+                    logger.warn(`PUBLISH_ANALYSIS_TAG_EXISTS: Tag exists locally | Tag: ${targetTagName} | Commit: ${tagInfo?.commit?.substring(0, 8)}`);
+                    logger.warn(`PUBLISH_ANALYSIS_NPM_STATUS: npm registry status | Version: ${npmVersion || 'not published'} | Status: ${npmVersion ? 'published' : 'missing'}`);
+                    logger.warn(`PUBLISH_ANALYSIS_CONCLUSION: Previous publish likely failed after tag creation | Reason: Tag exists but not on npm | Resolution: Recovery needed`);
+                    logger.warn('');
+                    logger.warn('PUBLISH_RECOVERY_OPTIONS: Recovery options available:');
+                    logger.warn('   OPTION_1_FORCE: Force republish by deleting tag | Command: kodrdriv publish --force-republish');
+                    logger.warn('   OPTION_2_BUMP: Skip version and bump | Command: npm version patch && kodrdriv publish');
+                    logger.warn('   OPTION_3_MANUAL: Manually delete tag:');
+                    logger.warn(`      Command: git tag -d ${targetTagName}`);
+                    logger.warn(`      Command: git push origin :refs/tags/${targetTagName}`);
+                    logger.warn('');
+
+                    if (runConfig.publish?.forceRepublish) {
+                        logger.info('PUBLISH_FORCE_REPUBLISH: Force republish mode enabled | Action: Deleting existing tag | Tag: ' + targetTagName + ' | Purpose: Allow republish');
+
+                        if (!isDryRun) {
+                            const { runSecure } = await import('@eldrforge/git-tools');
+
+                            // Delete local tag
+                            try {
+                                await runSecure('git', ['tag', '-d', targetTagName]);
+                                logger.info(`TAG_DELETED_LOCAL: Deleted local tag | Tag: ${targetTagName} | Status: removed-local`);
+                            } catch (error: any) {
+                                logger.debug(`Could not delete local tag: ${error.message}`);
+                            }
+
+                            // Delete remote tag
+                            try {
+                                await runSecure('git', ['push', 'origin', `:refs/tags/${targetTagName}`]);
+                                logger.info(`TAG_DELETED_REMOTE: Deleted remote tag | Tag: ${targetTagName} | Remote: origin | Status: removed-remote`);
+                            } catch (error: any) {
+                                logger.debug(`Could not delete remote tag: ${error.message}`);
+                            }
+
+                            logger.info('PUBLISH_TAG_CLEANUP_COMPLETE: Tag deleted successfully | Status: ready-for-publish | Next: Continue with publish workflow');
+                        } else {
+                            logger.info('Would delete tags and continue with publish');
+                        }
+                    } else {
+                        throw new Error(`Tag ${targetTagName} already exists. Use --force-republish to override.`);
+                    }
+                }
             }
 
             if (runConfig.publish?.interactive) {
                 newVersion = await confirmVersionInteractively(currentVersion, proposedVersion, runConfig.publish?.targetVersion);
                 const confirmedTagName = `v${newVersion}`;
                 const confirmedTagExists = await checkIfTagExists(confirmedTagName);
+
                 if (confirmedTagExists) {
-                    throw new Error(`Tag ${confirmedTagName} already exists. Please choose a different version or delete the existing tag.`);
+                    const { getNpmPublishedVersion } = await import('../util/general');
+                    const npmVersion = await getNpmPublishedVersion(packageJson.name);
+
+                    if (npmVersion === newVersion) {
+                        throw new Error(`Tag ${confirmedTagName} already exists and version is published on npm. Please choose a different version.`);
+                    } else if (!runConfig.publish?.forceRepublish) {
+                        throw new Error(`Tag ${confirmedTagName} already exists. Use --force-republish to override.`);
+                    }
+                    // If forceRepublish is set, we'll continue (tag will be deleted later)
                 }
             } else {
                 newVersion = proposedVersion;
@@ -919,7 +1019,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 triggeredWorkflowNames: [] as string[]
             };
             if (!workflowConfig.hasWorkflows || !workflowConfig.hasPullRequestTriggers) {
-                logger.info('⏭️  Skipping check wait - no workflows configured to trigger on this PR');
+                logger.info('PUBLISH_CHECK_WAIT_SKIPPED: Skipping check wait | Reason: No workflows configured for PR | Status: no-workflows | Next: Proceed with merge');
                 shouldSkipWait = true;
             }
         } catch (error: any) {
@@ -954,14 +1054,14 @@ export const execute = async (runConfig: Config): Promise<void> => {
                     error.message.includes('Pull Request is not mergeable') ||
                     error.message.includes('merge conflict')
             )) {
-                logger.error(`❌ Pull Request #${pr!.number} has merge conflicts that need to be resolved.`);
+                logger.error(`PR_MERGE_CONFLICTS: Pull request has merge conflicts | PR Number: ${pr!.number} | Status: conflicts | Resolution: Manual intervention required`);
                 logger.error('');
-                logger.error('📋 To resolve this issue:');
-                logger.error(`   1. Visit the Pull Request: ${pr!.html_url}`);
-                logger.error('   2. Resolve the merge conflicts through GitHub\'s web interface or locally');
-                logger.error('   3. Once conflicts are resolved, re-run the publish command');
+                logger.error('PR_CONFLICT_RESOLUTION: Steps to resolve conflicts:');
+                logger.error(`   Step 1: Visit pull request | URL: ${pr!.html_url}`);
+                logger.error('   Step 2: Resolve merge conflicts | Method: GitHub UI or local');
+                logger.error('   Step 3: Re-run publish command | Command: kodrdriv publish');
                 logger.error('');
-                logger.error('💡 The command will automatically detect the existing PR and continue from where it left off.');
+                logger.error('PR_AUTO_CONTINUE: Command will auto-detect existing PR | Behavior: Continues from where it left off | No re-creation needed');
                 throw new Error(`Merge conflicts detected in PR #${pr!.number}. Please resolve conflicts and re-run the command.`);
             } else {
                 // Re-throw other merge errors
@@ -978,10 +1078,10 @@ export const execute = async (runConfig: Config): Promise<void> => {
     if (!isDryRun) {
         const { stdout: statusOutput } = await runSecure('git', ['status', '--porcelain']);
         if (statusOutput.trim()) {
-            logger.info('📦 Stashing uncommitted changes before checkout...');
+            logger.info('PUBLISH_STASH_SAVING: Stashing uncommitted changes before checkout | Command: git stash push | Purpose: Protect changes during branch switch');
             await runSecure('git', ['stash', 'push', '-m', 'kodrdriv: stash before checkout target branch']);
             hasStashedChanges = true;
-            logger.info('✅ Successfully stashed uncommitted changes');
+            logger.info('PUBLISH_STASH_SUCCESS: Successfully stashed uncommitted changes | Status: saved | Name: kodrdriv stash');
         }
     }
 
@@ -993,7 +1093,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
         // Sync target branch with remote to avoid conflicts during PR creation
         if (!isDryRun) {
-            logger.info(`🔄 Syncing ${targetBranch} with remote to avoid PR conflicts...`);
+            logger.info(`PUBLISH_TARGET_SYNCING: Syncing target branch with remote | Branch: ${targetBranch} | Remote: origin | Purpose: Avoid PR conflicts`);
             try {
                 const remoteExists = await run(`git ls-remote --exit-code --heads origin ${targetBranch}`).then(() => true).catch(() => false);
 
@@ -1002,24 +1102,24 @@ export const execute = async (runConfig: Config): Promise<void> => {
                         await run(`git fetch origin ${targetBranch}`);
                         await run(`git merge origin/${targetBranch} --no-ff --no-edit`);
                     }, `sync ${targetBranch}`);
-                    logger.info(`✅ Synced ${targetBranch} with remote`);
+                    logger.info(`PUBLISH_TARGET_SYNCED: Successfully synced target with remote | Branch: ${targetBranch} | Remote: origin | Status: in-sync`);
                 } else {
-                    logger.info(`ℹ️ No remote ${targetBranch} branch found, will be created on first push`);
+                    logger.info(`PUBLISH_TARGET_NO_REMOTE: No remote target branch found | Branch: ${targetBranch} | Remote: origin | Action: Will be created on first push`);
                 }
             } catch (syncError: any) {
                 if (syncError.message && syncError.message.includes('CONFLICT')) {
-                    logger.error(`❌ Merge conflicts detected when syncing ${targetBranch} with remote`);
-                    logger.error(`   Please resolve the conflicts manually:`);
-                    logger.error(`   1. git checkout ${targetBranch}`);
-                    logger.error(`   2. git pull origin ${targetBranch}`);
-                    logger.error(`   3. Resolve conflicts in the files`);
-                    logger.error(`   4. git add <resolved-files>`);
-                    logger.error(`   5. git commit`);
-                    logger.error(`   6. git checkout ${currentBranch}`);
-                    logger.error(`   7. kodrdriv publish (to continue)`);
+                    logger.error(`PUBLISH_SYNC_CONFLICTS: Merge conflicts during target sync | Branch: ${targetBranch} | Remote: origin | Status: conflicts-detected`);
+                    logger.error(`PUBLISH_SYNC_RESOLUTION: Manual conflict resolution steps:`);
+                    logger.error(`   Step 1: Checkout target | Command: git checkout ${targetBranch}`);
+                    logger.error(`   Step 2: Pull and merge | Command: git pull origin ${targetBranch}`);
+                    logger.error(`   Step 3: Resolve conflicts in files`);
+                    logger.error(`   Step 4: Stage resolved files | Command: git add <resolved-files>`);
+                    logger.error(`   Step 5: Complete merge | Command: git commit`);
+                    logger.error(`   Step 6: Return to branch | Command: git checkout ${currentBranch}`);
+                    logger.error(`   Step 7: Resume publish | Command: kodrdriv publish`);
                     throw syncError;
                 } else {
-                    logger.warn(`⚠️ Could not sync ${targetBranch} with remote: ${syncError.message}`);
+                    logger.warn(`PUBLISH_SYNC_WARNING: Could not sync target with remote | Branch: ${targetBranch} | Remote: origin | Error: ${syncError.message}`);
                     // Continue with publish process, but log the warning
                 }
             }
@@ -1033,17 +1133,17 @@ export const execute = async (runConfig: Config): Promise<void> => {
                          error.message.includes('diverged') ||
                          error.message.includes('non-fast-forward'))) {
 
-            logger.error(`❌ Failed to sync target branch '${targetBranch}' with remote.`);
+            logger.error(`PUBLISH_TARGET_SYNC_FAILED: Failed to sync target branch with remote | Branch: ${targetBranch} | Remote: origin | Impact: Cannot proceed safely`);
             logger.error('');
-            logger.error('📋 Recovery options:');
-            logger.error(`   1. Run 'kodrdriv publish --sync-target' to attempt automatic resolution`);
-            logger.error(`   2. Manually resolve conflicts:`);
-            logger.error(`      - git checkout ${targetBranch}`);
-            logger.error(`      - git pull origin ${targetBranch}`);
-            logger.error(`      - Resolve any conflicts and commit`);
-            logger.error(`      - Re-run your original publish command`);
+            logger.error('PUBLISH_SYNC_RECOVERY_OPTIONS: Available recovery options:');
+            logger.error(`   OPTION_1_AUTO: Attempt automatic resolution | Command: kodrdriv publish --sync-target`);
+            logger.error(`   OPTION_2_MANUAL: Manually resolve conflicts:`);
+            logger.error(`      Step 1: Checkout target | Command: git checkout ${targetBranch}`);
+            logger.error(`      Step 2: Pull from remote | Command: git pull origin ${targetBranch}`);
+            logger.error(`      Step 3: Resolve conflicts and commit`);
+            logger.error(`      Step 4: Re-run publish | Command: kodrdriv publish`);
             logger.error('');
-            logger.error('💡 The publish process has been stopped to prevent data loss.');
+            logger.error('PUBLISH_STOPPED_SAFETY: Publish process stopped | Reason: Prevent data loss | Status: safe-to-recover');
 
             throw new Error(`Target branch '${targetBranch}' sync failed. Use recovery options above to resolve.`);
         } else {
@@ -1054,13 +1154,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     // Restore stashed changes if we stashed them
     if (hasStashedChanges) {
-        logger.info('📦 Restoring previously stashed changes...');
+        logger.info('PUBLISH_STASH_RESTORING: Restoring previously stashed changes | Command: git stash pop | Purpose: Restore working directory state');
         try {
             await runSecure('git', ['stash', 'pop']);
-            logger.info('✅ Successfully restored stashed changes');
+            logger.info('PUBLISH_STASH_RESTORED: Successfully restored stashed changes | Status: restored | Stash: removed');
         } catch (stashError: any) {
-            logger.warn(`⚠️  Warning: Could not restore stashed changes: ${stashError.message}`);
-            logger.warn('   Your changes are still available in the git stash. Run "git stash list" to see them.');
+            logger.warn(`PUBLISH_STASH_RESTORE_FAILED: Could not restore stashed changes | Error: ${stashError.message} | Impact: Changes still in stash`);
+            logger.warn('PUBLISH_STASH_AVAILABLE: Changes available in git stash | Command: git stash list | Purpose: View and restore manually');
         }
     }
 
@@ -1160,7 +1260,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 // Close milestone for this version if enabled
                 const milestonesEnabled = !runConfig.publish?.noMilestones;
                 if (milestonesEnabled) {
-                    logger.info('🏁 Closing milestone for released version...');
+                    logger.info('PUBLISH_MILESTONE_CLOSING: Closing milestone for released version | Action: Close GitHub milestone | Purpose: Mark release complete');
                     const version = tagName.replace(/^v/, ''); // Remove 'v' prefix if present
                     await GitHub.closeMilestoneForVersion(version);
                 } else {
@@ -1232,7 +1332,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
     // Switch back to source branch and sync with target
     logger.info('');
-    logger.info(`🔄 Syncing source branch with target after publish...`);
+    logger.info(`PUBLISH_POST_SYNC: Syncing source branch with target after publish | Purpose: Keep branches synchronized | Strategy: Reset and force push`);
     await runWithDryRunSupport(`git checkout ${currentBranch}`, isDryRun);
 
     if (!isDryRun) {
@@ -1243,11 +1343,11 @@ export const execute = async (runConfig: Config): Promise<void> => {
             // The squash merge created a single commit on target that represents all source commits
             logger.info(`Resetting ${currentBranch} to ${targetBranch} (squash merge)...`);
             await run(`git reset --hard ${targetBranch}`);
-            logger.info(`✅ Reset ${currentBranch} to ${targetBranch}`);
+            logger.info(`PUBLISH_BRANCH_RESET: Reset source branch to target | Source: ${currentBranch} | Target: ${targetBranch} | Status: synchronized`);
 
             // After squash merge and reset, we need to force push
             // This is safe because we just merged to main and are syncing working branch
-            logger.info(`🔄 Force pushing ${currentBranch} to remote (post-squash sync)...`);
+            logger.info(`PUBLISH_FORCE_PUSHING: Force pushing synchronized branch | Branch: ${currentBranch} | Remote: origin | Purpose: Complete post-publish sync`);
 
             try {
                 // Verify that remote working branch is ancestor of main (safety check)
@@ -1262,16 +1362,16 @@ export const execute = async (runConfig: Config): Promise<void> => {
 
                 // Use --force-with-lease for safer force push
                 await run(`git push --force-with-lease origin ${currentBranch}`);
-                logger.info(`✅ Force pushed ${currentBranch} to remote`);
+                logger.info(`PUBLISH_FORCE_PUSH_SUCCESS: Successfully force pushed to remote | Branch: ${currentBranch} | Remote: origin | Status: synchronized`);
             } catch (pushError: any) {
                 // If force push fails, provide helpful message
-                logger.warn(`⚠️  Could not force push ${currentBranch}: ${pushError.message}`);
-                logger.warn(`   You may need to manually force push:`);
-                logger.warn(`   git push --force-with-lease origin ${currentBranch}`);
+                logger.warn(`PUBLISH_FORCE_PUSH_FAILED: Could not force push branch | Branch: ${currentBranch} | Remote: origin | Error: ${pushError.message}`);
+                logger.warn(`PUBLISH_MANUAL_PUSH_NEEDED: Manual force push required | Action: Push manually`);
+                logger.warn(`PUBLISH_MANUAL_PUSH_COMMAND: Force push command | Command: git push --force-with-lease origin ${currentBranch}`);
             }
         } else {
             // For merge/rebase methods, try to merge target back into source
-            logger.info(`Merging ${targetBranch} into ${currentBranch}...`);
+            logger.info(`PUBLISH_MERGE_TARGET_BACK: Merging target back into source | Target: ${targetBranch} | Source: ${currentBranch} | Purpose: Sync branches after publish`);
 
             // Try fast-forward first (works with merge/rebase methods)
             // Use runSecure to avoid error output for expected failure
@@ -1279,14 +1379,14 @@ export const execute = async (runConfig: Config): Promise<void> => {
             try {
                 await runSecure('git', ['merge', targetBranch, '--ff-only']);
                 fastForwardSucceeded = true;
-                logger.info(`✅ Fast-forward merged ${targetBranch} into ${currentBranch}`);
+                logger.info(`PUBLISH_MERGE_FF_SUCCESS: Fast-forward merged target into source | Target: ${targetBranch} | Source: ${currentBranch} | Status: merged`);
             } catch {
                 logger.verbose(`Fast-forward merge not possible, performing regular merge...`);
             }
 
             if (!fastForwardSucceeded) {
                 await run(`git merge ${targetBranch} --no-edit`);
-                logger.info(`✅ Merged ${targetBranch} into ${currentBranch}`);
+                logger.info(`PUBLISH_MERGE_SUCCESS: Merged target into source | Target: ${targetBranch} | Source: ${currentBranch} | Status: merged`);
             }
         }
 
@@ -1308,32 +1408,32 @@ export const execute = async (runConfig: Config): Promise<void> => {
         }
 
         // Bump to next development version
-        logger.info(`Bumping to next development version...`);
+        logger.info(`PUBLISH_DEV_VERSION_BUMPING: Bumping to next development version | Command: ${versionCommand} | Tag: ${versionTag} | Purpose: Prepare for next cycle`);
         try {
             const { stdout: newVersion } = await run(`npm version ${versionCommand} --preid=${versionTag}`);
-            logger.info(`✅ Version bumped to: ${newVersion.trim()}`);
+            logger.info(`PUBLISH_DEV_VERSION_BUMPED: Version bumped successfully | New Version: ${newVersion.trim()} | Type: development | Status: completed`);
         } catch (versionError: any) {
-            logger.warn(`⚠️  Failed to bump version: ${versionError.message}`);
-            logger.warn('   You may need to manually bump the version for next development cycle.');
+            logger.warn(`PUBLISH_DEV_VERSION_BUMP_FAILED: Failed to bump version | Error: ${versionError.message} | Impact: Version not updated`);
+            logger.warn('PUBLISH_MANUAL_VERSION_BUMP: Manual version bump may be needed | Action: Bump manually for next cycle | Command: npm version');
         }
 
         // Push updated source branch
-        logger.info(`Pushing updated ${currentBranch} branch...`);
+        logger.info(`PUBLISH_PUSH_SOURCE: Pushing updated source branch | Branch: ${currentBranch} | Remote: origin | Purpose: Push development version`);
         try {
             await runGitWithLock(process.cwd(), async () => {
                 await run(`git push origin ${currentBranch}`);
             }, `push ${currentBranch}`);
-            logger.info(`✅ Pushed ${currentBranch} to origin`);
+            logger.info(`PUBLISH_PUSH_SOURCE_SUCCESS: Pushed source branch successfully | Branch: ${currentBranch} | Remote: origin | Status: pushed`);
         } catch (pushError: any) {
-            logger.warn(`⚠️  Failed to push ${currentBranch}: ${pushError.message}`);
-            logger.warn(`   Please push manually: git push origin ${currentBranch}`);
+            logger.warn(`PUBLISH_PUSH_SOURCE_FAILED: Failed to push source branch | Branch: ${currentBranch} | Error: ${pushError.message} | Impact: Need manual push`);
+            logger.warn(`PUBLISH_MANUAL_PUSH_COMMAND: Manual push command | Command: git push origin ${currentBranch}`);
         }
     } else {
-        logger.info(`Would merge ${targetBranch} into ${currentBranch} with --ff-only`);
-        logger.info(`Would bump version to next development version`);
-        logger.info(`Would push ${currentBranch} to origin`);
+        logger.info(`PUBLISH_MERGE_DRY_RUN: Would merge target into source | Mode: dry-run | Target: ${targetBranch} | Source: ${currentBranch} | Strategy: ff-only`);
+        logger.info(`PUBLISH_VERSION_DRY_RUN: Would bump version to next development | Mode: dry-run | Action: Version bump`);
+        logger.info(`PUBLISH_PUSH_DRY_RUN: Would push source to remote | Mode: dry-run | Branch: ${currentBranch} | Remote: origin`);
     }
 
     logger.info('');
-    logger.info(`✅ Publish complete - on ${currentBranch} with next development version`);
+    logger.info(`PUBLISH_COMPLETE: Publish workflow completed successfully | Branch: ${currentBranch} | Status: completed | Version: next-development`);
 };

@@ -111,9 +111,9 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would process audio file: %s', 'test-audio.wav');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for commit message generation');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular commit command');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_FILE_DRY_RUN: Would process audio file | Mode: dry-run | File: %s | Action: Transcribe + generate commit', 'test-audio.wav');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_WORKFLOW_DRY_RUN: Would transcribe and generate message | Mode: dry-run | Purpose: Commit message from audio');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_DELEGATE_DRY_RUN: Would delegate to regular commit command | Mode: dry-run | Next: Standard commit flow');
             expect(result).toBe('DRY RUN: Would process audio, transcribe it, and generate commit message with audio context');
             // Should not call the actual commit command in dry run
             expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
@@ -131,9 +131,9 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('Would start audio recording for commit context');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would transcribe audio and use as context for commit message generation');
-            expect(mockLogger.info).toHaveBeenCalledWith('Would then delegate to regular commit command');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_RECORD_DRY_RUN: Would start audio recording | Mode: dry-run | Purpose: Commit context');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_TRANSCRIPT_DRY_RUN: Would transcribe and generate | Mode: dry-run | Purpose: Extract commit message');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_DELEGATE_DRY_RUN: Would delegate to regular commit command | Mode: dry-run | Next: Standard commit flow');
             expect(result).toBe('DRY RUN: Would process audio, transcribe it, and generate commit message with audio context');
             // Should not call the actual commit command in dry run
             expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
@@ -300,8 +300,8 @@ describe('audio-commit', () => {
 
             // Assert
             expect(getTimestampedAudioFilename).toHaveBeenCalled();
-            expect(mockLogger.warn).toHaveBeenCalledWith('Using generated filename for recorded audio: %s', 'test-output/fallback-audio.wav');
-            expect(mockLogger.warn).toHaveBeenCalledWith('Note: This may not match the actual file created by unplayable');
+            expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_COMMIT_FILENAME_GENERATED: Using generated filename for audio | Filename: %s | Warning: May not match actual file from unplayable', 'test-output/fallback-audio.wav');
+            expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_COMMIT_FILENAME_NOTE: Filename mismatch possible | Tool: unplayable | Impact: May need manual file lookup');
             expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).toHaveBeenCalledWith('test-output/fallback-audio.wav', expect.any(Object));
             expect(result).toBe('fallback commit');
         });
@@ -335,7 +335,7 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
+            expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_COMMIT_NO_CONTENT: No audio content transcribed | Reason: Empty or invalid | Action: Proceeding without audio context');
             expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
@@ -499,7 +499,7 @@ describe('audio-commit', () => {
 
             // Act & Assert
             await expect(execute(mockConfig)).rejects.toThrow('Audio commit cancelled by user');
-            expect(mockLogger.info).toHaveBeenCalledWith('❌ Audio commit cancelled by user');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_CANCELLED: Audio commit cancelled by user | Reason: User choice | Status: aborted');
             expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).not.toHaveBeenCalled();
             expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
         });
@@ -553,7 +553,7 @@ describe('audio-commit', () => {
 
             // Act & Assert
             await expect(execute(mockConfig)).rejects.toThrow('User cancelled operation');
-            expect(mockLogger.info).toHaveBeenCalledWith('User cancelled operation');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_ERROR: Error during audio commit | Error: User cancelled operation');
             expect(transcribeAudio as MockedFunction<typeof transcribeAudio>).not.toHaveBeenCalled();
             expect(executeCommit as MockedFunction<typeof executeCommit>).not.toHaveBeenCalled();
         });
@@ -580,8 +580,8 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Failed to process audio file');
-            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_COMMIT_PROCESSING_FAILED: Audio processing failed | Error: %s | Impact: No audio context available', 'Failed to process audio file');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_FALLBACK: Proceeding without audio context | Mode: fallback | Next: Standard commit generation');
             expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
@@ -615,8 +615,8 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Transcription service unavailable');
-            expect(mockLogger.info).toHaveBeenCalledWith('Proceeding with commit generation without audio context...');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_COMMIT_PROCESSING_FAILED: Audio processing failed | Error: %s | Impact: No audio context available', 'Transcription service unavailable');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_FALLBACK: Proceeding without audio context | Mode: fallback | Next: Standard commit generation');
             expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
@@ -648,7 +648,7 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.warn).toHaveBeenCalledWith('No audio content was transcribed. Proceeding without audio context.');
+            expect(mockLogger.warn).toHaveBeenCalledWith('AUDIO_COMMIT_NO_CONTENT: No audio content transcribed | Reason: Empty or invalid | Action: Proceeding without audio context');
             expect(executeCommit as MockedFunction<typeof executeCommit>).toHaveBeenCalledWith({
                 ...mockConfig,
                 commit: {
@@ -679,7 +679,7 @@ describe('audio-commit', () => {
 
             // Act & Assert
             await expect(execute(mockConfig)).rejects.toThrow('Git repository not found');
-            expect(mockLogger.error).toHaveBeenCalledWith('audio-commit failed: Git repository not found');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_COMMIT_FAILED: Audio commit command failed | Error: Git repository not found | Impact: Commit not generated');
         });
 
         it('should handle errors with cause property', async () => {
@@ -700,7 +700,7 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.error).toHaveBeenCalledWith('Audio processing failed: %s', 'Main error');
+            expect(mockLogger.error).toHaveBeenCalledWith('AUDIO_COMMIT_PROCESSING_FAILED: Audio processing failed | Error: %s | Impact: No audio context available', 'Main error');
             expect(result).toBe('error with cause commit');
         });
     });
@@ -852,7 +852,7 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('📝 Successfully transcribed audio using kodrdriv');
+            expect(mockLogger.info).toHaveBeenCalledWith(expect.stringContaining('AUDIO_COMMIT_TRANSCRIPT_SUCCESS'));
             expect(mockLogger.debug).toHaveBeenCalledWith('Transcribed text: %s', 'Debug transcription text');
             expect(result).toBe('debug commit');
         });
@@ -877,8 +877,8 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for commit context...');
-            expect(mockLogger.info).toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_RECORDING_STARTING: Starting audio recording | Purpose: Capture commit context | Tool: unplayable');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_RECORDING_ACTIVE: Recording in progress | Action: Press ENTER to stop | Alternative: Press C to cancel');
             expect(result).toBe('instructions commit');
         });
 
@@ -904,8 +904,8 @@ describe('audio-commit', () => {
             const result = await execute(mockConfig);
 
             // Assert
-            expect(mockLogger.info).toHaveBeenCalledWith('🎙️  Starting audio recording for commit context...');
-            expect(mockLogger.info).not.toHaveBeenCalledWith('Press ENTER to stop recording or C to cancel');
+            expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_COMMIT_RECORDING_STARTING: Starting audio recording | Purpose: Capture commit context | Tool: unplayable');
+            expect(mockLogger.info).not.toHaveBeenCalledWith('AUDIO_COMMIT_RECORDING_ACTIVE: Recording in progress | Action: Press ENTER to stop | Alternative: Press C to cancel');
             expect(result).toBe('no instructions commit');
         });
     });
