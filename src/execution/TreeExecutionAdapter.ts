@@ -17,7 +17,7 @@ export type ExecutePackageFunction = (
     total: number,
     allPackageNames: Set<string>,
     isBuiltInCommand?: boolean
-) => Promise<{ success: boolean; error?: any; isTimeoutError?: boolean; skippedNoChanges?: boolean }>;
+) => Promise<{ success: boolean; error?: any; isTimeoutError?: boolean; skippedNoChanges?: boolean; logFile?: string }>;
 
 /**
  * TreeExecutionAdapter bridges DynamicTaskPool with tree.ts executePackage
@@ -80,7 +80,10 @@ export class TreeExecutionAdapter {
             const duration = Date.now() - startTime;
 
             if (!result.success) {
-                throw result.error || new Error('Package execution failed');
+                // Attach logFile path to error for better error reporting
+                const error = result.error || new Error('Package execution failed');
+                (error as any).logFilePath = result.logFile;
+                throw error;
             }
 
             // Check if this was a "no changes" skip (result will have skippedNoChanges flag)
