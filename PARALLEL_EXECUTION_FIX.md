@@ -42,7 +42,7 @@ class FileLock {
         // Retries with exponential backoff if file exists
         // Detects and removes stale locks (>30 seconds old)
     }
-    
+
     unlock(): void {
         // Removes lock file
     }
@@ -55,7 +55,7 @@ class RepositoryFileLockManager {
     getRepositoryLock(repoPath: string): FileLock {
         // Returns file lock for .git/kodrdriv.lock
     }
-    
+
     async withGitLock<T>(repoPath, operation, operationName): Promise<T> {
         // Acquires lock, executes operation, releases lock
     }

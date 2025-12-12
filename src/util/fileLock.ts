@@ -66,23 +66,23 @@ export class FileLock {
                 // Try to acquire lock
                 fs.writeFileSync(this.lockPath, JSON.stringify(lockData, null, 2), { flag: 'wx' });
                 this.lockAcquired = true;
-                
+
                 if (attempts > 0) {
                     this.logger.debug(`Acquired file lock after ${attempts} attempts: ${this.lockPath}`);
                 }
-                
+
                 return;
             } catch (error: any) {
                 if (error.code === 'EEXIST') {
                     // Lock file exists, retry with backoff
                     attempts++;
-                    
+
                     if (attempts === 1 || attempts % 10 === 0) {
                         this.logger.verbose(`Waiting for file lock (attempt ${attempts}/${this.maxRetries}): ${this.lockPath}`);
                     }
 
                     await new Promise(resolve => setTimeout(resolve, currentDelay));
-                    
+
                     // Exponential backoff
                     currentDelay = Math.min(currentDelay * 1.5, this.maxRetryDelay);
                 } else {

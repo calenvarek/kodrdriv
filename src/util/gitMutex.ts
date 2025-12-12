@@ -8,7 +8,7 @@ import { getLogger } from '../logging';
  * Manages per-repository locks for git operations (cross-process safe)
  * Prevents concurrent git operations in the same repository (which cause .git/index.lock conflicts)
  * while still allowing parallel operations across different repositories
- * 
+ *
  * Uses file-based locks to coordinate across multiple processes (e.g., parallel tree execution)
  */
 export class RepositoryMutexManager {
