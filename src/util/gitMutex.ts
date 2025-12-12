@@ -1,33 +1,22 @@
 import * as path from 'path';
 // eslint-disable-next-line no-restricted-imports
 import { statSync } from 'fs';
-import { SimpleMutex } from './mutex';
+import { RepositoryFileLockManager } from './fileLock';
 import { getLogger } from '../logging';
 
 /**
- * Manages per-repository mutexes for git operations
+ * Manages per-repository locks for git operations (cross-process safe)
  * Prevents concurrent git operations in the same repository (which cause .git/index.lock conflicts)
  * while still allowing parallel operations across different repositories
+ * 
+ * Uses file-based locks to coordinate across multiple processes (e.g., parallel tree execution)
  */
 export class RepositoryMutexManager {
-    private mutexes: Map<string, SimpleMutex> = new Map();
+    private lockManager: RepositoryFileLockManager;
     private logger = getLogger();
 
-    /**
-     * Get or create a mutex for a specific git repository
-     * @param repoPath Path to the git repository root
-     * @returns SimpleMutex for this repository
-     */
-    getRepositoryMutex(repoPath: string): SimpleMutex {
-        // Normalize path to avoid duplicates
-        const normalizedPath = path.resolve(repoPath);
-
-        if (!this.mutexes.has(normalizedPath)) {
-            this.logger.debug(`Creating git mutex for repository: ${normalizedPath}`);
-            this.mutexes.set(normalizedPath, new SimpleMutex());
-        }
-
-        return this.mutexes.get(normalizedPath)!;
+    constructor() {
+        this.lockManager = new RepositoryFileLockManager();
     }
 
     /**
@@ -50,64 +39,14 @@ export class RepositoryMutexManager {
             return await operation();
         }
 
-        const mutex = this.getRepositoryMutex(repoPath);
-        const startWait = Date.now();
-
-        // Check if we need to wait
-        if (mutex.isLocked()) {
-            const queueLength = mutex.getQueueLength();
-            this.logger.verbose(
-                `Waiting for git lock on ${repoPath} (${queueLength} operation(s) in queue)${operationName ? ` for: ${operationName}` : ''}`
-            );
-        }
-
-        await mutex.lock();
-
-        const waitTime = Date.now() - startWait;
-        if (waitTime > 100) {
-            this.logger.debug(
-                `Acquired git lock for ${repoPath} after ${waitTime}ms${operationName ? ` for: ${operationName}` : ''}`
-            );
-        }
-
-        try {
-            return await operation();
-        } finally {
-            mutex.unlock();
-            this.logger.silly(`Released git lock for ${repoPath}${operationName ? ` after: ${operationName}` : ''}`);
-        }
+        return await this.lockManager.withGitLock(repoPath, operation, operationName);
     }
 
     /**
-     * Destroy all mutexes and clean up resources
+     * Destroy all locks and clean up resources
      */
     destroy(): void {
-        this.logger.debug(`Destroying ${this.mutexes.size} git repository mutex(es)`);
-        for (const mutex of this.mutexes.values()) {
-            mutex.destroy();
-        }
-        this.mutexes.clear();
-    }
-
-    /**
-     * Get statistics about current mutex usage
-     */
-    getStats(): { totalRepos: number; lockedRepos: number; totalWaiting: number } {
-        let lockedRepos = 0;
-        let totalWaiting = 0;
-
-        for (const mutex of this.mutexes.values()) {
-            if (mutex.isLocked()) {
-                lockedRepos++;
-            }
-            totalWaiting += mutex.getQueueLength();
-        }
-
-        return {
-            totalRepos: this.mutexes.size,
-            lockedRepos,
-            totalWaiting
-        };
+        this.lockManager.destroy();
     }
 }
 
