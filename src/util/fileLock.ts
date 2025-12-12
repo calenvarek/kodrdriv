@@ -141,9 +141,10 @@ export class RepositoryFileLockManager {
         const normalizedPath = path.resolve(repoPath);
 
         if (!this.locks.has(normalizedPath)) {
-            // Create lock file in .git directory to ensure it's in the repo
-            const lockPath = path.join(normalizedPath, '.git', 'kodrdriv.lock');
-            this.logger.debug(`Creating file lock for repository: ${normalizedPath}`);
+            // Resolve the actual .git directory (handles both regular repos and submodules)
+            const gitDirPath = this.resolveGitDirectory(normalizedPath);
+            const lockPath = path.join(gitDirPath, 'kodrdriv.lock');
+            this.logger.debug(`Creating file lock for repository: ${normalizedPath} at ${lockPath}`);
             this.locks.set(normalizedPath, new FileLock(lockPath));
 
             // Register cleanup handler on first lock creation
@@ -154,6 +155,51 @@ export class RepositoryFileLockManager {
         }
 
         return this.locks.get(normalizedPath)!;
+    }
+
+    /**
+     * Resolve the actual .git directory path, handling both regular repos and submodules
+     * @param repoPath Path to the repository root
+     * @returns Path to the actual .git directory
+     */
+    private resolveGitDirectory(repoPath: string): string {
+        const gitPath = path.join(repoPath, '.git');
+
+        try {
+            const stat = fs.statSync(gitPath);
+
+            if (stat.isDirectory()) {
+                // Regular git repository
+                return gitPath;
+            } else if (stat.isFile()) {
+                // Git submodule - .git is a file with format: gitdir: <path>
+                const gitFileContent = fs.readFileSync(gitPath, 'utf-8').trim();
+                const match = gitFileContent.match(/^gitdir:\s*(.+)$/);
+
+                if (match && match[1]) {
+                    // Resolve the gitdir path (it's relative to the repo path)
+                    const gitDirPath = path.resolve(repoPath, match[1]);
+                    this.logger.debug(`Resolved submodule gitdir: ${gitDirPath}`);
+
+                    // Ensure the git directory exists
+                    if (!fs.existsSync(gitDirPath)) {
+                        throw new Error(`Submodule git directory does not exist: ${gitDirPath}`);
+                    }
+
+                    return gitDirPath;
+                }
+
+                throw new Error(`Invalid .git file format in ${gitPath}: ${gitFileContent}`);
+            }
+        } catch (error: any) {
+            // Check if error is from statSync (file doesn't exist)
+            if (error.code === 'ENOENT') {
+                throw new Error(`No .git directory or file found in ${repoPath}`);
+            }
+            throw new Error(`Failed to resolve git directory for ${repoPath}: ${error.message}`);
+        }
+
+        throw new Error(`No .git directory or file found in ${repoPath}`);
     }
 
     /**
