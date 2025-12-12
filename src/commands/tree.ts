@@ -1071,6 +1071,59 @@ export const execute = async (runConfig: Config): Promise<string> => {
         return `Package '${promotePackage}' promoted to completed status.`;
     }
 
+    // Handle audit-branches command
+    if (runConfig.tree?.auditBranches) {
+        logger.info('🔍 Auditing branch state across all packages...');
+        
+        const directories = runConfig.tree?.directories || [process.cwd()];
+        const excludedPatterns = runConfig.tree?.exclude || [];
+
+        let allPackageJsonPaths: string[] = [];
+        for (const targetDirectory of directories) {
+            const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, excludedPatterns);
+            allPackageJsonPaths = allPackageJsonPaths.concat(packageJsonPaths);
+        }
+
+        if (allPackageJsonPaths.length === 0) {
+            return 'No packages found';
+        }
+
+        const dependencyGraph = await buildDependencyGraph(allPackageJsonPaths);
+        const packages = Array.from(dependencyGraph.packages.values()).map(pkg => ({
+            name: pkg.name,
+            path: pkg.path,
+        }));
+
+        const { auditBranchState, formatAuditResults } = await import('../utils/branchState');
+        
+        // Determine expected branch from the first package
+        const { getCurrentBranch } = await import('@eldrforge/git-tools');
+        const originalCwd = process.cwd();
+        let expectedBranch: string | undefined;
+        
+        if (packages.length > 0) {
+            try {
+                process.chdir(packages[0].path);
+                expectedBranch = await getCurrentBranch();
+            } finally {
+                process.chdir(originalCwd);
+            }
+        }
+        
+        const auditResult = await auditBranchState(packages, expectedBranch);
+        const formatted = formatAuditResults(auditResult);
+        
+        logger.info('\n' + formatted);
+        
+        if (auditResult.issuesFound > 0) {
+            logger.warn(`\n⚠️  Found issues in ${auditResult.issuesFound} package(s). Review the fixes above.`);
+            return `Branch audit complete: ${auditResult.issuesFound} package(s) need attention`;
+        }
+        
+        logger.info(`\n✅ All ${auditResult.goodPackages} package(s) are in good state!`);
+        return `Branch audit complete: All packages OK`;
+    }
+
     // Handle parallel execution recovery commands
     const { loadRecoveryManager } = await import('../execution/RecoveryManager');
 

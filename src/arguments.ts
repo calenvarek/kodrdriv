@@ -285,12 +285,17 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         const packageArgument = (finalCliArgs as any).packageArgument;
 
         // Only create tree object if there are actual tree-specific options
+        const cliArgs = finalCliArgs as any;
         if (finalCliArgs.directories !== undefined || finalCliArgs.directory !== undefined ||
             finalCliArgs.startFrom !== undefined ||
             finalCliArgs.stopAt !== undefined || finalCliArgs.cmd !== undefined ||
             builtInCommand !== undefined || finalCliArgs.continue !== undefined ||
             packageArgument !== undefined || finalCliArgs.cleanNodeModules !== undefined ||
-            finalCliArgs.externals !== undefined) {
+            finalCliArgs.externals !== undefined ||
+            cliArgs.statusParallel !== undefined || cliArgs.auditBranches !== undefined ||
+            cliArgs.parallel !== undefined || cliArgs.markCompleted !== undefined ||
+            cliArgs.skip !== undefined || cliArgs.retryFailed !== undefined ||
+            cliArgs.skipFailed !== undefined || cliArgs.validateState !== undefined) {
 
             transformedCliArgs.tree = {};
             if (finalCliArgs.directories !== undefined) transformedCliArgs.tree.directories = finalCliArgs.directories;
@@ -306,8 +311,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (finalCliArgs.cleanNodeModules !== undefined) transformedCliArgs.tree.cleanNodeModules = finalCliArgs.cleanNodeModules;
             if (finalCliArgs.externals !== undefined) transformedCliArgs.tree.externals = finalCliArgs.externals;
 
-            // Parallel execution options (using any cast for new properties)
-            const cliArgs = finalCliArgs as any;
+            // Parallel execution options
             if (cliArgs.parallel !== undefined) transformedCliArgs.tree.parallel = cliArgs.parallel;
             if (cliArgs.maxConcurrency !== undefined) transformedCliArgs.tree.maxConcurrency = cliArgs.maxConcurrency;
             if (cliArgs.maxRetries !== undefined || cliArgs.retryDelay !== undefined) {
@@ -321,6 +325,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
 
             // Recovery options
             if (cliArgs.statusParallel !== undefined) transformedCliArgs.tree.statusParallel = cliArgs.statusParallel;
+            if (cliArgs.auditBranches !== undefined) transformedCliArgs.tree.auditBranches = cliArgs.auditBranches;
             if (cliArgs.markCompleted !== undefined) {
                 transformedCliArgs.tree.markCompleted = cliArgs.markCompleted.split(',').map((s: string) => s.trim());
             }
@@ -736,22 +741,48 @@ export async function getCliConfig(
         .option('--start-from <startFrom>', 'resume execution from this package directory name (useful for restarting failed builds)')
         .option('--stop-at <stopAt>', 'stop execution at this package directory name (the specified package will not be executed)')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
+        
+        // Parallel Execution Options
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
         .option('--max-concurrency <number>', 'maximum number of packages to execute concurrently (default: number of CPU cores)', parseInt)
         .option('--max-retries <number>', 'maximum retry attempts for failed packages (default: 3)', parseInt)
         .option('--retry-delay <ms>', 'initial retry delay in milliseconds (default: 5000)', parseInt)
-        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
-        .option('--continue', 'continue from previous tree publish execution')
+        
+        // Recovery & Status Options
+        .option('--continue', 'continue from previous tree publish execution using saved checkpoint state')
         .option('--status', 'check status of running tree publish processes')
-        .option('--status-parallel', 'show detailed parallel execution status')
+        .option('--status-parallel', 'show detailed parallel execution status with package states, timing, and errors')
+        .option('--audit-branches', 'audit git branch state across all packages (checks branch name, sync status, unpushed commits)')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
         .option('--mark-completed <packages>', 'mark packages as completed using directory names (comma-separated, for recovery)')
         .option('--skip <packages>', 'skip packages and their dependents (comma-separated)')
-        .option('--retry-failed', 'retry all previously failed packages')
-        .option('--skip-failed', 'skip failed packages and continue with remaining')
-        .option('--validate-state', 'validate checkpoint state integrity')
+        .option('--retry-failed', 'retry all previously failed packages from checkpoint')
+        .option('--skip-failed', 'skip failed packages and continue with remaining packages')
+        .option('--validate-state', 'validate checkpoint state integrity before continuing')
+        
+        // Package Filtering
+        .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
+        
+        // Link/Unlink Options
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
-        .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run, checkout');
+        .description(`Analyze package dependencies in workspace and execute commands in dependency order.
+
+Built-in commands:
+  commit      - Run 'kodrdriv commit' in each package
+  publish     - Run 'kodrdriv publish' in each package (supports --parallel)
+  link        - Create file: dependencies for local development
+  unlink      - Restore npm registry dependencies
+  development - Switch to development branch with version bump
+  branches    - Show branch information for all packages
+  run         - Execute custom shell command (use --cmd)
+  checkout    - Checkout specified branch in all packages
+
+Examples:
+  kodrdriv tree publish --parallel --model "gpt-5-mini"
+  kodrdriv tree --cmd "npm test"
+  kodrdriv tree publish --continue --retry-failed
+  kodrdriv tree --audit-branches
+  kodrdriv tree --status-parallel`);
     addSharedOptions(treeCommand);
 
     const linkCommand = program

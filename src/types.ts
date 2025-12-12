@@ -178,6 +178,7 @@ export const ConfigSchema = z.object({
         skipFailed: z.boolean().optional(),
         resetPackage: z.string().optional(),
         statusParallel: z.boolean().optional(),
+        auditBranches: z.boolean().optional(),
         validateState: z.boolean().optional(),
     }).optional(),
     development: z.object({
@@ -398,6 +399,7 @@ export type TreeConfig = {
     skipFailed?: boolean;
     resetPackage?: string;
     statusParallel?: boolean;
+    auditBranches?: boolean;
     validateState?: boolean;
 }
 
