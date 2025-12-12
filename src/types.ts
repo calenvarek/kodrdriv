@@ -151,6 +151,34 @@ export const ConfigSchema = z.object({
         packageArgument: z.string().optional(),
         cleanNodeModules: z.boolean().optional(),
         externals: z.array(z.string()).optional(),
+        // Parallel execution options
+        parallel: z.boolean().optional(),
+        maxConcurrency: z.number().optional(),
+        retry: z.object({
+            maxAttempts: z.number().optional(),
+            initialDelayMs: z.number().optional(),
+            maxDelayMs: z.number().optional(),
+            backoffMultiplier: z.number().optional(),
+            retriableErrors: z.array(z.string()).optional(),
+        }).optional(),
+        recovery: z.object({
+            checkpointInterval: z.enum(['package', 'batch']).optional(),
+            autoRetry: z.boolean().optional(),
+            continueOnError: z.boolean().optional(),
+        }).optional(),
+        monitoring: z.object({
+            showProgress: z.boolean().optional(),
+            showMetrics: z.boolean().optional(),
+            logLevel: z.enum(['minimal', 'normal', 'verbose']).optional(),
+        }).optional(),
+        // Recovery options
+        markCompleted: z.array(z.string()).optional(),
+        skipPackages: z.array(z.string()).optional(),
+        retryFailed: z.boolean().optional(),
+        skipFailed: z.boolean().optional(),
+        resetPackage: z.string().optional(),
+        statusParallel: z.boolean().optional(),
+        validateState: z.boolean().optional(),
     }).optional(),
     development: z.object({
         targetVersion: z.string().optional(),
@@ -328,6 +356,7 @@ export type TargetsConfig = Record<string, BranchTargetConfig>;
 export type TreeConfig = {
     directories?: string[];
     excludedPatterns?: string[];
+    exclude?: string[]; // Alias for excludedPatterns
     startFrom?: string;
     stopAt?: string;
     cmd?: string;
@@ -339,6 +368,37 @@ export type TreeConfig = {
     packageArgument?: string; // Package argument for link/unlink commands (e.g., "@fjell" or "@fjell/core")
     cleanNodeModules?: boolean; // For unlink command: remove node_modules and package-lock.json, then reinstall dependencies
     externalLinkPatterns?: string[];
+    externals?: string[]; // Alias for externalLinkPatterns
+
+    // Parallel execution options
+    parallel?: boolean;
+    maxConcurrency?: number;
+    retry?: {
+        maxAttempts: number;
+        initialDelayMs: number;
+        maxDelayMs: number;
+        backoffMultiplier: number;
+        retriableErrors?: string[];
+    };
+    recovery?: {
+        checkpointInterval: 'package' | 'batch';
+        autoRetry: boolean;
+        continueOnError: boolean;
+    };
+    monitoring?: {
+        showProgress: boolean;
+        showMetrics: boolean;
+        logLevel: 'minimal' | 'normal' | 'verbose';
+    };
+
+    // Recovery options
+    markCompleted?: string[];
+    skipPackages?: string[];
+    retryFailed?: boolean;
+    skipFailed?: boolean;
+    resetPackage?: string;
+    statusParallel?: boolean;
+    validateState?: boolean;
 }
 
 export type DevelopmentConfig = {

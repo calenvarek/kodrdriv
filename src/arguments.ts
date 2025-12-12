@@ -305,6 +305,31 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (packageArgument !== undefined) transformedCliArgs.tree.packageArgument = packageArgument;
             if (finalCliArgs.cleanNodeModules !== undefined) transformedCliArgs.tree.cleanNodeModules = finalCliArgs.cleanNodeModules;
             if (finalCliArgs.externals !== undefined) transformedCliArgs.tree.externals = finalCliArgs.externals;
+
+            // Parallel execution options (using any cast for new properties)
+            const cliArgs = finalCliArgs as any;
+            if (cliArgs.parallel !== undefined) transformedCliArgs.tree.parallel = cliArgs.parallel;
+            if (cliArgs.maxConcurrency !== undefined) transformedCliArgs.tree.maxConcurrency = cliArgs.maxConcurrency;
+            if (cliArgs.maxRetries !== undefined || cliArgs.retryDelay !== undefined) {
+                transformedCliArgs.tree.retry = {
+                    maxAttempts: cliArgs.maxRetries || 3,
+                    initialDelayMs: cliArgs.retryDelay || 5000,
+                    maxDelayMs: 60000,
+                    backoffMultiplier: 2
+                };
+            }
+
+            // Recovery options
+            if (cliArgs.statusParallel !== undefined) transformedCliArgs.tree.statusParallel = cliArgs.statusParallel;
+            if (cliArgs.markCompleted !== undefined) {
+                transformedCliArgs.tree.markCompleted = cliArgs.markCompleted.split(',').map((s: string) => s.trim());
+            }
+            if (cliArgs.skip !== undefined) {
+                transformedCliArgs.tree.skipPackages = cliArgs.skip.split(',').map((s: string) => s.trim());
+            }
+            if (cliArgs.retryFailed !== undefined) transformedCliArgs.tree.retryFailed = cliArgs.retryFailed;
+            if (cliArgs.skipFailed !== undefined) transformedCliArgs.tree.skipFailed = cliArgs.skipFailed;
+            if (cliArgs.validateState !== undefined) transformedCliArgs.tree.validateState = cliArgs.validateState;
         }
     }
 
@@ -712,10 +737,19 @@ export async function getCliConfig(
         .option('--stop-at <stopAt>', 'stop execution at this package directory name (the specified package will not be executed)')
         .option('--cmd <cmd>', 'shell command to execute in each package directory (e.g., "npm install", "git status")')
         .option('--parallel', 'execute packages in parallel when dependencies allow (packages with no interdependencies run simultaneously)')
+        .option('--max-concurrency <number>', 'maximum number of packages to execute concurrently (default: number of CPU cores)', parseInt)
+        .option('--max-retries <number>', 'maximum retry attempts for failed packages (default: 3)', parseInt)
+        .option('--retry-delay <ms>', 'initial retry delay in milliseconds (default: 5000)', parseInt)
         .option('--excluded-patterns [excludedPatterns...]', 'patterns to exclude packages from processing (e.g., "**/node_modules/**", "dist/*")')
         .option('--continue', 'continue from previous tree publish execution')
         .option('--status', 'check status of running tree publish processes')
+        .option('--status-parallel', 'show detailed parallel execution status')
         .option('--promote <packageName>', 'mark a package as completed in the execution context (useful for recovery after timeouts)')
+        .option('--mark-completed <packages>', 'mark packages as completed using directory names (comma-separated, for recovery)')
+        .option('--skip <packages>', 'skip packages and their dependents (comma-separated)')
+        .option('--retry-failed', 'retry all previously failed packages')
+        .option('--skip-failed', 'skip failed packages and continue with remaining')
+        .option('--validate-state', 'validate checkpoint state integrity')
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
         .description('Analyze package dependencies in workspace and execute commands in dependency order. Supports built-in commands: commit, publish, link, unlink, development, branches, run, checkout');
     addSharedOptions(treeCommand);

@@ -44,6 +44,17 @@ import * as Commit from './commit';
 import * as Link from './link';
 import * as Unlink from './unlink';
 import * as Updates from './updates';
+import { runGitWithLock } from '../util/gitMutex';
+import type {
+    PackageInfo
+} from '../util/dependencyGraph';
+import {
+    scanForPackageJsonFiles,
+    parsePackageJson,
+    buildDependencyGraph,
+    topologicalSort,
+    shouldExclude
+} from '../util/dependencyGraph';
 
 // Track published versions during tree publish
 interface PublishedVersion {
@@ -73,73 +84,8 @@ export const __resetGlobalState = () => {
     executionContext = null;
 };
 
-// Simple mutex to prevent race conditions in global state access
-class SimpleMutex {
-    private locked = false;
-    private queue: Array<() => void> = [];
-    private destroyed = false;
-
-    async lock(): Promise<void> {
-        return new Promise<void>((resolve, reject) => {
-            if (this.destroyed) {
-                reject(new Error('Mutex has been destroyed'));
-                return;
-            }
-
-            if (!this.locked) {
-                this.locked = true;
-                resolve();
-            } else {
-                this.queue.push(resolve);
-            }
-        });
-    }
-
-    unlock(): void {
-        if (this.destroyed) {
-            return;
-        }
-
-        this.locked = false;
-        const next = this.queue.shift();
-        if (next) {
-            this.locked = true;
-            try {
-                next();
-            } catch {
-                // If resolver throws, unlock and continue with next in queue
-                this.locked = false;
-                const nextInQueue = this.queue.shift();
-                if (nextInQueue) {
-                    this.locked = true;
-                    nextInQueue();
-                }
-            }
-        }
-    }
-
-    destroy(): void {
-        this.destroyed = true;
-        this.locked = false;
-
-        // Reject all queued promises to prevent memory leaks
-        while (this.queue.length > 0) {
-            const resolver = this.queue.shift();
-            if (resolver) {
-                try {
-                    // Treat as rejected promise to clean up
-                    (resolver as any)(new Error('Mutex destroyed'));
-                } catch {
-                    // Ignore errors from rejected resolvers
-                }
-            }
-        }
-    }
-
-    isDestroyed(): boolean {
-        return this.destroyed;
-    }
-}
+// Import shared mutex implementation
+import { SimpleMutex } from '../util/mutex';
 
 const globalStateMutex = new SimpleMutex();
 
@@ -675,213 +621,13 @@ const formatSubprojectError = (packageName: string, error: any, _packageInfo?: P
 };
 
 
-const matchesPattern = (filePath: string, pattern: string): boolean => {
-    // Convert simple glob patterns to regex
-    const regexPattern = pattern
-        .replace(/\\/g, '\\\\')  // Escape backslashes
-        .replace(/\*\*/g, '.*')  // ** matches any path segments
-        .replace(/\*/g, '[^/]*') // * matches any characters except path separator
-        .replace(/\?/g, '.')     // ? matches any single character
-        .replace(/\./g, '\\.');  // Escape literal dots
-
-    const regex = new RegExp(`^${regexPattern}$`);
-    return regex.test(filePath) || regex.test(path.basename(filePath));
-};
-
-const shouldExclude = (packageJsonPath: string, excludedPatterns: string[]): boolean => {
-    if (!excludedPatterns || excludedPatterns.length === 0) {
-        return false;
-    }
-
-    // Check both the full path and relative path patterns
-    const relativePath = path.relative(process.cwd(), packageJsonPath);
-
-    return excludedPatterns.some(pattern =>
-        matchesPattern(packageJsonPath, pattern) ||
-        matchesPattern(relativePath, pattern) ||
-        matchesPattern(path.dirname(packageJsonPath), pattern) ||
-        matchesPattern(path.dirname(relativePath), pattern)
-    );
-};
-
-interface PackageInfo {
-    name: string;
-    version: string;
-    path: string;
-    dependencies: Set<string>;
-    localDependencies: Set<string>; // Dependencies that are local to this workspace
-}
-
-interface DependencyGraph {
-    packages: Map<string, PackageInfo>;
-    edges: Map<string, Set<string>>; // package -> set of packages it depends on
-}
-
-const scanForPackageJsonFiles = async (directory: string, excludedPatterns: string[] = []): Promise<string[]> => {
-    const logger = getLogger();
-    const packageJsonPaths: string[] = [];
-
-    try {
-        // First check if there's a package.json in the specified directory itself
-        const directPackageJsonPath = path.join(directory, 'package.json');
-        try {
-            await fs.access(directPackageJsonPath);
-
-            // Check if this package should be excluded
-            if (!shouldExclude(directPackageJsonPath, excludedPatterns)) {
-                packageJsonPaths.push(directPackageJsonPath);
-                logger.verbose(`Found package.json at: ${directPackageJsonPath}`);
-            } else {
-                logger.verbose(`Excluding package.json at: ${directPackageJsonPath} (matches exclusion pattern)`);
-            }
-        } catch {
-            // No package.json in the root of this directory, that's fine
-        }
-
-        // Then scan subdirectories for package.json files
-        const entries = await fs.readdir(directory, { withFileTypes: true });
-
-        for (const entry of entries) {
-            if (entry.isDirectory()) {
-                const subDirPath = path.join(directory, entry.name);
-                const packageJsonPath = path.join(subDirPath, 'package.json');
-
-                try {
-                    await fs.access(packageJsonPath);
-
-                    // Check if this package should be excluded
-                    if (shouldExclude(packageJsonPath, excludedPatterns)) {
-                        logger.verbose(`Excluding package.json at: ${packageJsonPath} (matches exclusion pattern)`);
-                        continue;
-                    }
-
-                    packageJsonPaths.push(packageJsonPath);
-                    logger.verbose(`Found package.json at: ${packageJsonPath}`);
-                } catch {
-                    // No package.json in this directory, continue
-                }
-            }
-        }
-    } catch (error) {
-        logger.error(`Failed to scan directory ${directory}: ${error}`);
-        throw error;
-    }
-
-    return packageJsonPaths;
-};
-
-const parsePackageJson = async (packageJsonPath: string): Promise<PackageInfo> => {
-    const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
-
-    try {
-        const content = await storage.readFile(packageJsonPath, 'utf-8');
-        const parsed = safeJsonParse(content, packageJsonPath);
-        const packageJson = validatePackageJson(parsed, packageJsonPath);
-
-        if (!packageJson.name) {
-            throw new Error(`Package at ${packageJsonPath} has no name field`);
-        }
-
-        const dependencies = new Set<string>();
-
-        // Collect all types of dependencies
-        const depTypes = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
-        for (const depType of depTypes) {
-            if (packageJson[depType]) {
-                Object.keys(packageJson[depType]).forEach(dep => dependencies.add(dep));
-            }
-        }
-
-        return {
-            name: packageJson.name,
-            version: packageJson.version || '0.0.0',
-            path: path.dirname(packageJsonPath),
-            dependencies,
-            localDependencies: new Set() // Will be populated later
-        };
-    } catch (error) {
-        logger.error(`Failed to parse package.json at ${packageJsonPath}: ${error}`);
-        throw error;
-    }
-};
-
-const buildDependencyGraph = async (packageJsonPaths: string[]): Promise<DependencyGraph> => {
-    const logger = getLogger();
-    const packages = new Map<string, PackageInfo>();
-    const edges = new Map<string, Set<string>>();
-
-    // First pass: parse all package.json files
-    for (const packageJsonPath of packageJsonPaths) {
-        const packageInfo = await parsePackageJson(packageJsonPath);
-        packages.set(packageInfo.name, packageInfo);
-        logger.verbose(`Parsed package: ${packageInfo.name} at ${packageInfo.path}`);
-    }
-
-    // Second pass: identify local dependencies and build edges
-    for (const [packageName, packageInfo] of packages) {
-        const localDeps = new Set<string>();
-        const edges_set = new Set<string>();
-
-        for (const dep of packageInfo.dependencies) {
-            if (packages.has(dep)) {
-                localDeps.add(dep);
-                edges_set.add(dep);
-                logger.verbose(`${packageName} depends on local package: ${dep}`);
-            }
-        }
-
-        packageInfo.localDependencies = localDeps;
-        edges.set(packageName, edges_set);
-    }
-
-    return { packages, edges };
-};
-
-const topologicalSort = (graph: DependencyGraph): string[] => {
-    const logger = getLogger();
-    const { packages, edges } = graph;
-    const visited = new Set<string>();
-    const visiting = new Set<string>();
-    const result: string[] = [];
-
-    const visit = (packageName: string): void => {
-        if (visited.has(packageName)) {
-            return;
-        }
-
-        if (visiting.has(packageName)) {
-            throw new Error(`Circular dependency detected involving package: ${packageName}`);
-        }
-
-        visiting.add(packageName);
-
-        // Visit all dependencies first
-        const deps = edges.get(packageName) || new Set();
-        for (const dep of deps) {
-            visit(dep);
-        }
-
-        visiting.delete(packageName);
-        visited.add(packageName);
-        result.push(packageName);
-    };
-
-    // Visit all packages
-    for (const packageName of packages.keys()) {
-        if (!visited.has(packageName)) {
-            visit(packageName);
-        }
-    }
-
-    logger.verbose(`Topological sort completed. Build order determined for ${result.length} packages.`);
-    return result;
-};
+// Note: PackageInfo, DependencyGraph, scanForPackageJsonFiles, parsePackageJson,
+// buildDependencyGraph, and topologicalSort are now imported from ../util/dependencyGraph
 
 
 
 // Execute a single package and return execution result
-const executePackage = async (
+export const executePackage = async (
     packageName: string,
     packageInfo: PackageInfo,
     commandToRun: string,
@@ -965,58 +711,61 @@ const executePackage = async (
                 }
 
                 // Handle dependency updates for publish commands before executing (skip during dry run)
+                // Wrap in git lock to prevent parallel packages from conflicting with npm install and git operations
                 if (!isDryRun && isBuiltInCommand && commandToRun.includes('publish')) {
-                    let hasAnyUpdates = false;
+                    await runGitWithLock(packageDir, async () => {
+                        let hasAnyUpdates = false;
 
-                    // First, update all scoped dependencies from npm registry
-                    const hasScopedUpdates = await updateScopedDependencies(packageDir, packageLogger, isDryRun, runConfig);
-                    hasAnyUpdates = hasAnyUpdates || hasScopedUpdates;
+                        // First, update all scoped dependencies from npm registry
+                        const hasScopedUpdates = await updateScopedDependencies(packageDir, packageLogger, isDryRun, runConfig);
+                        hasAnyUpdates = hasAnyUpdates || hasScopedUpdates;
 
-                    // Then update inter-project dependencies based on previously published packages
-                    if (publishedVersions.length > 0) {
-                        packageLogger.info('Updating inter-project dependencies based on previously published packages...');
-                        const hasInterProjectUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
-                        hasAnyUpdates = hasAnyUpdates || hasInterProjectUpdates;
-                    }
+                        // Then update inter-project dependencies based on previously published packages
+                        if (publishedVersions.length > 0) {
+                            packageLogger.info('Updating inter-project dependencies based on previously published packages...');
+                            const hasInterProjectUpdates = await updateInterProjectDependencies(packageDir, publishedVersions, allPackageNames, packageLogger, isDryRun);
+                            hasAnyUpdates = hasAnyUpdates || hasInterProjectUpdates;
+                        }
 
-                    // If either type of update occurred, commit the changes
-                    if (hasAnyUpdates) {
-                        // Commit the dependency updates using kodrdriv commit
-                        packageLogger.info('Committing dependency updates...');
-                        packageLogger.info('⏱️  This step may take a few minutes as it generates a commit message using AI...');
+                        // If either type of update occurred, commit the changes
+                        if (hasAnyUpdates) {
+                            // Commit the dependency updates using kodrdriv commit
+                            packageLogger.info('Committing dependency updates...');
+                            packageLogger.info('⏱️  This step may take a few minutes as it generates a commit message using AI...');
 
-                        // Add timeout wrapper around commit execution
-                        const commitTimeoutMs = 300000; // 5 minutes
-                        const commitPromise = Commit.execute({...runConfig, dryRun: false});
-                        const timeoutPromise = new Promise<never>((_, reject) => {
-                            setTimeout(() => reject(new Error(`Commit operation timed out after ${commitTimeoutMs/1000} seconds`)), commitTimeoutMs);
-                        });
+                            // Add timeout wrapper around commit execution
+                            const commitTimeoutMs = 300000; // 5 minutes
+                            const commitPromise = Commit.execute({...runConfig, dryRun: false});
+                            const timeoutPromise = new Promise<never>((_, reject) => {
+                                setTimeout(() => reject(new Error(`Commit operation timed out after ${commitTimeoutMs/1000} seconds`)), commitTimeoutMs);
+                            });
 
-                        // Add progress indicator
-                        let progressInterval: NodeJS.Timeout | null = null;
-                        try {
-                            // Start progress indicator
-                            progressInterval = setInterval(() => {
-                                packageLogger.info('⏳ Still generating commit message... (this can take 1-3 minutes)');
-                            }, 30000); // Every 30 seconds
+                            // Add progress indicator
+                            let progressInterval: NodeJS.Timeout | null = null;
+                            try {
+                                // Start progress indicator
+                                progressInterval = setInterval(() => {
+                                    packageLogger.info('⏳ Still generating commit message... (this can take 1-3 minutes)');
+                                }, 30000); // Every 30 seconds
 
-                            await Promise.race([commitPromise, timeoutPromise]);
-                            packageLogger.info('✅ Dependency updates committed successfully');
-                        } catch (commitError: any) {
-                            if (commitError.message.includes('timed out')) {
-                                packageLogger.error(`❌ Commit operation timed out after ${commitTimeoutMs/1000} seconds`);
-                                packageLogger.error('This usually indicates an issue with the AI service or very large changes');
-                                packageLogger.error('You may need to manually commit the dependency updates');
-                            } else {
-                                packageLogger.warn(`Failed to commit dependency updates: ${commitError.message}`);
-                            }
-                            // Continue with publish anyway - the updates are still in place
-                        } finally {
-                            if (progressInterval) {
-                                clearInterval(progressInterval);
+                                await Promise.race([commitPromise, timeoutPromise]);
+                                packageLogger.info('✅ Dependency updates committed successfully');
+                            } catch (commitError: any) {
+                                if (commitError.message.includes('timed out')) {
+                                    packageLogger.error(`❌ Commit operation timed out after ${commitTimeoutMs/1000} seconds`);
+                                    packageLogger.error('This usually indicates an issue with the AI service or very large changes');
+                                    packageLogger.error('You may need to manually commit the dependency updates');
+                                } else {
+                                    packageLogger.warn(`Failed to commit dependency updates: ${commitError.message}`);
+                                }
+                                // Continue with publish anyway - the updates are still in place
+                            } finally {
+                                if (progressInterval) {
+                                    clearInterval(progressInterval);
+                                }
                             }
                         }
-                    }
+                    }, `${packageName}: dependency updates`);
                 }
 
                 if (runConfig.debug || runConfig.verbose) {
@@ -1216,6 +965,129 @@ export const execute = async (runConfig: Config): Promise<string> => {
         logger.info(`✅ Package '${promotePackage}' has been marked as completed.`);
         logger.info('You can now run the tree command with --continue to resume from the next package.');
         return `Package '${promotePackage}' promoted to completed status.`;
+    }
+
+    // Handle parallel execution recovery commands
+    const { loadRecoveryManager } = await import('../execution/RecoveryManager');
+
+    // Handle status-parallel command
+    if (runConfig.tree?.statusParallel) {
+        logger.info('📊 Checking parallel execution status...');
+
+        // Need to build dependency graph first
+        const directories = runConfig.tree?.directories || [process.cwd()];
+        const excludedPatterns = runConfig.tree?.exclude || [];
+
+        let allPackageJsonPaths: string[] = [];
+        for (const targetDirectory of directories) {
+            const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, excludedPatterns);
+            allPackageJsonPaths = allPackageJsonPaths.concat(packageJsonPaths);
+        }
+
+        if (allPackageJsonPaths.length === 0) {
+            return 'No packages found';
+        }
+
+        const dependencyGraph = await buildDependencyGraph(allPackageJsonPaths);
+        const recoveryManager = await loadRecoveryManager(dependencyGraph, runConfig.outputDirectory);
+
+        if (!recoveryManager) {
+            logger.info('No parallel execution checkpoint found');
+            return 'No active parallel execution found';
+        }
+
+        const status = await recoveryManager.showStatus();
+        logger.info('\n' + status);
+        return status;
+    }
+
+    // Handle validate-state command
+    if (runConfig.tree?.validateState) {
+        logger.info('🔍 Validating checkpoint state...');
+
+        const directories = runConfig.tree?.directories || [process.cwd()];
+        const excludedPatterns = runConfig.tree?.exclude || [];
+
+        let allPackageJsonPaths: string[] = [];
+        for (const targetDirectory of directories) {
+            const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, excludedPatterns);
+            allPackageJsonPaths = allPackageJsonPaths.concat(packageJsonPaths);
+        }
+
+        if (allPackageJsonPaths.length === 0) {
+            return 'No packages found';
+        }
+
+        const dependencyGraph = await buildDependencyGraph(allPackageJsonPaths);
+        const recoveryManager = await loadRecoveryManager(dependencyGraph, runConfig.outputDirectory);
+
+        if (!recoveryManager) {
+            logger.info('No checkpoint found to validate');
+            return 'No checkpoint found';
+        }
+
+        const validation = recoveryManager.validateState();
+
+        if (validation.valid) {
+            logger.info('✅ Checkpoint state is valid');
+        } else {
+            logger.error('❌ Checkpoint state has issues:');
+            for (const issue of validation.issues) {
+                logger.error(`  • ${issue}`);
+            }
+        }
+
+        if (validation.warnings.length > 0) {
+            logger.warn('⚠️  Warnings:');
+            for (const warning of validation.warnings) {
+                logger.warn(`  • ${warning}`);
+            }
+        }
+
+        return validation.valid ? 'Checkpoint is valid' : 'Checkpoint has issues';
+    }
+
+    // Handle parallel execution recovery options (must happen before main execution)
+    const hasRecoveryOptions = runConfig.tree?.markCompleted || runConfig.tree?.skipPackages ||
+                               runConfig.tree?.retryFailed || runConfig.tree?.skipFailed ||
+                               runConfig.tree?.resetPackage;
+
+    if (hasRecoveryOptions && runConfig.tree) {
+        logger.info('🔧 Applying recovery options...');
+
+        // Build dependency graph
+        const directories = runConfig.tree.directories || [process.cwd()];
+        const excludedPatterns = runConfig.tree.exclude || [];
+
+        let allPackageJsonPaths: string[] = [];
+        for (const targetDirectory of directories) {
+            const packageJsonPaths = await scanForPackageJsonFiles(targetDirectory, excludedPatterns);
+            allPackageJsonPaths = allPackageJsonPaths.concat(packageJsonPaths);
+        }
+
+        const dependencyGraph = await buildDependencyGraph(allPackageJsonPaths);
+        const recoveryManager = await loadRecoveryManager(dependencyGraph, runConfig.outputDirectory);
+
+        if (!recoveryManager) {
+            logger.error('No checkpoint found for recovery');
+            throw new Error('No checkpoint found. Cannot apply recovery options without an existing checkpoint.');
+        }
+
+        await recoveryManager.applyRecoveryOptions({
+            markCompleted: runConfig.tree.markCompleted,
+            skipPackages: runConfig.tree.skipPackages,
+            retryFailed: runConfig.tree.retryFailed,
+            skipFailed: runConfig.tree.skipFailed,
+            resetPackage: runConfig.tree.resetPackage,
+            maxRetries: runConfig.tree.retry?.maxAttempts
+        });
+
+        logger.info('✅ Recovery options applied');
+
+        // If not also continuing, just return
+        if (!isContinue) {
+            return 'Recovery options applied. Use --continue to resume execution.';
+        }
     }
 
     // Handle continue mode
@@ -2129,6 +2001,35 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
+            // Validate command for parallel execution if parallel mode is enabled
+            if (runConfig.tree?.parallel) {
+                const { CommandValidator } = await import('../execution/CommandValidator');
+                const validation = CommandValidator.validateForParallel(commandToRun, builtInCommand);
+
+                CommandValidator.logValidation(validation);
+
+                if (!validation.valid) {
+                    logger.error('');
+                    logger.error('Cannot proceed with parallel execution due to validation errors.');
+                    logger.error('Run without --parallel flag to execute sequentially.');
+                    throw new Error('Command validation failed for parallel execution');
+                }
+
+                // Apply recommended concurrency if not explicitly set
+                if (!runConfig.tree.maxConcurrency && builtInCommand) {
+                    const os = await import('os');
+                    const recommended = CommandValidator.getRecommendedConcurrency(
+                        builtInCommand,
+                        os.cpus().length
+                    );
+
+                    if (recommended !== os.cpus().length) {
+                        logger.info(`💡 Using recommended concurrency for ${builtInCommand}: ${recommended}`);
+                        runConfig.tree.maxConcurrency = recommended;
+                    }
+                }
+            }
+
             // Create set of all package names for inter-project dependency detection
             const allPackageNames = new Set(Array.from(dependencyGraph.packages.keys()));
 
@@ -2165,6 +2066,42 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // If continuing, start from where we left off
             const startIndex = isContinue && executionContext ? executionContext.completedPackages.length : 0;
+
+            // Check if parallel execution is enabled
+            if (runConfig.tree?.parallel) {
+                logger.info('🚀 Using parallel execution mode');
+
+                // Import parallel execution components
+                const { TreeExecutionAdapter, createParallelProgressLogger, formatParallelResult } = await import('../execution/TreeExecutionAdapter');
+                const os = await import('os');
+
+                // Create task pool
+                const adapter = new TreeExecutionAdapter(
+                    {
+                        graph: dependencyGraph,
+                        maxConcurrency: runConfig.tree.maxConcurrency || os.cpus().length,
+                        command: commandToRun!,
+                        config: runConfig,
+                        checkpointPath: runConfig.outputDirectory,
+                        continue: isContinue,
+                        maxRetries: runConfig.tree.retry?.maxAttempts || 3,
+                        initialRetryDelay: runConfig.tree.retry?.initialDelayMs || 5000,
+                        maxRetryDelay: runConfig.tree.retry?.maxDelayMs || 60000,
+                        backoffMultiplier: runConfig.tree.retry?.backoffMultiplier || 2
+                    },
+                    executePackage
+                );
+
+                // Set up progress logging
+                createParallelProgressLogger(adapter.getPool(), runConfig);
+
+                // Execute
+                const result = await adapter.execute();
+
+                // Format and return result
+                const formattedResult = formatParallelResult(result);
+                return formattedResult;
+            }
 
             // Sequential execution
             for (let i = startIndex; i < buildOrder.length; i++) {
