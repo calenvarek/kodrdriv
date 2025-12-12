@@ -5,7 +5,6 @@ name: Node.js Package (npm)
 
 env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
 on:
   release:
@@ -42,6 +41,8 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org/
+      - name: Update npm
+        run: npm install -g npm@latest
       - name: Install dependencies
         run: npm ci --verbose --foreground-scripts
         timeout-minutes: 10
