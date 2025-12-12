@@ -46,7 +46,8 @@ export interface ExecutionState {
     running: RunningPackageSnapshot[];
     completed: string[];
     failed: FailedPackageSnapshot[];
-    skipped: string[];
+    skipped: string[]; // Skipped due to failed dependencies
+    skippedNoChanges: string[]; // Skipped due to no code changes (e.g., only version bump)
 }
 
 export interface RunningPackageSnapshot {
@@ -64,6 +65,12 @@ export interface FailedPackageSnapshot {
     failedAt: string;
     dependencies: string[];
     dependents: string[];
+    errorDetails?: {
+        type?: string; // e.g., 'test_coverage', 'build_error', 'merge_conflict'
+        context?: string; // Additional context about the error
+        logFile?: string; // Path to log file with full error
+        suggestion?: string; // Suggested fix
+    };
 }
 
 export interface RecoveryHint {
@@ -82,9 +89,10 @@ export interface PublishedVersion {
 export interface ExecutionResult {
     success: boolean;
     totalPackages: number;
-    completed: string[];
+    completed: string[]; // Successfully completed (published or executed)
     failed: FailedPackageSnapshot[];
-    skipped: string[];
+    skipped: string[]; // Skipped due to failed dependencies
+    skippedNoChanges: string[]; // Skipped due to no code changes
     metrics: ExecutionMetrics;
 }
 
@@ -102,6 +110,7 @@ export interface PackageResult {
     publishedVersion?: string;
     stdout?: string;
     stderr?: string;
+    skippedNoChanges?: boolean; // True if package was skipped due to no code changes
 }
 
 export interface RetryConfig {

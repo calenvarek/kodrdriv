@@ -93,6 +93,7 @@ export function createMockExecutionState(
         completed: [],
         failed: [],
         skipped: [],
+        skippedNoChanges: [],
         ...overrides
     };
 }
@@ -133,7 +134,8 @@ export function createLargeCheckpoint(packageCount: number): ParallelExecutionCh
             running: [],
             completed: packages.slice(0, packageCount / 2),
             failed: [],
-            skipped: []
+            skipped: [],
+            skippedNoChanges: []
         }
     });
 }

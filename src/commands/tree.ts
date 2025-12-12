@@ -46,7 +46,8 @@ import * as Unlink from './unlink';
 import * as Updates from './updates';
 import { runGitWithLock } from '../util/gitMutex';
 import type {
-    PackageInfo
+    PackageInfo,
+    DependencyGraph
 } from '../util/dependencyGraph';
 import {
     scanForPackageJsonFiles,
@@ -637,7 +638,7 @@ export const executePackage = async (
     total: number,
     allPackageNames: Set<string>,
     isBuiltInCommand: boolean = false
-): Promise<{ success: boolean; error?: any; isTimeoutError?: boolean }> => {
+): Promise<{ success: boolean; error?: any; isTimeoutError?: boolean; skippedNoChanges?: boolean }> => {
     const packageLogger = createPackageLogger(packageName, index + 1, total, isDryRun);
     const packageDir = packageInfo.path;
     const logger = getLogger();
@@ -663,6 +664,9 @@ export const executePackage = async (
         // Basic progress info even without flags
         logger.info(`[${index + 1}/${total}] ${packageName}: Running ${commandToRun}...`);
     }
+
+    // Track if publish was skipped due to no changes
+    let publishWasSkipped: boolean = false;
 
     try {
         if (isDryRun && !isBuiltInCommand) {
@@ -778,7 +782,6 @@ export const executePackage = async (
 
                 // For built-in commands, shell out to a separate kodrdriv process
                 // This preserves individual project configurations
-                let publishWasSkipped: boolean | undefined;
                 if (isBuiltInCommand) {
                     // Extract the command name from "kodrdriv <command>"
                     const builtInCommandName = commandToRun.replace('kodrdriv ', '');
@@ -882,13 +885,21 @@ export const executePackage = async (
 
         // Show completion status
         if (runConfig.debug || runConfig.verbose) {
-            packageLogger.info(`✅ Completed successfully`);
+            if (publishWasSkipped) {
+                packageLogger.info(`⊘ Skipped (no code changes)`);
+            } else {
+                packageLogger.info(`✅ Completed successfully`);
+            }
         } else if (isPublishCommand) {
             // For publish commands, always show completion even without verbose
-            logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
+            if (publishWasSkipped) {
+                logger.info(`[${index + 1}/${total}] ${packageName}: ⊘ Skipped (no code changes)`);
+            } else {
+                logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
+            }
         }
 
-        return { success: true };
+        return { success: true, skippedNoChanges: publishWasSkipped };
     } catch (error: any) {
         if (runConfig.debug || runConfig.verbose) {
             packageLogger.error(`❌ Execution failed: ${error.message}`);
@@ -909,6 +920,99 @@ export const executePackage = async (
 
         return { success: false, error, isTimeoutError };
     }
+};
+
+/**
+ * Generate a dry-run preview showing what would happen without executing
+ */
+const generateDryRunPreview = async (
+    dependencyGraph: DependencyGraph,
+    buildOrder: string[],
+    command: string,
+    runConfig: Config
+): Promise<string> => {
+    const lines: string[] = [];
+
+    lines.push('');
+    lines.push('🔍 DRY RUN MODE - No changes will be made');
+    lines.push('');
+    lines.push('Build order determined:');
+    lines.push('');
+
+    // Group packages by dependency level
+    const levels: string[][] = [];
+    const packageLevels = new Map<string, number>();
+
+    for (const pkg of buildOrder) {
+        const deps = dependencyGraph.edges.get(pkg) || new Set();
+        let maxDepLevel = -1;
+        for (const dep of deps) {
+            const depLevel = packageLevels.get(dep) ?? 0;
+            maxDepLevel = Math.max(maxDepLevel, depLevel);
+        }
+        const pkgLevel = maxDepLevel + 1;
+        packageLevels.set(pkg, pkgLevel);
+
+        if (!levels[pkgLevel]) {
+            levels[pkgLevel] = [];
+        }
+        levels[pkgLevel].push(pkg);
+    }
+
+    // Show packages grouped by level
+    for (let i = 0; i < levels.length; i++) {
+        const levelPackages = levels[i];
+        lines.push(`Level ${i + 1}: (${levelPackages.length} package${levelPackages.length === 1 ? '' : 's'})`);
+
+        for (const pkg of levelPackages) {
+            const pkgInfo = dependencyGraph.packages.get(pkg);
+            if (!pkgInfo) continue;
+
+            // Check if package has changes (for publish command)
+            const isPublish = command.includes('publish');
+            let status = '📝 Has changes, will execute';
+
+            if (isPublish) {
+                try {
+                    // Check git diff to see if there are code changes
+                    const { stdout } = await runSecure('git', ['diff', '--name-only', 'origin/main...HEAD'], { cwd: pkgInfo.path });
+                    const changedFiles = stdout.split('\n').filter(Boolean);
+                    const nonVersionFiles = changedFiles.filter(f => f !== 'package.json' && f !== 'package-lock.json');
+
+                    if (changedFiles.length === 0) {
+                        status = '⊘ No changes, will skip';
+                    } else if (nonVersionFiles.length === 0) {
+                        status = '⊘ Only version bump, will skip';
+                    } else {
+                        status = `📝 Has changes (${nonVersionFiles.length} files), will publish`;
+                    }
+                } catch {
+                    // If we can't check git status, assume changes
+                    status = '📝 Will execute';
+                }
+            }
+
+            lines.push(`  ${pkg}`);
+            lines.push(`    Status: ${status}`);
+            lines.push(`    Path: ${pkgInfo.path}`);
+        }
+        lines.push('');
+    }
+
+    lines.push('Summary:');
+    lines.push(`  Total packages: ${buildOrder.length}`);
+    lines.push(`  Dependency levels: ${levels.length}`);
+    lines.push(`  Command: ${command}`);
+
+    if (runConfig.tree?.maxConcurrency) {
+        lines.push(`  Max concurrency: ${runConfig.tree.maxConcurrency}`);
+    }
+
+    lines.push('');
+    lines.push('To execute for real, run the same command without --dry-run');
+    lines.push('');
+
+    return lines.join('\n');
 };
 
 // Add a simple status check function
@@ -1092,37 +1196,48 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Handle continue mode
     if (isContinue) {
-        const savedContext = await loadExecutionContext(runConfig.outputDirectory);
-        if (savedContext) {
-            logger.info('Continuing previous tree execution...');
-            logger.info(`Original command: ${savedContext.command}`);
-            logger.info(`Started: ${savedContext.startTime.toISOString()}`);
-            logger.info(`Previously completed: ${savedContext.completedPackages.length}/${savedContext.buildOrder.length} packages`);
+        // For parallel execution, the checkpoint is managed by DynamicTaskPool/CheckpointManager
+        // For sequential execution, we use the legacy context file
+        const isParallelMode = runConfig.tree?.parallel;
 
-            // Restore state safely
-            let mutexLocked = false;
-            try {
-                await globalStateMutex.lock();
-                mutexLocked = true;
-                publishedVersions = savedContext.publishedVersions;
-                globalStateMutex.unlock();
-                mutexLocked = false;
-            } catch (error) {
-                if (mutexLocked) {
+        if (!isParallelMode) {
+            // Sequential execution: load legacy context
+            const savedContext = await loadExecutionContext(runConfig.outputDirectory);
+            if (savedContext) {
+                logger.info('Continuing previous tree execution...');
+                logger.info(`Original command: ${savedContext.command}`);
+                logger.info(`Started: ${savedContext.startTime.toISOString()}`);
+                logger.info(`Previously completed: ${savedContext.completedPackages.length}/${savedContext.buildOrder.length} packages`);
+
+                // Restore state safely
+                let mutexLocked = false;
+                try {
+                    await globalStateMutex.lock();
+                    mutexLocked = true;
+                    publishedVersions = savedContext.publishedVersions;
                     globalStateMutex.unlock();
+                    mutexLocked = false;
+                } catch (error) {
+                    if (mutexLocked) {
+                        globalStateMutex.unlock();
+                    }
+                    throw error;
                 }
-                throw error;
-            }
-            executionContext = savedContext;
+                executionContext = savedContext;
 
-            // Use original config but allow some overrides (like dry run)
-            runConfig = {
-                ...savedContext.originalConfig,
-                dryRun: runConfig.dryRun, // Allow dry run override
-                outputDirectory: runConfig.outputDirectory || savedContext.originalConfig.outputDirectory
-            };
+                // Use original config but allow some overrides (like dry run)
+                runConfig = {
+                    ...savedContext.originalConfig,
+                    dryRun: runConfig.dryRun, // Allow dry run override
+                    outputDirectory: runConfig.outputDirectory || savedContext.originalConfig.outputDirectory
+                };
+            } else {
+                logger.warn('No previous execution context found. Starting new execution...');
+            }
         } else {
-            logger.warn('No previous execution context found. Starting new execution...');
+            // Parallel execution: checkpoint is managed by DynamicTaskPool
+            // Just log that we're continuing - the actual checkpoint loading happens in DynamicTaskPool
+            logger.info('Continuing previous parallel execution...');
         }
     } else {
         // Reset published versions tracking for new tree execution
@@ -2070,6 +2185,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
             // Check if parallel execution is enabled
             if (runConfig.tree?.parallel) {
                 logger.info('🚀 Using parallel execution mode');
+
+                // If dry run, show preview instead of executing
+                if (isDryRun) {
+                    const preview = await generateDryRunPreview(
+                        dependencyGraph,
+                        buildOrder,
+                        commandToRun!,
+                        runConfig
+                    );
+                    return preview;
+                }
 
                 // Import parallel execution components
                 const { TreeExecutionAdapter, createParallelProgressLogger, formatParallelResult } = await import('../execution/TreeExecutionAdapter');
