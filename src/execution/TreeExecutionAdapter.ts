@@ -197,59 +197,81 @@ import { ProgressFormatter } from '../ui/ProgressFormatter';
 export function formatParallelResult(result: any): string {
     const lines: string[] = [];
 
-    // Summary header
-    if (result.success && result.skipped.length === 0) {
-        if (result.skippedNoChanges.length > 0) {
-            lines.push(`\n✨ Execution completed: ${result.completed.length} published, ${result.skippedNoChanges.length} skipped (no changes)\n`);
-        } else {
-            lines.push(`\n✨ All ${result.totalPackages} packages completed successfully! 🎉\n`);
-        }
-    } else if (result.success && result.skipped.length > 0) {
-        lines.push(`\n⚠️  Execution completed with ${result.skipped.length} package(s) skipped due to failed dependencies\n`);
-    } else {
-        lines.push(`\n⚠️  Execution completed with ${result.failed.length} failure(s)\n`);
-    }
+    // Separator line
+    lines.push('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    lines.push('📊 Publish Summary');
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-    // Detailed status breakdown
-    lines.push('📊 Execution Summary:\n');
-
+    // Detailed status breakdown by category
     if (result.completed.length > 0) {
-        lines.push(`✅ Published: ${result.completed.length} package(s)`);
-        if (result.completed.length <= 10) {
-            lines.push(`   ${result.completed.join(', ')}`);
+        lines.push(`✅ Published (${result.completed.length}):`);
+        for (const pkg of result.completed) {
+            lines.push(`   - ${pkg}`);
         }
         lines.push('');
     }
 
     if (result.skippedNoChanges.length > 0) {
-        lines.push(`⊘ Skipped (no code changes): ${result.skippedNoChanges.length} package(s)`);
-        if (result.skippedNoChanges.length <= 10) {
-            lines.push(`   ${result.skippedNoChanges.join(', ')}`);
+        lines.push(`⏭️  Skipped (${result.skippedNoChanges.length}) - no code changes:`);
+        for (const pkg of result.skippedNoChanges) {
+            lines.push(`   - ${pkg}`);
+        }
+        lines.push('');
+    }
+
+    if (result.failed.length > 0) {
+        lines.push(`❌ Failed (${result.failed.length}):`);
+        for (const pkg of result.failed) {
+            lines.push(`   - ${pkg}`);
         }
         lines.push('');
     }
 
     if (result.skipped.length > 0) {
-        lines.push(`⊘ Skipped (dependency failed): ${result.skipped.length} package(s)`);
-        if (result.skipped.length <= 10) {
-            lines.push(`   ${result.skipped.join(', ')}`);
+        lines.push(`⊘ Skipped due to dependencies (${result.skipped.length}):`);
+        for (const pkg of result.skipped) {
+            lines.push(`   - ${pkg}`);
         }
         lines.push('');
     }
 
-    if (result.failed.length > 0) {
-        lines.push(`❌ Failed: ${result.failed.length} package(s)`);
-        lines.push('');
+    // Summary line
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    // Calculate success rate
+    const totalProcessed = result.completed.length + result.failed.length + result.skippedNoChanges.length;
+    const successRate = totalProcessed > 0 ? Math.round((result.completed.length / totalProcessed) * 100) : 0;
+
+    // Format elapsed time
+    const totalTimeMs = result.metrics?.totalTime || 0;
+    const minutes = Math.floor(totalTimeMs / 60000);
+    const seconds = Math.floor((totalTimeMs % 60000) / 1000);
+    const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+    lines.push(`Total time: ${timeStr}`);
+    lines.push(`Success rate: ${successRate}% (${result.completed.length}/${totalProcessed} packages processed)`);
+
+    if (result.metrics?.peakConcurrency) {
+        lines.push(`Peak concurrency: ${result.metrics.peakConcurrency} packages`);
     }
 
-    // Use ProgressFormatter for metrics
-    const metricsLines = ProgressFormatter.createMetricsTable(result.metrics);
-    lines.push(...metricsLines);
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // Failed packages with formatted error summary
     if (result.failed.length > 0) {
+        lines.push('');
         const errorLines = ProgressFormatter.createErrorSummary(result.failed);
         lines.push(...errorLines);
+
+        // Next steps for failures
+        lines.push('\n📋 Next steps:');
+        lines.push('1. Review the errors above for each failed package');
+        lines.push('2. Fix the issues in the failed packages');
+        lines.push('3. Retry the publish command');
+
+        if (result.skipped.length > 0) {
+            lines.push('\nNote: Once failed packages are fixed, their dependent packages will also be published.');
+        }
 
         // Recovery guidance
         const hasRetriable = result.failed.some((f: any) => f.isRetriable);
