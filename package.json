@@ -38,8 +38,8 @@
   "author": "Calen Varek <calenvarek@gmail.com>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@eldrforge/ai-service": "^0.1.3",
-    "@eldrforge/git-tools": "^0.1.5",
+    "@eldrforge/ai-service": "^0.1.4",
+    "@eldrforge/git-tools": "^0.1.6",
     "@eldrforge/github-tools": "^0.1.7",
     "@octokit/rest": "^22.0.0",
     "@riotprompt/riotprompt": "^0.0.8",
