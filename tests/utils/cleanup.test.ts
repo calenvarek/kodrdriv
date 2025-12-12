@@ -8,7 +8,6 @@ vi.mock('fs/promises', async () => {
     return {
         ...actual,
         default: {
-            ...actual.default,
             rm: vi.fn(),
             rename: vi.fn(),
         },

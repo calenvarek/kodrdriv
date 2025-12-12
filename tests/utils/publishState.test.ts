@@ -7,7 +7,6 @@ vi.mock('fs/promises', async () => {
     return {
         ...actual,
         default: {
-            ...actual.default,
             mkdir: vi.fn(),
             readFile: vi.fn(),
             writeFile: vi.fn(),
