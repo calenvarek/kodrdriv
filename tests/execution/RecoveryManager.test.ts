@@ -29,7 +29,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -57,7 +58,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -96,7 +98,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -122,7 +125,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -161,7 +165,8 @@ describe('RecoveryManager', () => {
                         dependencies: [],
                         dependents: []
                     }],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -194,7 +199,8 @@ describe('RecoveryManager', () => {
                         dependencies: [],
                         dependents: []
                     }],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -225,7 +231,8 @@ describe('RecoveryManager', () => {
                         dependencies: [],
                         dependents: []
                     }],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -260,7 +267,8 @@ describe('RecoveryManager', () => {
                         dependencies: [],
                         dependents: ['b']
                     }],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -289,7 +297,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: ['a'],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 },
                 retryAttempts: { 'a': 3 },
                 packageDurations: { 'a': 5000 }
@@ -318,7 +327,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: ['c'],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -344,7 +354,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -370,7 +381,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -404,7 +416,8 @@ describe('RecoveryManager', () => {
                         dependencies: [],
                         dependents: []
                     }],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -433,7 +446,8 @@ describe('RecoveryManager', () => {
                         dependencies: [],
                         dependents: []
                     }],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -460,7 +474,8 @@ describe('RecoveryManager', () => {
                     }],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -487,7 +502,8 @@ describe('RecoveryManager', () => {
                     }],
                     completed: ['c'],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
@@ -517,7 +533,8 @@ describe('RecoveryManager', () => {
                     running: [],
                     completed: [],
                     failed: [],
-                    skipped: []
+                    skipped: [],
+                    skippedNoChanges: []
                 }
             });
 
