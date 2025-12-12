@@ -1,5 +1,4 @@
-// eslint-disable-next-line no-restricted-imports
-import { promises as fs } from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { getLogger } from '../logging';
 

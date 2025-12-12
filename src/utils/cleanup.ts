@@ -1,5 +1,4 @@
-// eslint-disable-next-line no-restricted-imports
-import { promises as fs } from 'fs';
+import fs from 'fs/promises';
 import { getLogger } from '../logging';
 import { run } from '@eldrforge/git-tools';
 
