@@ -99,15 +99,38 @@ export async function auditBranchState(
 
     logger.info(`📋 Auditing branch state for ${packages.length} package(s)...`);
 
+    // If no expected branch specified, find the most common branch
+    let actualExpectedBranch = expectedBranch;
+    if (!expectedBranch) {
+        const branchCounts = new Map<string, number>();
+        
+        // First pass: collect all branch names
+        for (const pkg of packages) {
+            const status = await checkBranchStatus(pkg.path);
+            branchCounts.set(status.name, (branchCounts.get(status.name) || 0) + 1);
+        }
+        
+        // Find most common branch
+        let maxCount = 0;
+        for (const [branch, count] of branchCounts.entries()) {
+            if (count > maxCount) {
+                maxCount = count;
+                actualExpectedBranch = branch;
+            }
+        }
+        
+        logger.verbose(`Most common branch: ${actualExpectedBranch} (${maxCount}/${packages.length} packages)`);
+    }
+
     for (const pkg of packages) {
-        const status = await checkBranchStatus(pkg.path, expectedBranch);
+        const status = await checkBranchStatus(pkg.path, actualExpectedBranch);
         const issues: string[] = [];
         const fixes: string[] = [];
 
         // Check for issues
-        if (!status.isOnExpectedBranch) {
-            issues.push(`On wrong branch: ${status.name} (expected: ${expectedBranch})`);
-            fixes.push(`cd ${pkg.path} && git checkout ${expectedBranch}`);
+        if (!status.isOnExpectedBranch && actualExpectedBranch) {
+            issues.push(`On branch '${status.name}' (most packages are on '${actualExpectedBranch}')`);
+            fixes.push(`cd ${pkg.path} && git checkout ${actualExpectedBranch}`);
         }
 
         if (status.hasUnpushedCommits) {
@@ -151,8 +174,29 @@ export async function auditBranchState(
 export function formatAuditResults(result: BranchAuditResult): string {
     const lines: string[] = [];
 
+    // Determine the common branch if any
+    const branchCounts = new Map<string, number>();
+    for (const audit of result.audits) {
+        const branch = audit.status.name;
+        branchCounts.set(branch, (branchCounts.get(branch) || 0) + 1);
+    }
+    
+    let commonBranch: string | undefined;
+    let maxCount = 0;
+    for (const [branch, count] of branchCounts.entries()) {
+        if (count > maxCount) {
+            maxCount = count;
+            commonBranch = branch;
+        }
+    }
+
     lines.push('╔══════════════════════════════════════════════════════════════╗');
     lines.push(`║  Branch State Audit (${result.totalPackages} packages)`.padEnd(63) + '║');
+    if (commonBranch && maxCount === result.totalPackages) {
+        lines.push(`║  All packages on: ${commonBranch}`.padEnd(63) + '║');
+    } else if (commonBranch) {
+        lines.push(`║  Most packages on: ${commonBranch} (${maxCount}/${result.totalPackages})`.padEnd(63) + '║');
+    }
     lines.push('╠══════════════════════════════════════════════════════════════╣');
     lines.push('');
 
