@@ -77,6 +77,10 @@ vi.mock('../src/commands/updates', () => ({
     execute: vi.fn()
 }));
 
+vi.mock('../src/commands/precommit', () => ({
+    execute: vi.fn()
+}));
+
 vi.mock('../src/constants', () => ({
     COMMAND_AUDIO_COMMIT: 'audio-commit',
     COMMAND_AUDIO_REVIEW: 'audio-review',
@@ -93,6 +97,7 @@ vi.mock('../src/constants', () => ({
     COMMAND_SELECT_AUDIO: 'select-audio',
     COMMAND_TREE: 'tree',
     COMMAND_UNLINK: 'unlink',
+    COMMAND_PRECOMMIT: 'precommit',
     COMMAND_DEVELOPMENT: 'development',
     COMMAND_VERSIONS: 'versions',
     COMMAND_UPDATES: 'updates',

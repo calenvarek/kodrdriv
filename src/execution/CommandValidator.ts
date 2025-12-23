@@ -113,7 +113,26 @@ export class CommandValidator {
     /**
      * Get recommended concurrency for a command type
      */
-    static getRecommendedConcurrency(builtInCommand?: string, cpuCount: number = 4): number {
+    static getRecommendedConcurrency(builtInCommand?: string, cpuCount: number = 4, command?: string): number {
+        // If command is provided, check for memory-intensive patterns
+        if (command) {
+            const memoryIntensivePatterns = [
+                { pattern: /npm\s+test/, message: 'Test execution is memory intensive' },
+                { pattern: /npm\s+run\s+test/, message: 'Test execution is memory intensive' },
+                { pattern: /vitest/, message: 'Vitest execution is memory intensive' },
+                { pattern: /coverage/, message: 'Coverage generation is memory intensive' },
+                { pattern: /npm\s+run\s+precommit/, message: 'Precommit tasks (build+lint+test) are resource intensive' }
+            ];
+
+            for (const { pattern } of memoryIntensivePatterns) {
+                if (pattern.test(command)) {
+                    // Return lower concurrency for memory intensive tasks: 25% of CPUs, min 2, max 4
+                    const recommended = Math.max(2, Math.min(4, Math.floor(cpuCount * 0.25)));
+                    return Math.min(recommended, cpuCount);
+                }
+            }
+        }
+
         switch (builtInCommand) {
             case 'commit':
                 // Lower concurrency for commit to reduce conflicts

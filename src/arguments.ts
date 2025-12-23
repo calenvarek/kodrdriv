@@ -613,6 +613,7 @@ export async function getCliConfig(
         audioReviewCommand?: Command;
         reviewCommand?: Command;
         cleanCommand?: Command;
+        precommitCommand?: Command;
         developmentCommand?: Command;
         versionsCommand?: Command;
         updatesCommand?: Command;
@@ -783,6 +784,7 @@ export async function getCliConfig(
 Built-in commands:
   commit      - Run 'kodrdriv commit' in each package
   publish     - Run 'kodrdriv publish' in each package (supports --parallel)
+  precommit   - Run precommit checks (lint -> build -> test) in each package
   link        - Create file: dependencies for local development
   unlink      - Restore npm registry dependencies
   development - Switch to development branch with version bump
@@ -928,6 +930,11 @@ Examples:
         .description('Remove the output directory and all generated files');
     addSharedOptions(cleanCommand);
 
+    const precommitCommand = program
+        .command('precommit')
+        .description('Run precommit checks (lint -> build -> test) with optimization');
+    addSharedOptions(precommitCommand);
+
     const developmentCommand = program
         .command('development')
         .option('--target-version <targetVersion>', 'target version bump type (patch, minor, major) or explicit version (e.g., "2.1.0")', 'patch')
@@ -983,6 +990,7 @@ Examples:
             audioReviewCommand,
             reviewCommand,
             cleanCommand,
+            precommitCommand,
             developmentCommand,
             versionsCommand,
             updatesCommand,

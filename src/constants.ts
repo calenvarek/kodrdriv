@@ -78,6 +78,7 @@ export const COMMAND_TREE = 'tree';
 export const COMMAND_LINK = 'link';
 export const COMMAND_UNLINK = 'unlink';
 export const COMMAND_CLEAN = 'clean';
+export const COMMAND_PRECOMMIT = 'precommit';
 export const COMMAND_DEVELOPMENT = 'development';
 export const COMMAND_VERSIONS = 'versions';
 export const COMMAND_UPDATES = 'updates';
@@ -96,6 +97,7 @@ export const ALLOWED_COMMANDS = [
     COMMAND_LINK,
     COMMAND_UNLINK,
     COMMAND_CLEAN,
+    COMMAND_PRECOMMIT,
     COMMAND_DEVELOPMENT,
     COMMAND_VERSIONS,
     COMMAND_UPDATES

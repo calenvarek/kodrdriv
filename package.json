@@ -16,7 +16,7 @@
     "start": "dist/main.js",
     "dev": "vite",
     "watch": "vite build --watch",
-    "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run --coverage",
+    "test": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --coverage",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "clean": "rm -rf dist",

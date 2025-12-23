@@ -1,10 +1,12 @@
 import { getLogger } from '../logging';
+import * as os from 'os';
 
 export interface ResourceMetrics {
     peakConcurrency: number;
     averageConcurrency: number;
     totalAllocations: number;
     totalReleases: number;
+    freeMemoryBytes?: number;
 }
 
 /**
@@ -16,6 +18,9 @@ export class ResourceMonitor {
     private metrics: ResourceMetrics;
     private allocationHistory: number[] = [];
     private logger = getLogger();
+
+    // Memory threshold: warn if free memory is below 5%
+    private readonly MEMORY_THRESHOLD_PERCENT = 5;
 
     constructor(maxConcurrency: number) {
         this.maxConcurrency = maxConcurrency;
@@ -31,7 +36,34 @@ export class ResourceMonitor {
      * Check if we can allocate N slots
      */
     canAllocate(count: number = 1): boolean {
-        return this.currentConcurrency + count <= this.maxConcurrency;
+        // Check concurrency limit
+        if (this.currentConcurrency + count > this.maxConcurrency) {
+            return false;
+        }
+
+        // Check system memory (soft check)
+        this.checkSystemMemory();
+
+        return true;
+    }
+
+    /**
+     * Log a warning if system memory is low
+     */
+    private checkSystemMemory(): void {
+        try {
+            const freeMem = os.freemem();
+            const totalMem = os.totalmem();
+            const freePercent = (freeMem / totalMem) * 100;
+
+            if (freePercent < this.MEMORY_THRESHOLD_PERCENT) {
+                const freeGB = (freeMem / (1024 * 1024 * 1024)).toFixed(2);
+                this.logger.warn(`SYSTEM_MEMORY_LOW: System memory is running low | Free: ${freeGB}GB (${freePercent.toFixed(1)}%) | Action: Proceeding with caution`);
+            }
+        } catch (error) {
+            // Ignore errors in memory check to avoid blocking execution
+            this.logger.debug(`Failed to check system memory: ${error}`);
+        }
     }
 
     /**

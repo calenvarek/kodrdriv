@@ -9,7 +9,7 @@
  * Built-in commands shell out to separate kodrdriv processes to preserve
  * individual project configurations while leveraging centralized dependency analysis.
  *
- * Supported built-in commands: commit, publish, link, unlink, development, branches, checkout
+ * Supported built-in commands: commit, publish, link, unlink, development, branches, checkout, precommit
  *
  * Enhanced logging based on debug/verbose flags:
  *
@@ -44,7 +44,7 @@ import * as Commit from './commit';
 import * as Link from './link';
 import * as Unlink from './unlink';
 import * as Updates from './updates';
-import { runGitWithLock } from '../util/gitMutex';
+import { runGitWithLock, isInGitRepository } from '../util/gitMutex';
 import type {
     PackageInfo,
     DependencyGraph
@@ -56,6 +56,8 @@ import {
     topologicalSort,
     shouldExclude
 } from '../util/dependencyGraph';
+import { optimizePrecommitCommand, recordTestRun } from '../util/precommitOptimizations';
+import { PerformanceTimer } from '../util/performance';
 
 // Track published versions during tree publish
 interface PublishedVersion {
@@ -573,23 +575,34 @@ const runWithLogging = async (
             stderr: String(result.stderr)
         };
     } catch (error: any) {
+        // Always show error message
+        packageLogger.error(`Command failed: ${command}`);
+
+        // Always show stderr on failure (contains important error details like coverage failures)
+        if (error.stderr && error.stderr.trim()) {
+            packageLogger.error(`❌ STDERR:`);
+            error.stderr.split('\n').forEach((line: string) => {
+                if (line.trim()) packageLogger.error(`${line}`);
+            });
+        }
+
+        // Show stdout on failure if available (may contain error context)
+        if (error.stdout && error.stdout.trim() && (showOutput === 'full' || showOutput === 'minimal')) {
+            packageLogger.info(`📤 STDOUT:`);
+            error.stdout.split('\n').forEach((line: string) => {
+                if (line.trim()) packageLogger.info(`${line}`);
+            });
+        }
+
+        // Show full output in debug/verbose mode
         if (showOutput === 'full' || showOutput === 'minimal') {
-            packageLogger.error(`Command failed: ${command}`);
-            if (error.stdout && showOutput === 'full') {
+            if (error.stdout && error.stdout.trim() && showOutput === 'full') {
                 packageLogger.debug('STDOUT:');
                 packageLogger.debug(error.stdout);
-                packageLogger.info(`📤 STDOUT:`);
-                error.stdout.split('\n').forEach((line: string) => {
-                    if (line.trim()) packageLogger.info(`${line}`);
-                });
             }
-            if (error.stderr && showOutput === 'full') {
+            if (error.stderr && error.stderr.trim() && showOutput === 'full') {
                 packageLogger.debug('STDERR:');
                 packageLogger.debug(error.stderr);
-                packageLogger.info(`❌ STDERR:`);
-                error.stderr.split('\n').forEach((line: string) => {
-                    if (line.trim()) packageLogger.info(`${line}`);
-                });
             }
         }
 
@@ -724,6 +737,10 @@ export const executePackage = async (
     // Track if publish was skipped due to no changes
     let publishWasSkipped: boolean = false;
 
+    // Track execution timing
+    const executionTimer = PerformanceTimer.start(packageLogger, `Package ${packageName} execution`);
+    let executionDuration: number | undefined;
+
     try {
         if (isDryRun && !isBuiltInCommand) {
             // Handle inter-project dependency updates for publish commands in dry run mode
@@ -828,11 +845,44 @@ export const executePackage = async (
                     }, `${packageName}: dependency updates`);
                 }
 
+                // Optimize precommit commands for custom commands (not built-in)
+                let effectiveCommandToRun = commandToRun;
+                let optimizationInfo: { skipped: { clean: boolean; test: boolean }; reasons: { clean?: string; test?: string } } | null = null;
+
+                if (!isBuiltInCommand && !isDryRun) {
+                    const isPrecommitCommand = commandToRun.includes('precommit') || commandToRun.includes('pre-commit');
+                    if (isPrecommitCommand) {
+                        try {
+                            const optimization = await optimizePrecommitCommand(packageDir, commandToRun);
+                            effectiveCommandToRun = optimization.optimizedCommand;
+                            optimizationInfo = { skipped: optimization.skipped, reasons: optimization.reasons };
+
+                            if (optimization.skipped.clean || optimization.skipped.test) {
+                                const skippedParts: string[] = [];
+                                if (optimization.skipped.clean) {
+                                    skippedParts.push(`clean (${optimization.reasons.clean})`);
+                                }
+                                if (optimization.skipped.test) {
+                                    skippedParts.push(`test (${optimization.reasons.test})`);
+                                }
+                                packageLogger.info(`⚡ Optimized: Skipped ${skippedParts.join(', ')}`);
+                                if (runConfig.verbose || runConfig.debug) {
+                                    packageLogger.info(`   Original: ${commandToRun}`);
+                                    packageLogger.info(`   Optimized: ${effectiveCommandToRun}`);
+                                }
+                            }
+                        } catch (error: any) {
+                            // If optimization fails, fall back to original command
+                            logger.debug(`Precommit optimization failed for ${packageName}: ${error.message}`);
+                        }
+                    }
+                }
+
                 if (runConfig.debug || runConfig.verbose) {
                     if (isBuiltInCommand) {
                         packageLogger.info(`Executing built-in command: ${commandToRun}`);
                     } else {
-                        packageLogger.info(`Executing command: ${commandToRun}`);
+                        packageLogger.info(`Executing command: ${effectiveCommandToRun}`);
                     }
                 }
 
@@ -852,14 +902,27 @@ export const executePackage = async (
                     }
 
                     // Ensure dry-run propagates to subprocess even during overall dry-run mode
-                    const effectiveCommand = runConfig.dryRun && !commandToRun.includes('--dry-run')
+                    let effectiveCommand = runConfig.dryRun && !commandToRun.includes('--dry-run')
                         ? `${commandToRun} --dry-run`
                         : commandToRun;
 
-                    // Add timeout wrapper for publish commands
-                    const commandTimeoutMs = 1800000; // 30 minutes for publish commands
+                    // For commit commands, ensure --sendit is used to avoid interactive prompts
+                    // This prevents hanging when running via tree command
+                    if (builtInCommandName === 'commit' && !effectiveCommand.includes('--sendit') && !runConfig.dryRun) {
+                        effectiveCommand = `${effectiveCommand} --sendit`;
+                        packageLogger.info('💡 Auto-adding --sendit flag to avoid interactive prompts in tree mode');
+                    }
+
+                    // Set timeout based on command type
+                    let commandTimeoutMs: number;
                     if (builtInCommandName === 'publish') {
+                        commandTimeoutMs = 1800000; // 30 minutes for publish commands
                         packageLogger.info(`⏰ Setting timeout of ${commandTimeoutMs/60000} minutes for publish command`);
+                    } else if (builtInCommandName === 'commit') {
+                        commandTimeoutMs = 600000; // 10 minutes for commit commands (AI processing can take time)
+                        packageLogger.info(`⏰ Setting timeout of ${commandTimeoutMs/60000} minutes for commit command`);
+                    } else {
+                        commandTimeoutMs = 300000; // 5 minutes default for other commands
                     }
 
                     const commandPromise = runWithLogging(effectiveCommand, packageLogger, {}, showOutput, logFilePath);
@@ -868,7 +931,9 @@ export const executePackage = async (
                     });
 
                     try {
+                        const startTime = Date.now();
                         const { stdout, stderr } = await Promise.race([commandPromise, commandTimeoutPromise]);
+                        executionDuration = Date.now() - startTime;
                         // Detect explicit skip marker from publish to avoid propagating versions
                         // Check both stdout (where we now write it) and stderr (winston logger output, for backward compat)
                         if (builtInCommandName === 'publish' &&
@@ -887,7 +952,9 @@ export const executePackage = async (
                     }
                 } else {
                     // For custom commands, use the existing logic
-                    await runWithLogging(commandToRun, packageLogger, {}, showOutput, logFilePath);
+                    const startTime = Date.now();
+                    await runWithLogging(effectiveCommandToRun, packageLogger, {}, showOutput, logFilePath);
+                    executionDuration = Date.now() - startTime;
                 }
 
                 // Track published version after successful publish (skip during dry run)
@@ -917,11 +984,34 @@ export const executePackage = async (
                     }
                 }
 
-                if (runConfig.debug || runConfig.verbose) {
-                    packageLogger.info(`Command completed successfully`);
+                // Record test run if tests were executed (not skipped)
+                if (!isDryRun && !isBuiltInCommand && effectiveCommandToRun.includes('test') &&
+                    (!optimizationInfo || !optimizationInfo.skipped.test)) {
+                    try {
+                        await recordTestRun(packageDir);
+                    } catch (error: any) {
+                        logger.debug(`Failed to record test run for ${packageName}: ${error.message}`);
+                    }
+                }
+
+                // End timing and show duration
+                if (executionDuration !== undefined) {
+                    executionTimer.end(`Package ${packageName} execution`);
+                    const seconds = (executionDuration / 1000).toFixed(1);
+                    if (runConfig.debug || runConfig.verbose) {
+                        packageLogger.info(`⏱️  Execution time: ${seconds}s`);
+                    } else if (!isPublishCommand) {
+                        // Show timing in completion message (publish commands have their own completion message)
+                        logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed (${seconds}s)`);
+                    }
                 } else {
-                    // Basic completion info
-                    logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
+                    executionTimer.end(`Package ${packageName} execution`);
+                    if (runConfig.debug || runConfig.verbose) {
+                        packageLogger.info(`Command completed successfully`);
+                    } else if (!isPublishCommand) {
+                        // Basic completion info (publish commands have their own completion message)
+                        logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
+                    }
                 }
             } finally {
                 // Safely restore working directory
@@ -942,7 +1032,7 @@ export const executePackage = async (
             }
         }
 
-        // Show completion status
+        // Show completion status (for publish commands, this supplements the timing message above)
         if (runConfig.debug || runConfig.verbose) {
             if (publishWasSkipped) {
                 packageLogger.info(`⊘ Skipped (no code changes)`);
@@ -951,19 +1041,62 @@ export const executePackage = async (
             }
         } else if (isPublishCommand) {
             // For publish commands, always show completion even without verbose
+            // Include timing if available
+            const timeStr = executionDuration !== undefined ? ` (${(executionDuration / 1000).toFixed(1)}s)` : '';
             if (publishWasSkipped) {
                 logger.info(`[${index + 1}/${total}] ${packageName}: ⊘ Skipped (no code changes)`);
             } else {
-                logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
+                logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed${timeStr}`);
             }
+        }
+
+        // Ensure timing is recorded even if there was an early return
+        if (executionDuration === undefined) {
+            executionDuration = executionTimer.end(`Package ${packageName} execution`);
         }
 
         return { success: true, skippedNoChanges: publishWasSkipped, logFile: logFilePath };
     } catch (error: any) {
+        // Record timing even on error
+        if (executionDuration === undefined) {
+            executionDuration = executionTimer.end(`Package ${packageName} execution`);
+            const seconds = (executionDuration / 1000).toFixed(1);
+            if (runConfig.debug || runConfig.verbose) {
+                packageLogger.error(`⏱️  Execution time before failure: ${seconds}s`);
+            }
+        }
+
         if (runConfig.debug || runConfig.verbose) {
             packageLogger.error(`❌ Execution failed: ${error.message}`);
         } else {
             logger.error(`[${index + 1}/${total}] ${packageName}: ❌ Failed - ${error.message}`);
+        }
+
+        // Always show stderr if available (contains important error details)
+        // Note: runWithLogging already logs stderr, but we show it here too for visibility
+        // when error is caught at this level (e.g., from timeout wrapper)
+        if (error.stderr && error.stderr.trim() && !runConfig.debug && !runConfig.verbose) {
+            // Extract key error lines from stderr (coverage failures, test failures, etc.)
+            const stderrLines = error.stderr.split('\n').filter((line: string) => {
+                const trimmed = line.trim();
+                return trimmed && (
+                    trimmed.includes('ERROR:') ||
+                    trimmed.includes('FAIL') ||
+                    trimmed.includes('coverage') ||
+                    trimmed.includes('threshold') ||
+                    trimmed.includes('fatal:') ||
+                    trimmed.startsWith('❌')
+                );
+            });
+            if (stderrLines.length > 0) {
+                logger.error(`   Error details:`);
+                stderrLines.slice(0, 10).forEach((line: string) => {
+                    logger.error(`   ${line.trim()}`);
+                });
+                if (stderrLines.length > 10) {
+                    logger.error(`   ... and ${stderrLines.length - 10} more error lines (use --verbose to see full output)`);
+                }
+            }
         }
 
         // Check if this is a timeout error
@@ -1154,10 +1287,26 @@ export const execute = async (runConfig: Config): Promise<string> => {
         }));
 
         const { auditBranchState, formatAuditResults } = await import('../utils/branchState');
+        const { getRemoteDefaultBranch } = await import('@eldrforge/git-tools');
 
         // For publish workflows, check branch consistency, merge conflicts, and existing PRs
         // Don't pass an expected branch - let the audit find the most common branch
-        const targetBranch = runConfig.publish?.targetBranch || 'main';
+        let targetBranch = runConfig.publish?.targetBranch;
+
+        if (!targetBranch) {
+            // Try to detect default branch from the first package that is a git repo
+            const firstGitPkg = packages.find(pkg => isInGitRepository(pkg.path));
+            if (firstGitPkg) {
+                try {
+                    // Cast to any to avoid type mismatch with node_modules version
+                    targetBranch = await (getRemoteDefaultBranch as any)(firstGitPkg.path) || 'main';
+                } catch {
+                    targetBranch = 'main';
+                }
+            } else {
+                targetBranch = 'main';
+            }
+        }
 
         logger.info(`Checking for merge conflicts with '${targetBranch}' and existing pull requests...`);
 
@@ -1165,6 +1314,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             targetBranch,
             checkPR: true,
             checkConflicts: true,
+            concurrency: runConfig.tree?.maxConcurrency || 10,
         });
         const formatted = formatAuditResults(auditResult);
 
@@ -1355,7 +1505,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Check if we're in built-in command mode (tree command with second argument)
     const builtInCommand = runConfig.tree?.builtInCommand;
-    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches', 'run', 'checkout', 'updates'];
+    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches', 'run', 'checkout', 'updates', 'precommit'];
 
     if (builtInCommand && !supportedBuiltInCommands.includes(builtInCommand)) {
         throw new Error(`Unsupported built-in command: ${builtInCommand}. Supported commands: ${supportedBuiltInCommands.join(', ')}`);
@@ -2239,15 +2389,17 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
 
                 // Apply recommended concurrency if not explicitly set
-                if (!runConfig.tree.maxConcurrency && builtInCommand) {
+                if (!runConfig.tree.maxConcurrency) {
                     const os = await import('os');
                     const recommended = CommandValidator.getRecommendedConcurrency(
                         builtInCommand,
-                        os.cpus().length
+                        os.cpus().length,
+                        commandToRun
                     );
 
                     if (recommended !== os.cpus().length) {
-                        logger.info(`💡 Using recommended concurrency for ${builtInCommand}: ${recommended}`);
+                        const reason = builtInCommand ? builtInCommand : `custom command "${commandToRun}"`;
+                        logger.info(`💡 Using recommended concurrency for ${reason}: ${recommended}`);
                         runConfig.tree.maxConcurrency = recommended;
                     }
                 }
@@ -2338,6 +2490,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
 
             // Sequential execution
+            const executionStartTime = Date.now();
             for (let i = startIndex; i < buildOrder.length; i++) {
                 const packageName = buildOrder[i];
 
@@ -2464,8 +2617,21 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }
 
             if (!failedPackage) {
+                const totalExecutionTime = Date.now() - executionStartTime;
+                const totalSeconds = (totalExecutionTime / 1000).toFixed(1);
+                const totalMinutes = (totalExecutionTime / 60000).toFixed(1);
+                const timeDisplay = totalExecutionTime < 60000
+                    ? `${totalSeconds}s`
+                    : `${totalMinutes}min (${totalSeconds}s)`;
+
+                logger.info('');
+                logger.info('═══════════════════════════════════════════════════════════');
                 const summary = `${isDryRun ? 'DRY RUN: ' : ''}All ${buildOrder.length} packages completed successfully! 🎉`;
                 logger.info(summary);
+                logger.info(`⏱️  Total execution time: ${timeDisplay}`);
+                logger.info(`📦 Packages processed: ${successCount}/${buildOrder.length}`);
+                logger.info('═══════════════════════════════════════════════════════════');
+                logger.info('');
 
                 // Clean up context on successful completion
                 if (isBuiltInCommand && (builtInCommand === 'publish' || builtInCommand === 'run') && !isDryRun) {

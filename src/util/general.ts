@@ -296,7 +296,8 @@ export const getVersionFromBranch = async (branchName: string): Promise<string |
         if (!validateGitRef(branchName)) {
             throw new Error(`Invalid branch name: ${branchName}`);
         }
-        const { stdout } = await runSecure('git', ['show', `${branchName}:package.json`]);
+        // Cast to any to avoid type mismatch with node_modules version
+        const { stdout } = await (runSecure as any)('git', ['show', `${branchName}:package.json`], { suppressErrorLogging: true });
         const packageJson = safeJsonParse(stdout, 'package.json');
         const validated = validatePackageJson(packageJson, 'package.json');
         return validated.version;
