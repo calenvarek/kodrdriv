@@ -1,6 +1,6 @@
 {
   "name": "@eldrforge/kodrdriv",
-  "version": "1.2.30-dev.0",
+  "version": "1.2.53",
   "description": "Create Intelligent Release Notes or Change Logs from Git",
   "main": "dist/main.js",
   "type": "module",
@@ -41,6 +41,7 @@
     "@eldrforge/ai-service": "^0.1.6",
     "@eldrforge/git-tools": "^0.1.9",
     "@eldrforge/github-tools": "^0.1.12",
+    "@eldrforge/shared": "^0.1.0",
     "@octokit/rest": "^22.0.0",
     "@riotprompt/riotprompt": "^0.0.8",
     "@theunwalked/cardigantime": "^0.0.16",

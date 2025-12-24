@@ -6,9 +6,8 @@ import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, KODRDRIV
 import { getLogger } from "./logging";
 const logger = getLogger();
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
-import * as Storage from "./util/storage";
+import { createStorage, readStdin } from "@eldrforge/shared";
 import { safeJsonParse } from '@eldrforge/git-tools';
-import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({
     dryRun: z.boolean().optional(),
@@ -1327,7 +1326,7 @@ export function validateCommand(commandName: string): string {
 
 export async function validateConfigDir(configDir: string): Promise<string> {
     const logger = getLogger();
-    const storage = Storage.create({ log: logger.info });
+    const storage = createStorage();
 
     // Make sure the config directory is absolute
     const absoluteConfigDir = path.isAbsolute(configDir) ?
@@ -1362,7 +1361,7 @@ export async function validateConfigDir(configDir: string): Promise<string> {
 // Export for testing
 export async function validateContextDirectories(contextDirectories: string[]): Promise<string[]> {
     const logger = getLogger();
-    const storage = Storage.create({ log: logger.info });
+    const storage = createStorage();
 
     // Filter out directories that don't exist
     const validDirectories = [];

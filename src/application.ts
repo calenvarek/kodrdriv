@@ -2,7 +2,7 @@ import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
 import { setLogger as setGitLogger } from '@eldrforge/git-tools';
 import { setLogger as setGitHubLogger, setPromptFunction } from '@eldrforge/github-tools';
-import { promptConfirmation } from './util/stdin';
+import { promptConfirmation } from '@eldrforge/shared';
 import { CommandConfig } from 'types';
 import * as Arguments from './arguments';
 import * as AudioCommit from './commands/audio-commit';

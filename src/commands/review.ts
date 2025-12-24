@@ -20,7 +20,7 @@ import * as Diff from '../content/diff';
 import { getReleaseNotesContent, getIssuesContent, handleIssueCreation, type Issue, type ReviewResult } from '@eldrforge/github-tools';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename } from '../util/general';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
@@ -729,7 +729,7 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
     logger.debug('Review note length: %d characters', reviewNote.length);
 
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
     await storage.ensureDirectory(outputDirectory);
 
     // Save timestamped copy of review notes to output directory

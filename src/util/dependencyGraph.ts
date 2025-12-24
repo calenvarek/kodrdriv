@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import { getLogger } from '../logging';
-import { create as createStorage } from './storage';
+import { createStorage } from '@eldrforge/shared';
 
 /**
  * Check if a file path matches a glob pattern
@@ -128,7 +128,7 @@ export async function scanForPackageJsonFiles(
  */
 export async function parsePackageJson(packageJsonPath: string): Promise<PackageInfo> {
     const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     try {
         const content = await storage.readFile(packageJsonPath, 'utf-8');

@@ -8,8 +8,8 @@ import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
 import { run, runWithDryRunSupport, runSecure, validateGitRef, safeJsonParse, validatePackageJson, isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists, remoteBranchExists } from '@eldrforge/git-tools';
 import * as GitHub from '@eldrforge/github-tools';
-import { create as createStorage } from '../util/storage';
-import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
+import { createStorage, incrementPatchVersion, calculateTargetVersion } from '@eldrforge/shared';
+import { getOutputPath, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import fs from 'fs/promises';
 import { runGitWithLock } from '../util/gitMutex';
@@ -149,7 +149,7 @@ const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boole
 const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     logger.info('PRECHECK_STARTING: Executing publish prechecks | Phase: validation | Target: ' + (targetBranch || 'default'));
 
@@ -443,7 +443,7 @@ const handleTargetBranchSyncRecovery = async (runConfig: Config, targetBranch: s
 export const execute = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     // Get current branch for branch-dependent targeting
     let currentBranch: string;

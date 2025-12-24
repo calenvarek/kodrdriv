@@ -25,7 +25,7 @@ import { createLoggerAdapter } from '../util/loggerAdapter';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { getDryRunLogger } from '../logging';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedReleaseNotesFilename } from '../util/general';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
 import { safeJsonParse } from '@eldrforge/git-tools';
 import * as GitHub from '@eldrforge/github-tools';
@@ -240,7 +240,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
 
         // Get current package.json version to determine likely release version
         try {
-            const storage = createStorage({ log: () => {} });
+            const storage = createStorage();
             const packageJsonContents = await storage.readFile('package.json', 'utf-8');
             const packageJson = safeJsonParse(packageJsonContents, 'package.json');
             const currentVersion = packageJson.version;
@@ -322,7 +322,7 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
 
     // Always ensure output directory exists for request/response files
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
     await storage.ensureDirectory(outputDirectory);
 
     logger.debug('Release analysis: isLargeRelease=%s, maxTokens=%d', promptResult.isLargeRelease, promptResult.maxTokens);

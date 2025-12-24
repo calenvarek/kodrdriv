@@ -37,7 +37,7 @@ import { run, runSecure, safeJsonParse, validatePackageJson, getGitStatusSummary
 import util from 'util';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import { getOutputPath } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import * as Commit from './commit';
@@ -100,7 +100,7 @@ const updateInterProjectDependencies = async (
     packageLogger: any,
     isDryRun: boolean
 ): Promise<boolean> => {
-    const storage = createStorage({ log: packageLogger.info });
+    const storage = createStorage();
     const packageJsonPath = path.join(packageDir, 'package.json');
 
     if (!await storage.exists(packageJsonPath)) {
@@ -173,7 +173,7 @@ const updateScopedDependencies = async (
     isDryRun: boolean,
     runConfig: Config
 ): Promise<boolean> => {
-    const storage = createStorage({ log: packageLogger.info });
+    const storage = createStorage();
     const packageJsonPath = path.join(packageDir, 'package.json');
 
     if (!await storage.exists(packageJsonPath)) {
@@ -269,7 +269,7 @@ const getContextFilePath = (outputDirectory?: string): string => {
 
 // Save execution context to file
 const saveExecutionContext = async (context: TreeExecutionContext, outputDirectory?: string): Promise<void> => {
-    const storage = createStorage({ log: () => {} }); // Silent storage for context operations
+    const storage = createStorage(); // Silent storage for context operations
     const contextFilePath = getContextFilePath(outputDirectory);
 
     try {
@@ -297,7 +297,7 @@ const saveExecutionContext = async (context: TreeExecutionContext, outputDirecto
 
 // Load execution context from file
 const loadExecutionContext = async (outputDirectory?: string): Promise<TreeExecutionContext | null> => {
-    const storage = createStorage({ log: () => {} }); // Silent storage for context operations
+    const storage = createStorage(); // Silent storage for context operations
     const contextFilePath = getContextFilePath(outputDirectory);
 
     try {
@@ -327,7 +327,7 @@ const loadExecutionContext = async (outputDirectory?: string): Promise<TreeExecu
 
 // Clean up context file
 const cleanupContext = async (outputDirectory?: string): Promise<void> => {
-    const storage = createStorage({ log: () => {} }); // Silent storage for context operations
+    const storage = createStorage(); // Silent storage for context operations
     const contextFilePath = getContextFilePath(outputDirectory);
 
     try {
@@ -346,7 +346,7 @@ const promotePackageToCompleted = async (
     packageName: string,
     outputDirectory?: string
 ): Promise<void> => {
-    const storage = createStorage({ log: () => {} });
+    const storage = createStorage();
     const contextFilePath = getContextFilePath(outputDirectory);
 
     try {
@@ -387,7 +387,7 @@ const validateScripts = async (
 ): Promise<{ valid: boolean; missingScripts: Map<string, string[]> }> => {
     const logger = getLogger();
     const missingScripts = new Map<string, string[]>();
-    const storage = createStorage({ log: () => {} });
+    const storage = createStorage();
 
     logger.debug(`Validating scripts: ${scripts.join(', ')}`);
 
@@ -439,7 +439,7 @@ const extractPublishedVersion = async (
     packageDir: string,
     packageLogger: any
 ): Promise<PublishedVersion | null> => {
-    const storage = createStorage({ log: packageLogger.info });
+    const storage = createStorage();
     const packageJsonPath = path.join(packageDir, 'package.json');
 
     try {
@@ -889,8 +889,10 @@ export const executePackage = async (
                 // For built-in commands, shell out to a separate kodrdriv process
                 // This preserves individual project configurations
                 if (isBuiltInCommand) {
-                    // Extract the command name from "kodrdriv <command>"
-                    const builtInCommandName = commandToRun.replace('kodrdriv ', '');
+                    // Extract the command name from "kodrdriv <command> [args...]"
+                    // Split by space and take the second element (after "kodrdriv")
+                    const commandParts = commandToRun.replace(/^kodrdriv\s+/, '').split(/\s+/);
+                    const builtInCommandName = commandParts[0];
                     if (runConfig.debug) {
                         packageLogger.debug(`Shelling out to separate kodrdriv process for ${builtInCommandName} command`);
                     }
@@ -1872,7 +1874,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
             }> = [];
 
             // Create storage instance for consumer lookup
-            const storage = createStorage({ log: () => {} });
+            const storage = createStorage();
 
             // Get globally linked packages once at the beginning
             const globallyLinkedPackages = await getGloballyLinkedPackages();

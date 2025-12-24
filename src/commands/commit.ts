@@ -12,10 +12,9 @@ import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { run, validateString } from '@eldrforge/git-tools';
 import { sanitizeDirection } from '../util/validation';
-import { stringifyJSON, getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
+import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
-import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions } from '../util/safety';
-import { create as createStorage } from '../util/storage';
+import { stringifyJSON, checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions, createStorage } from '@eldrforge/shared';
 import { getRecentClosedIssuesForCommit } from '@eldrforge/github-tools';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import {
@@ -446,7 +445,7 @@ const executeInternal = async (runConfig: Config) => {
 
     // Always ensure output directory exists for request/response files and GitHub issues lookup
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
     await storage.ensureDirectory(outputDirectory);
 
     // Get GitHub issues context for large commits [[memory:5887795]]
