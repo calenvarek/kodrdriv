@@ -5,6 +5,16 @@ vi.mock('@theunwalked/cardigantime', () => ({
     create: vi.fn()
 }));
 
+vi.mock('@eldrforge/shared', () => ({
+    promptConfirmation: vi.fn(),
+    createStorage: vi.fn().mockReturnValue({
+        exists: vi.fn(),
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        createDirectory: vi.fn(),
+    })
+}));
+
 vi.mock('../src/logging', () => ({
     getLogger: vi.fn().mockReturnValue({
         info: vi.fn(),

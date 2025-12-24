@@ -39,13 +39,13 @@ vi.mock('@eldrforge/ai-service', () => ({
 }));
 
 vi.mock('../../src/content/log', () => ({
-    create: vi.fn().mockReturnValue({
+    createStorage: vi.fn().mockReturnValue({
         get: vi.fn().mockResolvedValue('mock log content')
     })
 }));
 
 vi.mock('../../src/content/diff', () => ({
-    create: vi.fn().mockReturnValue({
+    createStorage: vi.fn().mockReturnValue({
         get: vi.fn().mockResolvedValue('mock diff content')
     }),
     truncateDiffByFiles: vi.fn().mockImplementation((content, maxBytes) => content.substring(0, maxBytes))
@@ -123,8 +123,8 @@ vi.mock('../../src/util/general', () => ({
     getTimestampedReleaseNotesFilename: vi.fn().mockReturnValue('release-notes-123456.md')
 }));
 
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn().mockReturnValue({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn().mockReturnValue({
         ensureDirectory: vi.fn().mockResolvedValue(undefined),
         writeFile: vi.fn().mockResolvedValue(undefined)
     })
@@ -160,7 +160,7 @@ vi.mock('../../src/util/interactive', () => ({
 
 vi.mock('@riotprompt/riotprompt', () => ({
     Formatter: {
-        create: vi.fn().mockReturnValue({
+        createStorage: vi.fn().mockReturnValue({
             formatPrompt: vi.fn().mockReturnValue({
                 messages: [{ role: 'user', content: 'mock message' }]
             })
@@ -185,7 +185,7 @@ describe('release command', () => {
         Release = await import('../../src/commands/release');
 
         // Get access to mocked modules for test configuration
-        mockStorage = await import('../../src/util/storage');
+        mockStorage = await import('@eldrforge/shared');
         mockValidation = await import('../../src/util/validation');
         mockInteractive = await import('../../src/util/interactive');
         mockOpenai = await import('@eldrforge/ai-service');
@@ -654,7 +654,7 @@ describe('release command', () => {
                 ensureDirectory: vi.fn().mockResolvedValue(undefined),
                 writeFile: vi.fn().mockRejectedValue(new Error('Disk full'))
             };
-            mockStorage.create.mockReturnValue(mockStorageInstance);
+            mockStorage.createStorage.mockReturnValue(mockStorageInstance);
 
             const runConfig = { model: 'gpt-4' };
 
@@ -773,7 +773,7 @@ describe('release command', () => {
                 writeFile: vi.fn().mockResolvedValue(undefined),
                 readFile: vi.fn().mockResolvedValue('{"name":"pkg","version":"1.2.4-dev.0"}')
             };
-            mockStorage.create.mockReturnValue(mockStorageInstance);
+            mockStorage.createStorage.mockReturnValue(mockStorageInstance);
 
             // Return milestone content
             mockGithub.getMilestoneIssuesForRelease.mockResolvedValue('milestone content');
@@ -817,7 +817,7 @@ describe('release command', () => {
                 writeFile: vi.fn().mockResolvedValue(undefined),
                 readFile: vi.fn().mockResolvedValue('{"name":"pkg","version":"2.0.0"}')
             };
-            mockStorage.create.mockReturnValue(mockStorageInstance);
+            mockStorage.createStorage.mockReturnValue(mockStorageInstance);
 
             mockGithub.getMilestoneIssuesForRelease.mockResolvedValue('milestone content');
 
@@ -836,7 +836,7 @@ describe('release command', () => {
                 writeFile: vi.fn().mockResolvedValue(undefined),
                 readFile: vi.fn().mockResolvedValue('{"name":"pkg","version":"1.0.0"}')
             };
-            mockStorage.create.mockReturnValue(mockStorageInstance);
+            mockStorage.createStorage.mockReturnValue(mockStorageInstance);
 
             // Return empty content to trigger the debug path
             mockGithub.getMilestoneIssuesForRelease.mockResolvedValue('');
@@ -963,7 +963,7 @@ describe('release command', () => {
                 ensureDirectory: vi.fn().mockResolvedValue(undefined),
                 writeFile: vi.fn().mockResolvedValue(undefined)
             };
-            mockStorage.create.mockReturnValue(mockStorageInstance);
+            mockStorage.createStorage.mockReturnValue(mockStorageInstance);
 
             const runConfig = {
                 model: 'gpt-4',

@@ -21,8 +21,8 @@ vi.mock('../../src/logging', () => ({
 }));
 
 // Mock the storage module
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn().mockReturnValue({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn().mockReturnValue({
         readFile: vi.fn(),
         writeFile: vi.fn(),
         exists: vi.fn(),

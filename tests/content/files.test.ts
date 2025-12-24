@@ -1,8 +1,8 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 
 // Mock ESM modules
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn().mockReturnValue({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn().mockReturnValue({
         isFileReadable: vi.fn(),
         readFile: vi.fn()
     })
@@ -30,7 +30,8 @@ describe('files', () => {
 
     beforeEach(async () => {
         // Import modules after mocking
-        createStorage = await import('../../src/util/storage');
+        const sharedModule = await import('@eldrforge/shared');
+        createStorage = sharedModule.createStorage;
         getLogger = await import('../../src/logging');
         glob = await import('glob');
         Files = await import('../../src/content/files');
@@ -59,7 +60,7 @@ describe('files', () => {
                 })
             };
 
-            createStorage.create.mockReturnValue(mockStorage);
+            createStorage.mockReturnValue(mockStorage);
 
             const files = await Files.create({
                 excludedPatterns: ['node_modules', '.git'],
@@ -97,7 +98,7 @@ describe('files', () => {
                 readFile: vi.fn()
             };
 
-            createStorage.create.mockReturnValue(mockStorage);
+            createStorage.mockReturnValue(mockStorage);
 
             const files = await Files.create({
                 excludedPatterns: ['node_modules'],
@@ -120,7 +121,7 @@ describe('files', () => {
                 readFile: vi.fn().mockResolvedValue(largeContent)
             };
 
-            createStorage.create.mockReturnValue(mockStorage);
+            createStorage.mockReturnValue(mockStorage);
 
             const files = await Files.create({
                 excludedPatterns: [],
@@ -154,7 +155,7 @@ describe('files', () => {
                 })
             };
 
-            createStorage.create.mockReturnValue(mockStorage);
+            createStorage.mockReturnValue(mockStorage);
 
             const files = await Files.create({
                 excludedPatterns: [],
@@ -179,7 +180,7 @@ describe('files', () => {
                 readFile: vi.fn().mockResolvedValue(largeContent)
             };
 
-            createStorage.create.mockReturnValue(mockStorage);
+            createStorage.mockReturnValue(mockStorage);
 
             const files = await Files.create({
                 excludedPatterns: [],
@@ -208,7 +209,7 @@ describe('files', () => {
                 })
             };
 
-            createStorage.create.mockReturnValue(mockStorage);
+            createStorage.mockReturnValue(mockStorage);
 
             const files = await Files.create({
                 excludedPatterns: [],

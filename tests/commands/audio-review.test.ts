@@ -6,7 +6,7 @@ import { execute as executeReview } from '../../src/commands/review';
 import { processAudio } from '@theunwalked/unplayable';
 import { transcribeAudio } from '@eldrforge/ai-service';
 import { getTimestampedAudioFilename } from '../../src/util/general';
-import * as Storage from '../../src/util/storage';
+import * as Storage from '@eldrforge/shared';
 import * as StorageAdapter from '../../src/util/storageAdapter';
 import * as LoggerAdapter from '../../src/util/loggerAdapter';
 import path from 'path';
@@ -25,7 +25,7 @@ vi.mock('../../src/commands/review');
 vi.mock('@theunwalked/unplayable');
 vi.mock('@eldrforge/ai-service');
 vi.mock('../../src/util/general');
-vi.mock('../../src/util/storage');
+vi.mock('@eldrforge/shared');
 vi.mock('../../src/util/storageAdapter');
 vi.mock('../../src/util/loggerAdapter');
 vi.mock('../../src/util/countdown');
@@ -70,7 +70,7 @@ describe('audio-review command', () => {
         vi.mocked(Logging.getLogger).mockReturnValue(mockLogger as any);
         vi.mocked(Logging.getDryRunLogger).mockReturnValue(mockLogger as any);
 
-        vi.mocked(Storage.create).mockReturnValue(mockStorage);
+        vi.mocked(Storage.createStorage).mockReturnValue(mockStorage);
 
         // Mock adapter functions
         vi.mocked(StorageAdapter.createStorageAdapter).mockReturnValue({} as any);

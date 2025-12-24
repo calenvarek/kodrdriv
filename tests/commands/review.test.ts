@@ -19,12 +19,12 @@ vi.mock('@riotprompt/riotprompt', () => {
             GPT_4: 'gpt-4'
         },
         Formatter: {
-            create: vi.fn().mockReturnValue({
+            createStorage: vi.fn().mockReturnValue({
                 formatPrompt: vi.fn().mockReturnValue({ messages: [] })
             })
         },
         Builder: {
-            create: vi.fn(() => localBuilder)
+            createStorage: vi.fn(() => localBuilder)
         },
         recipe: vi.fn().mockImplementation(() => ({
             persona: vi.fn().mockImplementation(() => ({
@@ -140,8 +140,8 @@ const mockStorage = {
     writeFile: vi.fn().mockResolvedValue(undefined)
 };
 const mockCreateStorage = vi.fn().mockReturnValue(mockStorage);
-vi.mock('../../src/util/storage', () => ({
-    create: mockCreateStorage
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: mockCreateStorage
 }));
 
 // getUserChoice mock is defined above with other ai-service mocks

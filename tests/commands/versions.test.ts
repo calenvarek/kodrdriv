@@ -42,8 +42,8 @@ vi.mock('../../src/logging', () => ({
     }))
 }));
 
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn(() => ({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn(() => ({
         readFile: vi.fn(),
         writeFile: vi.fn(),
         exists: vi.fn(),
@@ -64,7 +64,7 @@ vi.mock('../../src/util/general', () => ({
 
 import { execute } from '../../src/commands/versions';
 import { getLogger } from '../../src/logging';
-import { create as createStorage } from '../../src/util/storage';
+import { createStorage } from '@eldrforge/shared';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import fs from 'fs/promises';
 import path from 'path';
