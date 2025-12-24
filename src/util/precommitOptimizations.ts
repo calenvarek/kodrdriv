@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { getLogger } from '../logging';
 import { runSecure } from '@eldrforge/git-tools';
-import { create as createStorage } from './storage';
+import { createStorage } from '@eldrforge/shared';
 
 const logger = getLogger();
 
@@ -110,7 +110,7 @@ async function hasSourceFilesChanged(
  * Check if dist directory needs to be cleaned (is outdated compared to source files)
  */
 export async function isCleanNeeded(packageDir: string): Promise<{ needed: boolean; reason: string }> {
-    const storage = createStorage({ log: () => {} });
+    const storage = createStorage();
     const distPath = path.join(packageDir, 'dist');
 
     try {

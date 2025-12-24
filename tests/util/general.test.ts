@@ -18,6 +18,11 @@ vi.mock('../../src/util/general', async () => {
     };
 });
 
+// Mock @eldrforge/shared
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn()
+}));
+
 import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, getOutputPath, getTimestampedFilename, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename, getTimestampedReleaseNotesFilename, getTimestampedAudioFilename, getTimestampedTranscriptFilename, getTimestampedReviewFilename, getTimestampedReviewNotesFilename, getTimestampedArchivedAudioFilename, getTimestampedArchivedTranscriptFilename, archiveAudio, incrementPrereleaseVersion, convertToReleaseVersion, calculateBranchDependentVersion, findDevelopmentBranch, haveSamePrereleaseTag, getVersionFromBranch } from '../../src/util/general';
 import { createStorage } from '@eldrforge/shared';
 import * as fs from 'fs';

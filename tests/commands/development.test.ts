@@ -108,7 +108,7 @@ describe('development command', () => {
 
         // Import modules after mocking
         const { getDryRunLogger } = await import('../../src/logging');
-        const { create: createStorage } = await import('../../src/util/storage');
+        const { createStorage } = await import('@eldrforge/shared');
         const { run, runSecure, validateGitRef, localBranchExists, safeSyncBranchWithRemote, getCurrentBranch, safeJsonParse, validatePackageJson } = await import('@eldrforge/git-tools');
         const { execute: commitExecute } = await import('../../src/commands/commit');
         Development = await import('../../src/commands/development');

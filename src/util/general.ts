@@ -1,5 +1,5 @@
 import path from 'path';
-import * as Storage from './storage';
+import { createStorage } from '@eldrforge/shared';
 import { getLogger } from '../logging';
 // eslint-disable-next-line no-restricted-imports
 import * as fs from 'fs';
@@ -595,7 +595,7 @@ export const archiveAudio = async (
     outputDirectory: string = 'output'
 ): Promise<{ audioPath: string; transcriptPath: string }> => {
     const logger = getLogger();
-    const storage = Storage.create({ log: logger.debug });
+    const storage = createStorage();
 
     try {
         // Ensure the output directory exists (should already be output/kodrdriv)

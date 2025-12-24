@@ -121,7 +121,7 @@ beforeEach(async () => { // Make top-level beforeEach async
     mockStorage.isDirectoryWritable.mockResolvedValue(true);
     mockStorage.readFile.mockReset();
     mockStorage.writeFile.mockReset();
-    mockStorage.createStorageDirectory.mockReset();
+    mockStorage.createDirectory.mockReset();
     mockStorage.listFiles.mockReset();
 });
 
@@ -874,7 +874,7 @@ describe('Argument Parsing and Configuration', () => {
             mockStorage.isDirectoryWritable.mockResolvedValue(true);
             mockStorage.readFile.mockReset();
             mockStorage.writeFile.mockReset();
-            mockStorage.createStorageDirectory.mockReset();
+            mockStorage.createDirectory.mockReset();
             mockStorage.listFiles.mockReset();
 
             // Reset js-yaml mock
@@ -1023,7 +1023,7 @@ describe('Argument Parsing and Configuration', () => {
                 // Mock storage methods for config file creation
                 mockStorage.exists.mockResolvedValueOnce(false); // Config dir doesn't exist
                 mockStorage.exists.mockResolvedValueOnce(false); // Config file doesn't exist
-                mockStorage.createStorageDirectory.mockResolvedValue(undefined);
+                mockStorage.createDirectory.mockResolvedValue(undefined);
                 mockStorage.writeFile.mockResolvedValue(undefined);
 
                 const [config, secureConfig, commandConfig] = await configure(mockCardigantimeInstance);
@@ -1549,7 +1549,7 @@ describe('Argument Parsing and Configuration', () => {
             mockStorage.isDirectoryReadable.mockClear();
             mockStorage.isFileReadable.mockClear();
             mockStorage.readFile.mockClear();
-            mockStorage.createStorageDirectory.mockClear();
+            mockStorage.createDirectory.mockClear();
             mockStorage.listFiles.mockClear();
 
             // No need to define mockStorage here, it's top-level
@@ -3240,7 +3240,7 @@ describe('Argument Parsing and Configuration', () => {
 
             expect(result).toMatch(/new-config$/);
             expect(mockStorage.exists).toHaveBeenCalled();
-            expect(mockStorage.createStorageDirectory).not.toHaveBeenCalled();
+            expect(mockStorage.createDirectory).not.toHaveBeenCalled();
             expect(mockStorage.isDirectoryWritable).not.toHaveBeenCalled();
             expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Config directory does not exist'));
             expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('Using default configuration'));
@@ -4126,7 +4126,7 @@ describe('Argument Parsing and Configuration', () => {
             const createError = new Error('ENOSPC: no space left on device');
 
             mockStorage.exists.mockResolvedValue(false);
-            mockStorage.createStorageDirectory.mockRejectedValue(createError);
+            mockStorage.createDirectory.mockRejectedValue(createError);
 
             const result = await validateConfigDir(configDir);
 
