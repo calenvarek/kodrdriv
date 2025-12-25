@@ -26,7 +26,9 @@
  *   - Shows basic execution flow
  *
  * No flags:
- *   - Shows basic progress with numeric representation ([1/5] Package: Running...)
+ *   - For commit and publish commands: Shows full output from child processes by default
+ *     (including AI generation, self-reflection, and agentic interactions)
+ *   - For other commands: Shows basic progress with numeric representation ([1/5] Package: Running...)
  *   - Shows level-by-level execution summaries
  *   - Shows completion status for each package and level
  */
@@ -713,10 +715,11 @@ export const executePackage = async (
     }
 
     // Determine output level based on flags
-    // For publish commands, default to full output to show OpenAI progress and other details
+    // For publish and commit commands, default to full output to show AI progress and other details
     // For other commands, require --verbose or --debug for output
     const isPublishCommand = isBuiltInCommand && commandToRun.includes('publish');
-    let showOutput: 'none' | 'minimal' | 'full' = isPublishCommand ? 'full' : 'none';
+    const isCommitCommand = isBuiltInCommand && commandToRun.includes('commit');
+    let showOutput: 'none' | 'minimal' | 'full' = (isPublishCommand || isCommitCommand) ? 'full' : 'none';
     if (runConfig.debug) {
         showOutput = 'full';
     } else if (runConfig.verbose) {
@@ -1010,16 +1013,16 @@ export const executePackage = async (
                     const seconds = (executionDuration / 1000).toFixed(1);
                     if (runConfig.debug || runConfig.verbose) {
                         packageLogger.info(`⏱️  Execution time: ${seconds}s`);
-                    } else if (!isPublishCommand) {
-                        // Show timing in completion message (publish commands have their own completion message)
+                    } else if (!isPublishCommand && !isCommitCommand) {
+                        // Show timing in completion message (publish/commit commands have their own completion message)
                         logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed (${seconds}s)`);
                     }
                 } else {
                     executionTimer.end(`Package ${packageName} execution`);
                     if (runConfig.debug || runConfig.verbose) {
                         packageLogger.info(`Command completed successfully`);
-                    } else if (!isPublishCommand) {
-                        // Basic completion info (publish commands have their own completion message)
+                    } else if (!isPublishCommand && !isCommitCommand) {
+                        // Basic completion info (publish/commit commands have their own completion message)
                         logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
                     }
                 }
@@ -1042,15 +1045,15 @@ export const executePackage = async (
             }
         }
 
-        // Show completion status (for publish commands, this supplements the timing message above)
+        // Show completion status (for publish/commit commands, this supplements the timing message above)
         if (runConfig.debug || runConfig.verbose) {
             if (publishWasSkipped) {
                 packageLogger.info(`⊘ Skipped (no code changes)`);
             } else {
                 packageLogger.info(`✅ Completed successfully`);
             }
-        } else if (isPublishCommand) {
-            // For publish commands, always show completion even without verbose
+        } else if (isPublishCommand || isCommitCommand) {
+            // For publish/commit commands, always show completion even without verbose
             // Include timing if available
             const timeStr = executionDuration !== undefined ? ` (${(executionDuration / 1000).toFixed(1)}s)` : '';
             if (publishWasSkipped) {

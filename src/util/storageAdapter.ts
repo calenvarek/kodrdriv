@@ -23,6 +23,10 @@ export function createStorageAdapter(): StorageAdapter {
         async writeTemp(fileName: string, content: string): Promise<void> {
             await storage.writeFile(fileName, content, 'utf8');
         },
+
+        async readFile(fileName: string, encoding: string = 'utf8'): Promise<string> {
+            return await storage.readFile(fileName, encoding);
+        },
     };
 }
 
