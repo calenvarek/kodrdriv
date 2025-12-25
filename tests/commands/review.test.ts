@@ -19,7 +19,7 @@ vi.mock('@riotprompt/riotprompt', () => {
             GPT_4: 'gpt-4'
         },
         Formatter: {
-            createStorage: vi.fn().mockReturnValue({
+            create: vi.fn().mockReturnValue({
                 formatPrompt: vi.fn().mockReturnValue({ messages: [] })
             })
         },
