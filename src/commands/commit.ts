@@ -12,6 +12,7 @@ import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { run, validateString } from '@eldrforge/git-tools';
 import { sanitizeDirection } from '../util/validation';
+import { filterContent } from '../util/stopContext';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { stringifyJSON, checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions, createStorage } from '@eldrforge/shared';
@@ -27,6 +28,7 @@ import {
     createCommitPrompt,
     CommitContent,
     CommitContext,
+    runAgenticCommit,
 } from '@eldrforge/ai-service';
 import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
 import { toAIConfig } from '../util/aiAdapter';
@@ -486,6 +488,7 @@ const executeInternal = async (runConfig: Config) => {
     const aiStorageAdapter = createStorageAdapter();
     const aiLogger = createLoggerAdapter(isDryRun);
 
+    // Define promptContext for use in both agentic and traditional modes
     const promptContent: CommitContent = {
         diffContent,
         userDirection,
@@ -497,64 +500,123 @@ const executeInternal = async (runConfig: Config) => {
         context: runConfig.commit?.context,
         directories: runConfig.contextDirectories,
     };
-    const prompt = await createCommitPrompt(promptConfig, promptContent, promptContext);
 
-    // Get the appropriate model for the commit command
-    const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
+    let rawSummary: string;
 
-    // Use consistent model for debug (fix hardcoded model)
-    if (runConfig.debug) {
-        const formattedPrompt = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
-        logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
-    }
+    // Check if agentic mode is enabled
+    if (runConfig.commit?.agentic) {
+        logger.info('🤖 Using agentic mode for commit message generation');
 
-    const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
+        // Get list of changed files
+        const changedFilesResult = await run(`git diff --name-only ${cached ? '--cached' : ''}`);
+        const changedFilesOutput = typeof changedFilesResult === 'string' ? changedFilesResult : changedFilesResult.stdout;
+        const changedFiles = changedFilesOutput.split('\n').filter((f: string) => f.trim().length > 0);
 
-    // Create retry callback that reduces diff size on token limit errors
-    const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
-        logger.info('COMMIT_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
+        logger.debug('Changed files for agentic analysis: %d files', changedFiles.length);
 
-        // Progressively reduce the diff size on retries
-        const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
-        const reducedMaxDiffBytes = Math.max(512, Math.floor(maxDiffBytes * reductionFactor));
-
-        logger.debug('Reducing maxDiffBytes from %d to %d for retry', maxDiffBytes, reducedMaxDiffBytes);
-
-        // Re-truncate the diff with smaller limits
-        const reducedDiffContent = originalDiffContent.length > reducedMaxDiffBytes
-            ? Diff.truncateDiffByFiles(originalDiffContent, reducedMaxDiffBytes)
-            : originalDiffContent;
-
-        // Rebuild the prompt with the reduced diff
-        const reducedPromptContent = {
-            diffContent: reducedDiffContent,
+        // Run agentic commit generation
+        const agenticResult = await runAgenticCommit({
+            changedFiles,
+            diffContent,
             userDirection,
-        };
-        const reducedPromptContext = {
             logContext,
-            context: runConfig.commit?.context,
-            directories: runConfig.contextDirectories,
-        };
-
-        const retryPrompt = await createCommitPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
-        const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPrompt);
-
-        return retryRequest.messages as ChatCompletionMessageParam[];
-    };
-
-    const summary = await createCompletionWithRetry(
-        request.messages as ChatCompletionMessageParam[],
-        {
-            model: modelToUse,
-            openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+            model: aiConfig.commands?.commit?.model || aiConfig.model,
+            maxIterations: runConfig.commit?.maxAgenticIterations || 10,
             debug: runConfig.debug,
-            debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
-            debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
+            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('commit-agentic')),
+            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('commit-agentic')),
             storage: aiStorageAdapter,
             logger: aiLogger,
-        },
-        createRetryCallback(diffContent)
-    );
+            openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+        });
+
+        logger.info('🔍 Agentic analysis complete: %d iterations, %d tool calls',
+            agenticResult.iterations, agenticResult.toolCallsExecuted);
+
+        // Check for suggested splits
+        if (agenticResult.suggestedSplits.length > 1 && runConfig.commit?.allowCommitSplitting) {
+            logger.info('\n📋 Agent suggests splitting this into %d commits:', agenticResult.suggestedSplits.length);
+
+            for (let i = 0; i < agenticResult.suggestedSplits.length; i++) {
+                const split = agenticResult.suggestedSplits[i];
+                logger.info('\nCommit %d (%d files):', i + 1, split.files.length);
+                logger.info('  Files: %s', split.files.join(', '));
+                logger.info('  Rationale: %s', split.rationale);
+                logger.info('  Message: %s', split.message);
+            }
+
+            logger.info('\n⚠️  Commit splitting is not yet automated. Please stage and commit files separately.');
+            logger.info('Using combined message for now...\n');
+        } else if (agenticResult.suggestedSplits.length > 1) {
+            logger.debug('Agent suggested %d splits but commit splitting is not enabled', agenticResult.suggestedSplits.length);
+        }
+
+        rawSummary = agenticResult.commitMessage;
+    } else {
+        // Traditional single-shot approach
+        const prompt = await createCommitPrompt(promptConfig, promptContent, promptContext);
+
+        // Get the appropriate model for the commit command
+        const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
+
+        // Use consistent model for debug (fix hardcoded model)
+        if (runConfig.debug) {
+            const formattedPrompt = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
+            logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
+        }
+
+        const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
+
+        // Create retry callback that reduces diff size on token limit errors
+        const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
+            logger.info('COMMIT_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
+
+            // Progressively reduce the diff size on retries
+            const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
+            const reducedMaxDiffBytes = Math.max(512, Math.floor(maxDiffBytes * reductionFactor));
+
+            logger.debug('Reducing maxDiffBytes from %d to %d for retry', maxDiffBytes, reducedMaxDiffBytes);
+
+            // Re-truncate the diff with smaller limits
+            const reducedDiffContent = originalDiffContent.length > reducedMaxDiffBytes
+                ? Diff.truncateDiffByFiles(originalDiffContent, reducedMaxDiffBytes)
+                : originalDiffContent;
+
+            // Rebuild the prompt with the reduced diff
+            const reducedPromptContent = {
+                diffContent: reducedDiffContent,
+                userDirection,
+            };
+            const reducedPromptContext = {
+                logContext,
+                context: runConfig.commit?.context,
+                directories: runConfig.contextDirectories,
+            };
+
+            const retryPrompt = await createCommitPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
+            const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPrompt);
+
+            return retryRequest.messages as ChatCompletionMessageParam[];
+        };
+
+        rawSummary = await createCompletionWithRetry(
+            request.messages as ChatCompletionMessageParam[],
+            {
+                model: modelToUse,
+                openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+                debug: runConfig.debug,
+                debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
+                debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
+                storage: aiStorageAdapter,
+                logger: aiLogger,
+            },
+            createRetryCallback(diffContent)
+        );
+    }
+
+    // Apply stop-context filtering to commit message
+    const filterResult = filterContent(rawSummary, runConfig.stopContext);
+    const summary = filterResult.filtered;
 
     // Save timestamped copy of commit message with better error handling
     await saveCommitMessage(outputDirectory, summary, storage, logger);

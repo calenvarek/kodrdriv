@@ -892,9 +892,9 @@ describe('review command', () => {
                 summary: 'Review analysis summary',
                 totalIssues: 3,
                 issues: [
-                    { title: 'Issue 1', priority: 'high' },
-                    { title: 'Issue 2', priority: 'medium' },
-                    { title: 'Issue 3', priority: 'low' }
+                    { title: 'Issue 1', priority: 'high', description: '' },
+                    { title: 'Issue 2', priority: 'medium', description: '' },
+                    { title: 'Issue 3', priority: 'low', description: '' }
                 ]
             }, true);
             expect(result).toContain('📝 Review Results');
@@ -929,9 +929,9 @@ describe('review command', () => {
                     summary: 'Review analysis summary',
                     totalIssues: 3,
                     issues: [
-                        { title: 'Issue 1', priority: 'high' },
-                        { title: 'Issue 2', priority: 'medium' },
-                        { title: 'Issue 3', priority: 'low' }
+                        { title: 'Issue 1', priority: 'high', description: '' },
+                        { title: 'Issue 2', priority: 'medium', description: '' },
+                        { title: 'Issue 3', priority: 'low', description: '' }
                     ]
                 }, false);
                 expect(result).toContain('📝 Review Results');
