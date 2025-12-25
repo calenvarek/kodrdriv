@@ -2350,9 +2350,74 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Add command-specific options
             let commandSpecificOptions = '';
+
+            // Commit command options
+            if (builtInCommand === 'commit') {
+                if (runConfig.commit?.agentic) {
+                    commandSpecificOptions += ' --agentic';
+                }
+                if (runConfig.commit?.selfReflection) {
+                    commandSpecificOptions += ' --self-reflection';
+                }
+                if (runConfig.commit?.add) {
+                    commandSpecificOptions += ' --add';
+                }
+                if (runConfig.commit?.cached) {
+                    commandSpecificOptions += ' --cached';
+                }
+                if (runConfig.commit?.interactive) {
+                    commandSpecificOptions += ' --interactive';
+                }
+                if (runConfig.commit?.amend) {
+                    commandSpecificOptions += ' --amend';
+                }
+                if (runConfig.commit?.skipFileCheck) {
+                    commandSpecificOptions += ' --skip-file-check';
+                }
+                if (runConfig.commit?.maxAgenticIterations) {
+                    commandSpecificOptions += ` --max-agentic-iterations ${runConfig.commit.maxAgenticIterations}`;
+                }
+                if (runConfig.commit?.allowCommitSplitting) {
+                    commandSpecificOptions += ' --allow-commit-splitting';
+                }
+                if (runConfig.commit?.messageLimit) {
+                    commandSpecificOptions += ` --message-limit ${runConfig.commit.messageLimit}`;
+                }
+                if (runConfig.commit?.maxDiffBytes) {
+                    commandSpecificOptions += ` --max-diff-bytes ${runConfig.commit.maxDiffBytes}`;
+                }
+                if (runConfig.commit?.direction) {
+                    commandSpecificOptions += ` --direction "${runConfig.commit.direction}"`;
+                }
+                if (runConfig.commit?.context) {
+                    commandSpecificOptions += ` --context "${runConfig.commit.context}"`;
+                }
+                // Push option can be boolean or string (remote name)
+                if (runConfig.commit?.push) {
+                    if (typeof runConfig.commit.push === 'string') {
+                        commandSpecificOptions += ` --push "${runConfig.commit.push}"`;
+                    } else {
+                        commandSpecificOptions += ' --push';
+                    }
+                }
+                // Model-specific options for commit
+                if (runConfig.commit?.model) {
+                    commandSpecificOptions += ` --model "${runConfig.commit.model}"`;
+                }
+                if (runConfig.commit?.openaiReasoning) {
+                    commandSpecificOptions += ` --openai-reasoning ${runConfig.commit.openaiReasoning}`;
+                }
+                if (runConfig.commit?.openaiMaxOutputTokens) {
+                    commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.commit.openaiMaxOutputTokens}`;
+                }
+            }
+
+            // Unlink command options
             if (builtInCommand === 'unlink' && runConfig.tree?.cleanNodeModules) {
                 commandSpecificOptions += ' --clean-node-modules';
             }
+
+            // Link/Unlink externals
             if ((builtInCommand === 'link' || builtInCommand === 'unlink') && runConfig.tree?.externals && runConfig.tree.externals.length > 0) {
                 commandSpecificOptions += ` --externals ${runConfig.tree.externals.join(' ')}`;
             }
