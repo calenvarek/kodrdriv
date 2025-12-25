@@ -32,6 +32,7 @@ export const ConfigSchema = z.object({
         maxAgenticIterations: z.number().optional(),
         allowCommitSplitting: z.boolean().optional(),
         toolTimeout: z.number().optional(),
+        selfReflection: z.boolean().optional(),
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
@@ -315,6 +316,12 @@ export type CommitConfig = {
     model?: string;
     openaiReasoning?: 'low' | 'medium' | 'high';
     openaiMaxOutputTokens?: number;
+    // Agentic mode options
+    agentic?: boolean;
+    maxAgenticIterations?: number;
+    allowCommitSplitting?: boolean;
+    toolTimeout?: number;
+    selfReflection?: boolean;
 }
 
 export type AudioCommitConfig = {

@@ -725,8 +725,16 @@ export const executePackage = async (
 
     // Show package start info - always visible for progress tracking
     if (runConfig.debug) {
-        packageLogger.debug(`Starting execution in ${packageDir}`);
-        packageLogger.debug(`Command: ${commandToRun}`);
+        packageLogger.debug('MULTI_PROJECT_START: Starting package execution | Package: %s | Index: %d/%d | Path: %s | Command: %s | Context: tree execution',
+            packageName, index + 1, total, packageDir, commandToRun);
+        packageLogger.debug('MULTI_PROJECT_CONTEXT: Execution details | Directory: %s | Built-in Command: %s | Dry Run: %s | Output Level: %s',
+            packageDir, isBuiltInCommand, isDryRun, showOutput);
+
+        // Show dependencies if available
+        if (packageInfo.dependencies && Array.isArray(packageInfo.dependencies) && packageInfo.dependencies.length > 0) {
+            packageLogger.debug('MULTI_PROJECT_DEPS: Package dependencies | Package: %s | Dependencies: [%s]',
+                packageName, packageInfo.dependencies.join(', '));
+        }
     } else if (runConfig.verbose) {
         packageLogger.verbose(`Starting execution in ${packageDir}`);
     } else {
@@ -2432,6 +2440,67 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info('');
             const executionDescription = isBuiltInCommand ? `built-in command "${builtInCommand}"` : `"${commandToRun}"`;
             logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${executionDescription} in ${buildOrder.length} packages...`);
+
+            // Add detailed multi-project execution context for debug mode
+            if (runConfig.debug) {
+                logger.debug('MULTI_PROJECT_PLAN: Execution plan initialized | Total Packages: %d | Command: %s | Built-in: %s | Dry Run: %s | Parallel: %s',
+                    buildOrder.length, commandToRun, isBuiltInCommand, isDryRun, runConfig.tree?.parallel || false);
+
+                // Log package execution order with dependencies
+                logger.debug('MULTI_PROJECT_ORDER: Package execution sequence:');
+                buildOrder.forEach((pkgName, idx) => {
+                    const pkgInfo = dependencyGraph.packages.get(pkgName);
+                    if (pkgInfo) {
+                        const deps = Array.isArray(pkgInfo.dependencies) ? pkgInfo.dependencies : [];
+                        const depStr = deps.length > 0
+                            ? ` | Dependencies: [${deps.join(', ')}]`
+                            : ' | Dependencies: none';
+                        logger.debug('  %d. %s%s', idx + 1, pkgName, depStr);
+                    }
+                });
+
+                // Log dependency levels for parallel execution understanding
+                const levels = new Map<string, number>();
+                const calculateLevels = (pkg: string, visited = new Set<string>()): number => {
+                    if (levels.has(pkg)) return levels.get(pkg)!;
+                    if (visited.has(pkg)) return 0; // Circular dependency
+
+                    visited.add(pkg);
+                    const pkgInfo = dependencyGraph.packages.get(pkg);
+                    const deps = Array.isArray(pkgInfo?.dependencies) ? pkgInfo.dependencies : [];
+                    if (!pkgInfo || deps.length === 0) {
+                        levels.set(pkg, 0);
+                        return 0;
+                    }
+
+                    const maxDepLevel = Math.max(...deps.map((dep: string) => calculateLevels(dep, new Set(visited))));
+                    const level = maxDepLevel + 1;
+                    levels.set(pkg, level);
+                    return level;
+                };
+
+                buildOrder.forEach(pkg => calculateLevels(pkg));
+                const maxLevel = Math.max(...Array.from(levels.values()));
+
+                logger.debug('MULTI_PROJECT_LEVELS: Dependency depth analysis | Max Depth: %d levels', maxLevel + 1);
+                for (let level = 0; level <= maxLevel; level++) {
+                    const packagesAtLevel = buildOrder.filter(pkg => levels.get(pkg) === level);
+                    logger.debug('  Level %d (%d packages): %s', level, packagesAtLevel.length, packagesAtLevel.join(', '));
+                }
+
+                if (runConfig.tree?.parallel) {
+                    const os = await import('os');
+                    const concurrency = runConfig.tree.maxConcurrency || os.cpus().length;
+                    logger.debug('MULTI_PROJECT_PARALLEL: Parallel execution configuration | Max Concurrency: %d | Retry Attempts: %d',
+                        concurrency, runConfig.tree.retry?.maxAttempts || 3);
+                }
+
+                if (isContinue) {
+                    const completed = executionContext?.completedPackages.length || 0;
+                    logger.debug('MULTI_PROJECT_RESUME: Continuing previous execution | Completed: %d | Remaining: %d',
+                        completed, buildOrder.length - completed);
+                }
+            }
 
             // Show info for publish commands
             if (isBuiltInCommand && builtInCommand === 'publish') {

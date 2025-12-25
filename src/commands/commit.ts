@@ -35,6 +35,209 @@ import { toAIConfig } from '../util/aiAdapter';
 import { createStorageAdapter } from '../util/storageAdapter';
 import { createLoggerAdapter } from '../util/loggerAdapter';
 
+// Helper function to generate self-reflection output
+async function generateSelfReflection(
+    agenticResult: any,
+    outputDirectory: string,
+    storage: any,
+    logger: any
+): Promise<void> {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+        const reflectionPath = getOutputPath(outputDirectory, `agentic-reflection-${timestamp}.md`);
+
+        // Calculate tool effectiveness metrics
+        const toolMetrics = agenticResult.toolMetrics || [];
+        const toolStats = new Map<string, { total: number; success: number; failures: number; totalDuration: number }>();
+
+        for (const metric of toolMetrics) {
+            if (!toolStats.has(metric.name)) {
+                toolStats.set(metric.name, { total: 0, success: 0, failures: 0, totalDuration: 0 });
+            }
+            const stats = toolStats.get(metric.name)!;
+            stats.total++;
+            stats.totalDuration += metric.duration;
+            if (metric.success) {
+                stats.success++;
+            } else {
+                stats.failures++;
+            }
+        }
+
+        // Build reflection document
+        const sections: string[] = [];
+
+        sections.push('# Agentic Commit - Self-Reflection Report');
+        sections.push('');
+        sections.push(`Generated: ${new Date().toISOString()}`);
+        sections.push('');
+
+        sections.push('## Execution Summary');
+        sections.push('');
+        sections.push(`- **Iterations**: ${agenticResult.iterations}`);
+        sections.push(`- **Tool Calls**: ${agenticResult.toolCallsExecuted}`);
+        sections.push(`- **Unique Tools Used**: ${toolStats.size}`);
+        sections.push('');
+
+        sections.push('## Tool Effectiveness Analysis');
+        sections.push('');
+
+        if (toolStats.size === 0) {
+            sections.push('*No tools were executed during this run.*');
+        } else {
+            sections.push('| Tool | Calls | Success | Failures | Success Rate | Avg Duration |');
+            sections.push('|------|-------|---------|----------|--------------|--------------|');
+
+            for (const [toolName, stats] of Array.from(toolStats.entries()).sort((a, b) => b[1].total - a[1].total)) {
+                const successRate = ((stats.success / stats.total) * 100).toFixed(1);
+                const avgDuration = (stats.totalDuration / stats.total).toFixed(0);
+                sections.push(`| ${toolName} | ${stats.total} | ${stats.success} | ${stats.failures} | ${successRate}% | ${avgDuration}ms |`);
+            }
+
+            sections.push('');
+            sections.push('### Tool Performance Insights');
+            sections.push('');
+
+            // Identify problematic tools
+            const failedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.failures > 0);
+            if (failedTools.length > 0) {
+                sections.push('**Tools with Failures:**');
+                for (const [toolName, stats] of failedTools) {
+                    const failureRate = ((stats.failures / stats.total) * 100).toFixed(1);
+                    sections.push(`- ${toolName}: ${stats.failures}/${stats.total} failures (${failureRate}%)`);
+                }
+                sections.push('');
+            }
+
+            // Identify slow tools
+            const slowTools = Array.from(toolStats.entries())
+                .filter(([_, stats]) => stats.totalDuration / stats.total > 1000)
+                .sort((a, b) => (b[1].totalDuration / b[1].total) - (a[1].totalDuration / a[1].total));
+
+            if (slowTools.length > 0) {
+                sections.push('**Slow Tools (>1s average):**');
+                for (const [toolName, stats] of slowTools) {
+                    const avgDuration = (stats.totalDuration / stats.total / 1000).toFixed(2);
+                    sections.push(`- ${toolName}: ${avgDuration}s average`);
+                }
+                sections.push('');
+            }
+
+            // Identify most useful tools
+            sections.push('**Most Frequently Used:**');
+            const topTools = Array.from(toolStats.entries()).slice(0, 3);
+            for (const [toolName, stats] of topTools) {
+                sections.push(`- ${toolName}: ${stats.total} calls`);
+            }
+            sections.push('');
+        }
+
+        sections.push('## Detailed Execution Timeline');
+        sections.push('');
+
+        if (toolMetrics.length === 0) {
+            sections.push('*No tool execution timeline available.*');
+        } else {
+            sections.push('| Time | Iteration | Tool | Result | Duration |');
+            sections.push('|------|-----------|------|--------|----------|');
+
+            for (const metric of toolMetrics) {
+                const time = new Date(metric.timestamp).toLocaleTimeString();
+                const result = metric.success ? '✅ Success' : `❌ ${metric.error || 'Failed'}`;
+                sections.push(`| ${time} | ${metric.iteration} | ${metric.name} | ${result} | ${metric.duration}ms |`);
+            }
+            sections.push('');
+        }
+
+        sections.push('## Conversation History');
+        sections.push('');
+        sections.push('<details>');
+        sections.push('<summary>Click to expand full agentic interaction</summary>');
+        sections.push('');
+        sections.push('```json');
+        sections.push(JSON.stringify(agenticResult.conversationHistory, null, 2));
+        sections.push('```');
+        sections.push('');
+        sections.push('</details>');
+        sections.push('');
+
+        sections.push('## Generated Commit Message');
+        sections.push('');
+        sections.push('```');
+        sections.push(agenticResult.commitMessage);
+        sections.push('```');
+        sections.push('');
+
+        if (agenticResult.suggestedSplits && agenticResult.suggestedSplits.length > 1) {
+            sections.push('## Suggested Commit Splits');
+            sections.push('');
+            for (let i = 0; i < agenticResult.suggestedSplits.length; i++) {
+                const split = agenticResult.suggestedSplits[i];
+                sections.push(`### Split ${i + 1}`);
+                sections.push('');
+                sections.push(`**Files**: ${split.files.join(', ')}`);
+                sections.push('');
+                sections.push(`**Rationale**: ${split.rationale}`);
+                sections.push('');
+                sections.push(`**Message**:`);
+                sections.push('```');
+                sections.push(split.message);
+                sections.push('```');
+                sections.push('');
+            }
+        }
+
+        sections.push('## Recommendations for Improvement');
+        sections.push('');
+
+        // Generate recommendations based on metrics
+        const recommendations: string[] = [];
+
+        // Recalculate failed tools for recommendations
+        const toolsWithFailures = Array.from(toolStats.entries()).filter(([_, stats]) => stats.failures > 0);
+        if (toolsWithFailures.length > 0) {
+            recommendations.push('- **Tool Failures**: Investigate and fix tools that are failing. This may indicate issues with error handling or tool implementation.');
+        }
+
+        // Recalculate slow tools for recommendations
+        const slowToolsForRecs = Array.from(toolStats.entries())
+            .filter(([_, stats]) => stats.totalDuration / stats.total > 1000);
+        if (slowToolsForRecs.length > 0) {
+            recommendations.push('- **Performance**: Consider optimizing slow tools or caching results to improve execution speed.');
+        }
+
+        if (agenticResult.iterations >= (agenticResult.maxIterations || 10)) {
+            recommendations.push('- **Max Iterations Reached**: The agent reached maximum iterations. Consider increasing the limit or improving tool efficiency to allow the agent to complete naturally.');
+        }
+
+        const underutilizedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.total === 1);
+        if (underutilizedTools.length > 3) {
+            recommendations.push('- **Underutilized Tools**: Many tools were called only once. Consider whether all tools are necessary or if the agent needs better guidance on when to use them.');
+        }
+
+        if (recommendations.length === 0) {
+            sections.push('*No specific recommendations at this time. Execution appears optimal.*');
+        } else {
+            for (const rec of recommendations) {
+                sections.push(rec);
+            }
+        }
+        sections.push('');
+
+        // Write the reflection file
+        const reflectionContent = sections.join('\n');
+        await storage.writeFile(reflectionPath, reflectionContent, 'utf-8');
+
+        logger.info('');
+        logger.info('📊 Self-reflection report generated: %s', reflectionPath);
+        logger.info('   Use this report to understand tool effectiveness and improve agentic execution.');
+
+    } catch (error: any) {
+        logger.warn('Failed to generate self-reflection output: %s', error.message);
+        logger.debug('Self-reflection error details:', error);
+    }
+}
+
 // Helper function to get current version from package.json
 async function getCurrentVersion(storage: any): Promise<string | undefined> {
     try {
@@ -532,6 +735,11 @@ const executeInternal = async (runConfig: Config) => {
 
         logger.info('🔍 Agentic analysis complete: %d iterations, %d tool calls',
             agenticResult.iterations, agenticResult.toolCallsExecuted);
+
+        // Generate self-reflection output if enabled
+        if (runConfig.commit?.selfReflection) {
+            await generateSelfReflection(agenticResult, outputDirectory, storage, logger);
+        }
 
         // Check for suggested splits
         if (agenticResult.suggestedSplits.length > 1 && runConfig.commit?.allowCommitSplitting) {

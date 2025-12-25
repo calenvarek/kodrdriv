@@ -70,7 +70,16 @@ const createTransports = (level: string) => {
                             const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
                             return `${dryRunPrefix}${String(message)}`;
                         }
-                        const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+
+                        // Filter out winston internal metadata
+                        const filteredMeta = Object.keys(meta).reduce((acc, key) => {
+                            if (!['level', 'message', 'timestamp', 'dryRun', 'service', 'splat', 'Symbol(level)', 'Symbol(message)'].includes(key)) {
+                                acc[key] = meta[key];
+                            }
+                            return acc;
+                        }, {} as Record<string, any>);
+
+                        const metaStr = Object.keys(filteredMeta).length ? ` ${JSON.stringify(filteredMeta, null, 2)}` : '';
                         const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
                         return `${timestamp} ${level}: ${dryRunPrefix}${String(message)}${metaStr}`;
                     })
@@ -92,9 +101,21 @@ const createTransports = (level: string) => {
                         winston.format.timestamp({ format: DATE_FORMAT_YEAR_MONTH_DAY_HOURS_MINUTES_SECONDS_MILLISECONDS }),
                         winston.format.errors({ stack: true }),
                         winston.format.splat(),
-                        winston.format.printf(({ timestamp, level, message, ...meta }) => {
-                            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
-                            return `${timestamp} ${level}: ${message}${metaStr}`;
+                        winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
+                            // Filter out winston internal metadata and properly format remaining meta
+                            const filteredMeta = Object.keys(meta).reduce((acc, key) => {
+                                // Skip internal winston fields
+                                if (!['level', 'message', 'timestamp', 'splat', 'Symbol(level)', 'Symbol(message)'].includes(key)) {
+                                    acc[key] = meta[key];
+                                }
+                                return acc;
+                            }, {} as Record<string, any>);
+
+                            const metaStr = Object.keys(filteredMeta).length
+                                ? ` ${JSON.stringify(filteredMeta, null, 2)}`
+                                : '';
+                            const serviceStr = service ? ` [${service}]` : '';
+                            return `${timestamp}${serviceStr} ${level}: ${message}${metaStr}`;
                         })
                     )
                 })
@@ -128,7 +149,15 @@ const createFormat = (level: string) => {
         winston.format.timestamp({ format: DATE_FORMAT_YEAR_MONTH_DAY_HOURS_MINUTES_SECONDS_MILLISECONDS }),
         ...baseFormats,
         winston.format.printf(({ timestamp, level, message, dryRun, ...meta }): string => {
-            const metaStr = Object.keys(meta).length ? ` ${JSON.stringify(meta)}` : '';
+            // Filter out winston internal metadata
+            const filteredMeta = Object.keys(meta).reduce((acc, key) => {
+                if (!['level', 'message', 'timestamp', 'dryRun', 'service', 'splat', 'Symbol(level)', 'Symbol(message)'].includes(key)) {
+                    acc[key] = meta[key];
+                }
+                return acc;
+            }, {} as Record<string, any>);
+
+            const metaStr = Object.keys(filteredMeta).length ? ` ${JSON.stringify(filteredMeta, null, 2)}` : '';
             const dryRunPrefix = dryRun ? '🔍 DRY RUN: ' : '';
             return `${timestamp} ${level}: ${dryRunPrefix}${String(message)}${metaStr}`;
         })
