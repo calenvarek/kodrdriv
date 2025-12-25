@@ -52,7 +52,8 @@ export const optimizedNpmInstall = async (options: {
     verbose?: boolean;
 } = {}): Promise<{ duration: number; skipped: boolean; reason: string }> => {
     const logger = getLogger();
-    const storage = (await import('./storage')).create({ log: logger.info });
+    const { createStorage } = await import('@eldrforge/shared');
+    const storage = createStorage();
 
     const {
         skipIfNotNeeded = true,
@@ -107,7 +108,8 @@ export const optimizedNpmInstall = async (options: {
 // Helper to run npm ci if package-lock.json is available (faster than npm install)
 export const tryNpmCi = async (): Promise<{ success: boolean; duration?: number }> => {
     const logger = getLogger();
-    const storage = (await import('./storage')).create({ log: logger.info });
+    const { createStorage } = await import('@eldrforge/shared');
+    const storage = createStorage();
 
     try {
         // Check if package-lock.json exists
