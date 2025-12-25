@@ -13,6 +13,7 @@ import { getOutputPath, checkIfTagExists, confirmVersionInteractively, calculate
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import fs from 'fs/promises';
 import { runGitWithLock } from '../util/gitMutex';
+import { filterContent } from '../util/stopContext';
 
 const scanNpmrcForEnvVars = async (storage: any): Promise<string[]> => {
     const logger = getLogger();
@@ -1012,8 +1013,13 @@ export const execute = async (runConfig: Config): Promise<void> => {
             logger.info('Would get commit title and create PR with GitHub API');
             pr = { number: 123, html_url: 'https://github.com/mock/repo/pull/123', labels: [] } as PullRequest;
         } else {
-            const { stdout: commitTitle } = await run('git log -1 --pretty=%B');
-            pr = await GitHub.createPullRequest(commitTitle, 'Automated release PR.', branchName, targetBranch);
+            const { stdout: rawCommitTitle } = await run('git log -1 --pretty=%B');
+
+            // Apply stop-context filtering to PR title and body
+            const commitTitle = filterContent(rawCommitTitle, runConfig.stopContext).filtered;
+            const prBody = filterContent('Automated release PR.', runConfig.stopContext).filtered;
+
+            pr = await GitHub.createPullRequest(commitTitle, prBody, branchName, targetBranch);
             if (!pr) {
                 throw new Error('Failed to create pull request.');
             }

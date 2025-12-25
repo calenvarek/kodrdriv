@@ -363,6 +363,200 @@ excludedPatterns:
 > [!NOTE]
 > **CLI vs Configuration Mapping**: The CLI argument `--exclude` maps to the `excludedPatterns` property in configuration files. This design allows you to use the more intuitive `--exclude` flag on the command line while maintaining the descriptive `excludedPatterns` name in configuration files.
 
+## Stop-Context Filtering
+
+Stop-context filtering automatically removes sensitive or contextual information from AI-generated content before it's committed to your repository or sent to GitHub. This is particularly useful when working on multiple projects under different identities or organizations.
+
+### Use Cases
+
+- **Multi-Identity Development**: Prevent information from one project identity from leaking into another
+- **Anonymous Projects**: Maintain anonymity by filtering personal identifiers
+- **Cross-Project References**: Prevent project names, usernames, or organization names from appearing in the wrong repository
+- **Directory Path Sanitization**: Filter out local directory paths that might reveal sensitive information
+
+### Configuration
+
+Configure stop-context filtering in your `.kodrdriv/config.yaml` file:
+
+```yaml
+stopContext:
+  enabled: true                    # Enable stop-context filtering (default: true if filters exist)
+  caseSensitive: false             # Case-insensitive matching by default
+  replacement: "[REDACTED]"        # Text to replace filtered content
+  warnOnFilter: true               # Log warnings when content is filtered
+
+  # Simple string matches (literal)
+  strings:
+    - "old-username"
+    - "previous-project-name"
+    - "internal-org-name"
+    - "/Users/myname/projects"
+
+  # Regular expression patterns
+  patterns:
+    - regex: "\\bproject-\\w+-\\d+\\b"
+      flags: "gi"
+      description: "Project identifiers with numbers"
+    - regex: "/path/to/sensitive/directory"
+      flags: "g"
+      description: "Sensitive directory paths"
+```
+
+### How It Works
+
+Stop-context filtering applies to all AI-generated content before it's committed or sent to GitHub:
+
+1. **Commit Messages** - Filtered before committing (via `commit` and `audio-commit` commands)
+2. **Release Notes** - Filtered before creating releases (via `release` command)
+3. **GitHub Issues** - Filtered before creating issues (via `review` command)
+4. **Pull Requests** - Filtered before creating PRs (via `publish` command)
+
+The filtering happens automatically after AI generation but before presenting content to you for review.
+
+### Filter Types
+
+#### Literal String Filtering
+
+Simple string matching with case-insensitive support:
+
+```yaml
+stopContext:
+  strings:
+    - "MyRealName"
+    - "my-github-username"
+    - "CompanyName"
+```
+
+These strings will be matched and replaced anywhere they appear in generated content.
+
+#### Regular Expression Patterns
+
+More sophisticated pattern matching for complex cases:
+
+```yaml
+stopContext:
+  patterns:
+    - regex: "\\b[A-Za-z0-9._%+-]+@example\\.com\\b"
+      flags: "gi"
+      description: "Email addresses from example.com"
+    - regex: "/Users/\\w+/projects/\\w+"
+      flags: "g"
+      description: "Local project paths"
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | true (if filters exist) | Enable/disable filtering |
+| `caseSensitive` | boolean | false | Case-sensitive string matching |
+| `replacement` | string | `[REDACTED]` | Text to replace filtered content |
+| `warnOnFilter` | boolean | true | Log warnings when content is filtered |
+| `strings` | string[] | [] | Literal strings to filter |
+| `patterns` | object[] | [] | Regex patterns to filter |
+
+### Pattern Configuration
+
+Each pattern in the `patterns` array supports:
+
+```yaml
+patterns:
+  - regex: "your-regex-pattern"    # Required: The regular expression
+    flags: "gi"                    # Optional: Regex flags (g, i, m, etc.)
+    description: "What this filters" # Optional: Human-readable description
+```
+
+### Examples
+
+#### Example 1: Multi-Project Developer
+
+Filter references to other projects you work on:
+
+```yaml
+stopContext:
+  enabled: true
+  strings:
+    - "ProjectAlpha"
+    - "CompanyBeta"
+    - "my-other-github-org"
+  patterns:
+    - regex: "@my-other-org/[\\w-]+"
+      flags: "g"
+      description: "NPM packages from other org"
+```
+
+#### Example 2: Anonymous Development
+
+Maintain anonymity by filtering personal information:
+
+```yaml
+stopContext:
+  enabled: true
+  replacement: "[FILTERED]"
+  strings:
+    - "MyRealName"
+    - "my-personal-username"
+    - "my-company-name"
+  patterns:
+    - regex: "/Users/myname/"
+      flags: "g"
+      description: "Personal directory paths"
+```
+
+#### Example 3: Organization Security
+
+Prevent internal references from appearing in public repositories:
+
+```yaml
+stopContext:
+  enabled: true
+  strings:
+    - "InternalProjectName"
+    - "internal-jira-key"
+  patterns:
+    - regex: "\\b[A-Z]{2,}-\\d+\\b"
+      flags: "g"
+      description: "JIRA ticket references"
+    - regex: "internal\\.company\\.com"
+      flags: "gi"
+      description: "Internal domain references"
+```
+
+### Warnings and Feedback
+
+When filtering is applied, KodrDriv logs information about what was filtered:
+
+```
+⚠️  STOP_CONTEXT_FILTERED: Sensitive content filtered from generated text
+    Matches: 3 | Original Length: 245 | Filtered Length: 218
+```
+
+If a high percentage of content (>50%) is filtered, you'll see an additional warning:
+
+```
+⚠️  STOP_CONTEXT_HIGH_FILTER: High percentage of content filtered
+    Percentage: 62.5% | Impact: Generated content may be incomplete
+    Action: Review stop-context configuration
+```
+
+### Best Practices
+
+1. **Start Simple**: Begin with literal string filtering for known sensitive terms
+2. **Test Patterns**: Use `--dry-run` mode to test filtering without committing
+3. **Review Warnings**: Pay attention to filter warnings to ensure important content isn't over-filtered
+4. **Use Descriptions**: Add descriptions to patterns for easier maintenance
+5. **Regular Updates**: Update your filter list as your projects evolve
+
+### Security Considerations
+
+- Filtering happens locally before any content is committed or sent to GitHub
+- Filtered content is never transmitted or stored in your repository
+- Review AI-generated content even with filtering enabled to catch edge cases
+- Consider using more specific patterns to avoid over-filtering
+
+> [!WARNING]
+> Stop-context filtering is a safety mechanism, but it's not foolproof. Always review generated content before committing, especially for sensitive projects.
+
 ## Diff Size Management
 
 KodrDriv automatically manages large diffs to prevent LLM token limit issues and ensure reliable generation for both commit messages and release notes.

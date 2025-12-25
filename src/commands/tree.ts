@@ -26,7 +26,9 @@
  *   - Shows basic execution flow
  *
  * No flags:
- *   - Shows basic progress with numeric representation ([1/5] Package: Running...)
+ *   - For commit and publish commands: Shows full output from child processes by default
+ *     (including AI generation, self-reflection, and agentic interactions)
+ *   - For other commands: Shows basic progress with numeric representation ([1/5] Package: Running...)
  *   - Shows level-by-level execution summaries
  *   - Shows completion status for each package and level
  */
@@ -713,10 +715,11 @@ export const executePackage = async (
     }
 
     // Determine output level based on flags
-    // For publish commands, default to full output to show OpenAI progress and other details
+    // For publish and commit commands, default to full output to show AI progress and other details
     // For other commands, require --verbose or --debug for output
     const isPublishCommand = isBuiltInCommand && commandToRun.includes('publish');
-    let showOutput: 'none' | 'minimal' | 'full' = isPublishCommand ? 'full' : 'none';
+    const isCommitCommand = isBuiltInCommand && commandToRun.includes('commit');
+    let showOutput: 'none' | 'minimal' | 'full' = (isPublishCommand || isCommitCommand) ? 'full' : 'none';
     if (runConfig.debug) {
         showOutput = 'full';
     } else if (runConfig.verbose) {
@@ -725,8 +728,16 @@ export const executePackage = async (
 
     // Show package start info - always visible for progress tracking
     if (runConfig.debug) {
-        packageLogger.debug(`Starting execution in ${packageDir}`);
-        packageLogger.debug(`Command: ${commandToRun}`);
+        packageLogger.debug('MULTI_PROJECT_START: Starting package execution | Package: %s | Index: %d/%d | Path: %s | Command: %s | Context: tree execution',
+            packageName, index + 1, total, packageDir, commandToRun);
+        packageLogger.debug('MULTI_PROJECT_CONTEXT: Execution details | Directory: %s | Built-in Command: %s | Dry Run: %s | Output Level: %s',
+            packageDir, isBuiltInCommand, isDryRun, showOutput);
+
+        // Show dependencies if available
+        if (packageInfo.dependencies && Array.isArray(packageInfo.dependencies) && packageInfo.dependencies.length > 0) {
+            packageLogger.debug('MULTI_PROJECT_DEPS: Package dependencies | Package: %s | Dependencies: [%s]',
+                packageName, packageInfo.dependencies.join(', '));
+        }
     } else if (runConfig.verbose) {
         packageLogger.verbose(`Starting execution in ${packageDir}`);
     } else {
@@ -1002,16 +1013,16 @@ export const executePackage = async (
                     const seconds = (executionDuration / 1000).toFixed(1);
                     if (runConfig.debug || runConfig.verbose) {
                         packageLogger.info(`⏱️  Execution time: ${seconds}s`);
-                    } else if (!isPublishCommand) {
-                        // Show timing in completion message (publish commands have their own completion message)
+                    } else if (!isPublishCommand && !isCommitCommand) {
+                        // Show timing in completion message (publish/commit commands have their own completion message)
                         logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed (${seconds}s)`);
                     }
                 } else {
                     executionTimer.end(`Package ${packageName} execution`);
                     if (runConfig.debug || runConfig.verbose) {
                         packageLogger.info(`Command completed successfully`);
-                    } else if (!isPublishCommand) {
-                        // Basic completion info (publish commands have their own completion message)
+                    } else if (!isPublishCommand && !isCommitCommand) {
+                        // Basic completion info (publish/commit commands have their own completion message)
                         logger.info(`[${index + 1}/${total}] ${packageName}: ✅ Completed`);
                     }
                 }
@@ -1034,15 +1045,15 @@ export const executePackage = async (
             }
         }
 
-        // Show completion status (for publish commands, this supplements the timing message above)
+        // Show completion status (for publish/commit commands, this supplements the timing message above)
         if (runConfig.debug || runConfig.verbose) {
             if (publishWasSkipped) {
                 packageLogger.info(`⊘ Skipped (no code changes)`);
             } else {
                 packageLogger.info(`✅ Completed successfully`);
             }
-        } else if (isPublishCommand) {
-            // For publish commands, always show completion even without verbose
+        } else if (isPublishCommand || isCommitCommand) {
+            // For publish/commit commands, always show completion even without verbose
             // Include timing if available
             const timeStr = executionDuration !== undefined ? ` (${(executionDuration / 1000).toFixed(1)}s)` : '';
             if (publishWasSkipped) {
@@ -2342,9 +2353,74 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Add command-specific options
             let commandSpecificOptions = '';
+
+            // Commit command options
+            if (builtInCommand === 'commit') {
+                if (runConfig.commit?.agentic) {
+                    commandSpecificOptions += ' --agentic';
+                }
+                if (runConfig.commit?.selfReflection) {
+                    commandSpecificOptions += ' --self-reflection';
+                }
+                if (runConfig.commit?.add) {
+                    commandSpecificOptions += ' --add';
+                }
+                if (runConfig.commit?.cached) {
+                    commandSpecificOptions += ' --cached';
+                }
+                if (runConfig.commit?.interactive) {
+                    commandSpecificOptions += ' --interactive';
+                }
+                if (runConfig.commit?.amend) {
+                    commandSpecificOptions += ' --amend';
+                }
+                if (runConfig.commit?.skipFileCheck) {
+                    commandSpecificOptions += ' --skip-file-check';
+                }
+                if (runConfig.commit?.maxAgenticIterations) {
+                    commandSpecificOptions += ` --max-agentic-iterations ${runConfig.commit.maxAgenticIterations}`;
+                }
+                if (runConfig.commit?.allowCommitSplitting) {
+                    commandSpecificOptions += ' --allow-commit-splitting';
+                }
+                if (runConfig.commit?.messageLimit) {
+                    commandSpecificOptions += ` --message-limit ${runConfig.commit.messageLimit}`;
+                }
+                if (runConfig.commit?.maxDiffBytes) {
+                    commandSpecificOptions += ` --max-diff-bytes ${runConfig.commit.maxDiffBytes}`;
+                }
+                if (runConfig.commit?.direction) {
+                    commandSpecificOptions += ` --direction "${runConfig.commit.direction}"`;
+                }
+                if (runConfig.commit?.context) {
+                    commandSpecificOptions += ` --context "${runConfig.commit.context}"`;
+                }
+                // Push option can be boolean or string (remote name)
+                if (runConfig.commit?.push) {
+                    if (typeof runConfig.commit.push === 'string') {
+                        commandSpecificOptions += ` --push "${runConfig.commit.push}"`;
+                    } else {
+                        commandSpecificOptions += ' --push';
+                    }
+                }
+                // Model-specific options for commit
+                if (runConfig.commit?.model) {
+                    commandSpecificOptions += ` --model "${runConfig.commit.model}"`;
+                }
+                if (runConfig.commit?.openaiReasoning) {
+                    commandSpecificOptions += ` --openai-reasoning ${runConfig.commit.openaiReasoning}`;
+                }
+                if (runConfig.commit?.openaiMaxOutputTokens) {
+                    commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.commit.openaiMaxOutputTokens}`;
+                }
+            }
+
+            // Unlink command options
             if (builtInCommand === 'unlink' && runConfig.tree?.cleanNodeModules) {
                 commandSpecificOptions += ' --clean-node-modules';
             }
+
+            // Link/Unlink externals
             if ((builtInCommand === 'link' || builtInCommand === 'unlink') && runConfig.tree?.externals && runConfig.tree.externals.length > 0) {
                 commandSpecificOptions += ` --externals ${runConfig.tree.externals.join(' ')}`;
             }
@@ -2432,6 +2508,67 @@ export const execute = async (runConfig: Config): Promise<string> => {
             logger.info('');
             const executionDescription = isBuiltInCommand ? `built-in command "${builtInCommand}"` : `"${commandToRun}"`;
             logger.info(`${isDryRun ? 'DRY RUN: ' : ''}Executing ${executionDescription} in ${buildOrder.length} packages...`);
+
+            // Add detailed multi-project execution context for debug mode
+            if (runConfig.debug) {
+                logger.debug('MULTI_PROJECT_PLAN: Execution plan initialized | Total Packages: %d | Command: %s | Built-in: %s | Dry Run: %s | Parallel: %s',
+                    buildOrder.length, commandToRun, isBuiltInCommand, isDryRun, runConfig.tree?.parallel || false);
+
+                // Log package execution order with dependencies
+                logger.debug('MULTI_PROJECT_ORDER: Package execution sequence:');
+                buildOrder.forEach((pkgName, idx) => {
+                    const pkgInfo = dependencyGraph.packages.get(pkgName);
+                    if (pkgInfo) {
+                        const deps = Array.isArray(pkgInfo.dependencies) ? pkgInfo.dependencies : [];
+                        const depStr = deps.length > 0
+                            ? ` | Dependencies: [${deps.join(', ')}]`
+                            : ' | Dependencies: none';
+                        logger.debug('  %d. %s%s', idx + 1, pkgName, depStr);
+                    }
+                });
+
+                // Log dependency levels for parallel execution understanding
+                const levels = new Map<string, number>();
+                const calculateLevels = (pkg: string, visited = new Set<string>()): number => {
+                    if (levels.has(pkg)) return levels.get(pkg)!;
+                    if (visited.has(pkg)) return 0; // Circular dependency
+
+                    visited.add(pkg);
+                    const pkgInfo = dependencyGraph.packages.get(pkg);
+                    const deps = Array.isArray(pkgInfo?.dependencies) ? pkgInfo.dependencies : [];
+                    if (!pkgInfo || deps.length === 0) {
+                        levels.set(pkg, 0);
+                        return 0;
+                    }
+
+                    const maxDepLevel = Math.max(...deps.map((dep: string) => calculateLevels(dep, new Set(visited))));
+                    const level = maxDepLevel + 1;
+                    levels.set(pkg, level);
+                    return level;
+                };
+
+                buildOrder.forEach(pkg => calculateLevels(pkg));
+                const maxLevel = Math.max(...Array.from(levels.values()));
+
+                logger.debug('MULTI_PROJECT_LEVELS: Dependency depth analysis | Max Depth: %d levels', maxLevel + 1);
+                for (let level = 0; level <= maxLevel; level++) {
+                    const packagesAtLevel = buildOrder.filter(pkg => levels.get(pkg) === level);
+                    logger.debug('  Level %d (%d packages): %s', level, packagesAtLevel.length, packagesAtLevel.join(', '));
+                }
+
+                if (runConfig.tree?.parallel) {
+                    const os = await import('os');
+                    const concurrency = runConfig.tree.maxConcurrency || os.cpus().length;
+                    logger.debug('MULTI_PROJECT_PARALLEL: Parallel execution configuration | Max Concurrency: %d | Retry Attempts: %d',
+                        concurrency, runConfig.tree.retry?.maxAttempts || 3);
+                }
+
+                if (isContinue) {
+                    const completed = executionContext?.completedPackages.length || 0;
+                    logger.debug('MULTI_PROJECT_RESUME: Continuing previous execution | Completed: %d | Remaining: %d',
+                        completed, buildOrder.length - completed);
+                }
+            }
 
             // Show info for publish commands
             if (isBuiltInCommand && builtInCommand === 'publish') {

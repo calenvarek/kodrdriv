@@ -27,6 +27,12 @@ export const ConfigSchema = z.object({
         model: z.string().optional(),
         openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
         openaiMaxOutputTokens: z.number().optional(),
+        // Agentic mode options
+        agentic: z.boolean().optional(),
+        maxAgenticIterations: z.number().optional(),
+        allowCommitSplitting: z.boolean().optional(),
+        toolTimeout: z.number().optional(),
+        selfReflection: z.boolean().optional(),
     }).optional(),
     audioCommit: z.object({
         maxRecordingTime: z.number().optional(),
@@ -202,6 +208,18 @@ export const ConfigSchema = z.object({
     }).optional(),
     excludedPatterns: z.array(z.string()).optional(),
     traits: z.any().optional(), // Add traits property for cardigantime compatibility
+    stopContext: z.object({
+        enabled: z.boolean().optional(),
+        strings: z.array(z.string()).optional(),
+        patterns: z.array(z.object({
+            regex: z.string(),
+            flags: z.string().optional(),
+            description: z.string().optional(),
+        })).optional(),
+        caseSensitive: z.boolean().optional(),
+        replacement: z.string().optional(),
+        warnOnFilter: z.boolean().optional(),
+    }).optional(),
 });
 
 export const SecureConfigSchema = z.object({
@@ -298,6 +316,12 @@ export type CommitConfig = {
     model?: string;
     openaiReasoning?: 'low' | 'medium' | 'high';
     openaiMaxOutputTokens?: number;
+    // Agentic mode options
+    agentic?: boolean;
+    maxAgenticIterations?: number;
+    allowCommitSplitting?: boolean;
+    toolTimeout?: number;
+    selfReflection?: boolean;
 }
 
 export type AudioCommitConfig = {
@@ -429,4 +453,19 @@ export type UpdatesConfig = {
     scope?: string; // npm scope to update (e.g., '@fjell', '@getdidthey')
     directories?: string[]; // directories to scan for packages (tree mode)
     interProject?: boolean; // update inter-project dependencies based on tree state
+}
+
+export type StopContextPattern = {
+    regex: string;
+    flags?: string;
+    description?: string;
+}
+
+export type StopContextConfig = {
+    enabled?: boolean;
+    strings?: string[];
+    patterns?: StopContextPattern[];
+    caseSensitive?: boolean;
+    replacement?: string;
+    warnOnFilter?: boolean;
 }

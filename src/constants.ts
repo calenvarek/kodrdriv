@@ -145,9 +145,11 @@ export const DEFAULT_IGNORE_PATTERNS = [
     'dist/**',
     'build/**',
     'coverage/**',
+    'output/**',
     '.DS_Store',
     '*.tmp',
     '*.cache',
+    '**/.kodrdriv-*.json', // Internal kodrdriv cache and state files
 ];
 
 // Used by util/storage for directory names

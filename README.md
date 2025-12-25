@@ -43,6 +43,7 @@ kodrdriv audio-commit  # Record audio to generate commit messages
 
 - **AI-Powered Analysis** - Uses OpenAI models to understand your code changes
 - **GitHub Issues Integration** - Automatically analyzes recently closed issues to provide context for commit messages, prioritizing milestone-relevant issues
+- **Stop-Context Filtering** - Automatically filters sensitive information from AI-generated content to maintain privacy across projects
 - **Adaptive Diff Management** - Automatically handles large diffs with intelligent truncation and retry logic to ensure reliable LLM processing
 - **Comprehensive Release Automation** - Handles dependency updates, version bumping, PR creation, and GitHub releases
 - **Audio-Driven Workflows** - Record audio to provide context for commits and reviews

@@ -25,6 +25,7 @@ import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
 import fs from 'fs/promises';
+import { filterContent } from '../util/stopContext';
 
 // Utility function to read a review note from a file
 const readReviewNoteFromFile = async (filePath: string): Promise<string> => {
@@ -525,7 +526,18 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
         });
 
         // Validate the API response before using it
-        analysisResult = validateReviewResult(rawResult);
+        const rawAnalysisResult = validateReviewResult(rawResult);
+
+        // Apply stop-context filtering to issues
+        analysisResult = {
+            ...rawAnalysisResult,
+            summary: filterContent(rawAnalysisResult.summary, runConfig.stopContext).filtered,
+            issues: rawAnalysisResult.issues?.map(issue => ({
+                ...issue,
+                title: filterContent(issue.title, runConfig.stopContext).filtered,
+                description: filterContent(issue.description || '', runConfig.stopContext).filtered,
+            })),
+        };
 
     } catch (error: any) {
         logger.error(`REVIEW_ANALYSIS_FAILED: Unable to analyze review note | Error: ${error.message} | Impact: Cannot identify issues`);

@@ -654,7 +654,12 @@ export async function getCliConfig(
         .option('--push [remote]', 'push to remote after committing (default: origin)')
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
         .option('--skip-file-check', 'skip check for file: dependencies before committing')
-        .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)');
+        .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
+        .option('--agentic', 'use agentic mode with tool-calling for commit message generation')
+        .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
+        .option('--max-agentic-iterations <iterations>', 'maximum iterations for agentic mode (default: 10)', parseInt)
+        .option('--allow-commit-splitting', 'allow agentic mode to suggest splitting commits')
+        .option('--tool-timeout <timeout>', 'timeout for tool execution in milliseconds', parseInt);
 
     // Add shared options to commit command
     addSharedOptions(commitCommand);
@@ -675,7 +680,17 @@ export async function getCliConfig(
                 ['--interactive', 'Present commit message for interactive review and editing'],
                 ['--amend', 'Amend the last commit with the generated message'],
                 ['--push [remote]', 'push to remote after committing (default: origin)'],
-                ['--message-limit <messageLimit>', 'limit the number of messages to generate']
+                ['--message-limit <messageLimit>', 'limit the number of messages to generate'],
+                ['--skip-file-check', 'skip check for file: dependencies before committing'],
+                ['--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 20480)']
+            ];
+
+            const agenticOptions = [
+                ['--agentic', 'use agentic mode with tool-calling for commit generation'],
+                ['--self-reflection', 'generate self-reflection report with tool effectiveness analysis'],
+                ['--max-agentic-iterations <iterations>', 'maximum iterations for agentic mode (default: 10)'],
+                ['--allow-commit-splitting', 'allow agentic mode to suggest splitting commits'],
+                ['--tool-timeout <timeout>', 'timeout for tool execution in milliseconds']
             ];
 
             const globalOptions = [
@@ -702,6 +717,7 @@ export async function getCliConfig(
             return nameAndVersion + '\n' +
                 formatOptionsSection('Commit Message Options', commitOptions) + '\n' +
                 formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
+                formatOptionsSection('Agentic Mode Options', agenticOptions) + '\n' +
                 formatOptionsSection('Global Options', globalOptions) + '\n' +
                 'Environment Variables:\n' +
                 '  OPENAI_API_KEY          OpenAI API key (required)\n';
