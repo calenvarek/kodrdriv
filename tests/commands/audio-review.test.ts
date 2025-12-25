@@ -274,7 +274,7 @@ describe('audio-review command', () => {
 
             it.skip('should handle cancelled recording', async () => {
                 const config = baseConfig;
-                
+
                 // Override the beforeEach mock for this specific test
                 vi.mocked(Unplayable.processAudio).mockResolvedValueOnce({
                     cancelled: true,
@@ -289,7 +289,7 @@ describe('audio-review command', () => {
 
                 // Verify the cancellation was logged
                 expect(mockLogger.info).toHaveBeenCalledWith('AUDIO_REVIEW_CANCELLED: Audio review cancelled by user | Reason: User choice | Status: aborted');
-                
+
                 // Review.execute should NOT have been called
                 expect(ReviewCommand.execute).not.toHaveBeenCalled();
             });
