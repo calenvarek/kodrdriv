@@ -229,8 +229,24 @@ async function generateSelfReflection(
         await storage.writeFile(reflectionPath, reflectionContent, 'utf-8');
 
         logger.info('');
-        logger.info('📊 Self-reflection report generated: %s', reflectionPath);
-        logger.info('   Use this report to understand tool effectiveness and improve agentic execution.');
+        logger.info('═'.repeat(80));
+        logger.info('📊 SELF-REFLECTION REPORT GENERATED');
+        logger.info('═'.repeat(80));
+        logger.info('');
+        logger.info('📁 Location: %s', reflectionPath);
+        logger.info('');
+        logger.info('📈 Report Summary:');
+        logger.info('   • %d iterations completed', agenticResult.iterations);
+        logger.info('   • %d tool calls executed', agenticResult.toolCallsExecuted);
+        logger.info('   • %d unique tools used', toolStats.size);
+        logger.info('');
+        logger.info('💡 Use this report to:');
+        logger.info('   • Understand which tools were most effective');
+        logger.info('   • Identify performance bottlenecks');
+        logger.info('   • Review the complete agentic conversation');
+        logger.info('   • Improve tool implementation based on metrics');
+        logger.info('');
+        logger.info('═'.repeat(80));
 
     } catch (error: any) {
         logger.warn('Failed to generate self-reflection output: %s', error.message);
@@ -709,6 +725,11 @@ const executeInternal = async (runConfig: Config) => {
     // Check if agentic mode is enabled
     if (runConfig.commit?.agentic) {
         logger.info('🤖 Using agentic mode for commit message generation');
+
+        // Announce self-reflection if enabled
+        if (runConfig.commit?.selfReflection) {
+            logger.info('📊 Self-reflection enabled - detailed analysis will be generated');
+        }
 
         // Get list of changed files
         const changedFilesResult = await run(`git diff --name-only ${cached ? '--cached' : ''}`);
