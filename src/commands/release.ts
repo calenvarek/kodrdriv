@@ -29,6 +29,7 @@ import { createStorage } from '@eldrforge/shared';
 import { validateReleaseSummary, type ReleaseSummary } from '../util/validation';
 import { safeJsonParse } from '@eldrforge/git-tools';
 import * as GitHub from '@eldrforge/github-tools';
+import { filterContent } from '../util/stopContext';
 
 // Helper function to edit release notes using editor
 async function editReleaseNotesInteractively(releaseSummary: ReleaseSummary): Promise<ReleaseSummary> {
@@ -377,7 +378,15 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     );
 
     // Validate and safely cast the response
-    let releaseSummary = validateReleaseSummary(summary);
+    const rawReleaseSummary = validateReleaseSummary(summary);
+
+    // Apply stop-context filtering to release notes
+    const titleFilterResult = filterContent(rawReleaseSummary.title, runConfig.stopContext);
+    const bodyFilterResult = filterContent(rawReleaseSummary.body, runConfig.stopContext);
+    let releaseSummary: ReleaseSummary = {
+        title: titleFilterResult.filtered,
+        body: bodyFilterResult.filtered,
+    };
 
     // Handle interactive mode
     if (runConfig.release?.interactive && !isDryRun) {

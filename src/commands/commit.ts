@@ -12,6 +12,7 @@ import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { run, validateString } from '@eldrforge/git-tools';
 import { sanitizeDirection } from '../util/validation';
+import { filterContent } from '../util/stopContext';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
 import { stringifyJSON, checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions, createStorage } from '@eldrforge/shared';
@@ -27,11 +28,231 @@ import {
     createCommitPrompt,
     CommitContent,
     CommitContext,
+    runAgenticCommit,
 } from '@eldrforge/ai-service';
 import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
 import { toAIConfig } from '../util/aiAdapter';
 import { createStorageAdapter } from '../util/storageAdapter';
 import { createLoggerAdapter } from '../util/loggerAdapter';
+
+// Helper function to generate self-reflection output
+async function generateSelfReflection(
+    agenticResult: any,
+    outputDirectory: string,
+    storage: any,
+    logger: any
+): Promise<void> {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
+        const reflectionPath = getOutputPath(outputDirectory, `agentic-reflection-${timestamp}.md`);
+
+        // Calculate tool effectiveness metrics
+        const toolMetrics = agenticResult.toolMetrics || [];
+        const toolStats = new Map<string, { total: number; success: number; failures: number; totalDuration: number }>();
+
+        for (const metric of toolMetrics) {
+            if (!toolStats.has(metric.name)) {
+                toolStats.set(metric.name, { total: 0, success: 0, failures: 0, totalDuration: 0 });
+            }
+            const stats = toolStats.get(metric.name)!;
+            stats.total++;
+            stats.totalDuration += metric.duration;
+            if (metric.success) {
+                stats.success++;
+            } else {
+                stats.failures++;
+            }
+        }
+
+        // Build reflection document
+        const sections: string[] = [];
+
+        sections.push('# Agentic Commit - Self-Reflection Report');
+        sections.push('');
+        sections.push(`Generated: ${new Date().toISOString()}`);
+        sections.push('');
+
+        sections.push('## Execution Summary');
+        sections.push('');
+        sections.push(`- **Iterations**: ${agenticResult.iterations}`);
+        sections.push(`- **Tool Calls**: ${agenticResult.toolCallsExecuted}`);
+        sections.push(`- **Unique Tools Used**: ${toolStats.size}`);
+        sections.push('');
+
+        sections.push('## Tool Effectiveness Analysis');
+        sections.push('');
+
+        if (toolStats.size === 0) {
+            sections.push('*No tools were executed during this run.*');
+        } else {
+            sections.push('| Tool | Calls | Success | Failures | Success Rate | Avg Duration |');
+            sections.push('|------|-------|---------|----------|--------------|--------------|');
+
+            for (const [toolName, stats] of Array.from(toolStats.entries()).sort((a, b) => b[1].total - a[1].total)) {
+                const successRate = ((stats.success / stats.total) * 100).toFixed(1);
+                const avgDuration = (stats.totalDuration / stats.total).toFixed(0);
+                sections.push(`| ${toolName} | ${stats.total} | ${stats.success} | ${stats.failures} | ${successRate}% | ${avgDuration}ms |`);
+            }
+
+            sections.push('');
+            sections.push('### Tool Performance Insights');
+            sections.push('');
+
+            // Identify problematic tools
+            const failedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.failures > 0);
+            if (failedTools.length > 0) {
+                sections.push('**Tools with Failures:**');
+                for (const [toolName, stats] of failedTools) {
+                    const failureRate = ((stats.failures / stats.total) * 100).toFixed(1);
+                    sections.push(`- ${toolName}: ${stats.failures}/${stats.total} failures (${failureRate}%)`);
+                }
+                sections.push('');
+            }
+
+            // Identify slow tools
+            const slowTools = Array.from(toolStats.entries())
+                .filter(([_, stats]) => stats.totalDuration / stats.total > 1000)
+                .sort((a, b) => (b[1].totalDuration / b[1].total) - (a[1].totalDuration / a[1].total));
+
+            if (slowTools.length > 0) {
+                sections.push('**Slow Tools (>1s average):**');
+                for (const [toolName, stats] of slowTools) {
+                    const avgDuration = (stats.totalDuration / stats.total / 1000).toFixed(2);
+                    sections.push(`- ${toolName}: ${avgDuration}s average`);
+                }
+                sections.push('');
+            }
+
+            // Identify most useful tools
+            sections.push('**Most Frequently Used:**');
+            const topTools = Array.from(toolStats.entries()).slice(0, 3);
+            for (const [toolName, stats] of topTools) {
+                sections.push(`- ${toolName}: ${stats.total} calls`);
+            }
+            sections.push('');
+        }
+
+        sections.push('## Detailed Execution Timeline');
+        sections.push('');
+
+        if (toolMetrics.length === 0) {
+            sections.push('*No tool execution timeline available.*');
+        } else {
+            sections.push('| Time | Iteration | Tool | Result | Duration |');
+            sections.push('|------|-----------|------|--------|----------|');
+
+            for (const metric of toolMetrics) {
+                const time = new Date(metric.timestamp).toLocaleTimeString();
+                const result = metric.success ? '✅ Success' : `❌ ${metric.error || 'Failed'}`;
+                sections.push(`| ${time} | ${metric.iteration} | ${metric.name} | ${result} | ${metric.duration}ms |`);
+            }
+            sections.push('');
+        }
+
+        sections.push('## Conversation History');
+        sections.push('');
+        sections.push('<details>');
+        sections.push('<summary>Click to expand full agentic interaction</summary>');
+        sections.push('');
+        sections.push('```json');
+        sections.push(JSON.stringify(agenticResult.conversationHistory, null, 2));
+        sections.push('```');
+        sections.push('');
+        sections.push('</details>');
+        sections.push('');
+
+        sections.push('## Generated Commit Message');
+        sections.push('');
+        sections.push('```');
+        sections.push(agenticResult.commitMessage);
+        sections.push('```');
+        sections.push('');
+
+        if (agenticResult.suggestedSplits && agenticResult.suggestedSplits.length > 1) {
+            sections.push('## Suggested Commit Splits');
+            sections.push('');
+            for (let i = 0; i < agenticResult.suggestedSplits.length; i++) {
+                const split = agenticResult.suggestedSplits[i];
+                sections.push(`### Split ${i + 1}`);
+                sections.push('');
+                sections.push(`**Files**: ${split.files.join(', ')}`);
+                sections.push('');
+                sections.push(`**Rationale**: ${split.rationale}`);
+                sections.push('');
+                sections.push(`**Message**:`);
+                sections.push('```');
+                sections.push(split.message);
+                sections.push('```');
+                sections.push('');
+            }
+        }
+
+        sections.push('## Recommendations for Improvement');
+        sections.push('');
+
+        // Generate recommendations based on metrics
+        const recommendations: string[] = [];
+
+        // Recalculate failed tools for recommendations
+        const toolsWithFailures = Array.from(toolStats.entries()).filter(([_, stats]) => stats.failures > 0);
+        if (toolsWithFailures.length > 0) {
+            recommendations.push('- **Tool Failures**: Investigate and fix tools that are failing. This may indicate issues with error handling or tool implementation.');
+        }
+
+        // Recalculate slow tools for recommendations
+        const slowToolsForRecs = Array.from(toolStats.entries())
+            .filter(([_, stats]) => stats.totalDuration / stats.total > 1000);
+        if (slowToolsForRecs.length > 0) {
+            recommendations.push('- **Performance**: Consider optimizing slow tools or caching results to improve execution speed.');
+        }
+
+        if (agenticResult.iterations >= (agenticResult.maxIterations || 10)) {
+            recommendations.push('- **Max Iterations Reached**: The agent reached maximum iterations. Consider increasing the limit or improving tool efficiency to allow the agent to complete naturally.');
+        }
+
+        const underutilizedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.total === 1);
+        if (underutilizedTools.length > 3) {
+            recommendations.push('- **Underutilized Tools**: Many tools were called only once. Consider whether all tools are necessary or if the agent needs better guidance on when to use them.');
+        }
+
+        if (recommendations.length === 0) {
+            sections.push('*No specific recommendations at this time. Execution appears optimal.*');
+        } else {
+            for (const rec of recommendations) {
+                sections.push(rec);
+            }
+        }
+        sections.push('');
+
+        // Write the reflection file
+        const reflectionContent = sections.join('\n');
+        await storage.writeFile(reflectionPath, reflectionContent, 'utf-8');
+
+        logger.info('');
+        logger.info('═'.repeat(80));
+        logger.info('📊 SELF-REFLECTION REPORT GENERATED');
+        logger.info('═'.repeat(80));
+        logger.info('');
+        logger.info('📁 Location: %s', reflectionPath);
+        logger.info('');
+        logger.info('📈 Report Summary:');
+        logger.info('   • %d iterations completed', agenticResult.iterations);
+        logger.info('   • %d tool calls executed', agenticResult.toolCallsExecuted);
+        logger.info('   • %d unique tools used', toolStats.size);
+        logger.info('');
+        logger.info('💡 Use this report to:');
+        logger.info('   • Understand which tools were most effective');
+        logger.info('   • Identify performance bottlenecks');
+        logger.info('   • Review the complete agentic conversation');
+        logger.info('   • Improve tool implementation based on metrics');
+        logger.info('');
+        logger.info('═'.repeat(80));
+
+    } catch (error: any) {
+        logger.warn('Failed to generate self-reflection output: %s', error.message);
+        logger.debug('Self-reflection error details:', error);
+    }
+}
 
 // Helper function to get current version from package.json
 async function getCurrentVersion(storage: any): Promise<string | undefined> {
@@ -486,6 +707,7 @@ const executeInternal = async (runConfig: Config) => {
     const aiStorageAdapter = createStorageAdapter();
     const aiLogger = createLoggerAdapter(isDryRun);
 
+    // Define promptContext for use in both agentic and traditional modes
     const promptContent: CommitContent = {
         diffContent,
         userDirection,
@@ -497,64 +719,133 @@ const executeInternal = async (runConfig: Config) => {
         context: runConfig.commit?.context,
         directories: runConfig.contextDirectories,
     };
-    const prompt = await createCommitPrompt(promptConfig, promptContent, promptContext);
 
-    // Get the appropriate model for the commit command
-    const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
+    let rawSummary: string;
 
-    // Use consistent model for debug (fix hardcoded model)
-    if (runConfig.debug) {
-        const formattedPrompt = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
-        logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
-    }
+    // Check if agentic mode is enabled
+    if (runConfig.commit?.agentic) {
+        logger.info('🤖 Using agentic mode for commit message generation');
 
-    const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
+        // Announce self-reflection if enabled
+        if (runConfig.commit?.selfReflection) {
+            logger.info('📊 Self-reflection enabled - detailed analysis will be generated');
+        }
 
-    // Create retry callback that reduces diff size on token limit errors
-    const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
-        logger.info('COMMIT_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
+        // Get list of changed files
+        const changedFilesResult = await run(`git diff --name-only ${cached ? '--cached' : ''}`);
+        const changedFilesOutput = typeof changedFilesResult === 'string' ? changedFilesResult : changedFilesResult.stdout;
+        const changedFiles = changedFilesOutput.split('\n').filter((f: string) => f.trim().length > 0);
 
-        // Progressively reduce the diff size on retries
-        const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
-        const reducedMaxDiffBytes = Math.max(512, Math.floor(maxDiffBytes * reductionFactor));
+        logger.debug('Changed files for agentic analysis: %d files', changedFiles.length);
 
-        logger.debug('Reducing maxDiffBytes from %d to %d for retry', maxDiffBytes, reducedMaxDiffBytes);
-
-        // Re-truncate the diff with smaller limits
-        const reducedDiffContent = originalDiffContent.length > reducedMaxDiffBytes
-            ? Diff.truncateDiffByFiles(originalDiffContent, reducedMaxDiffBytes)
-            : originalDiffContent;
-
-        // Rebuild the prompt with the reduced diff
-        const reducedPromptContent = {
-            diffContent: reducedDiffContent,
+        // Run agentic commit generation
+        const agenticResult = await runAgenticCommit({
+            changedFiles,
+            diffContent,
             userDirection,
-        };
-        const reducedPromptContext = {
             logContext,
-            context: runConfig.commit?.context,
-            directories: runConfig.contextDirectories,
-        };
-
-        const retryPrompt = await createCommitPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
-        const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPrompt);
-
-        return retryRequest.messages as ChatCompletionMessageParam[];
-    };
-
-    const summary = await createCompletionWithRetry(
-        request.messages as ChatCompletionMessageParam[],
-        {
-            model: modelToUse,
-            openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+            model: aiConfig.commands?.commit?.model || aiConfig.model,
+            maxIterations: runConfig.commit?.maxAgenticIterations || 10,
             debug: runConfig.debug,
-            debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
-            debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
+            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('commit-agentic')),
+            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('commit-agentic')),
             storage: aiStorageAdapter,
             logger: aiLogger,
-        },
-        createRetryCallback(diffContent)
-    );
+            openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+        });
+
+        logger.info('🔍 Agentic analysis complete: %d iterations, %d tool calls',
+            agenticResult.iterations, agenticResult.toolCallsExecuted);
+
+        // Generate self-reflection output if enabled
+        if (runConfig.commit?.selfReflection) {
+            await generateSelfReflection(agenticResult, outputDirectory, storage, logger);
+        }
+
+        // Check for suggested splits
+        if (agenticResult.suggestedSplits.length > 1 && runConfig.commit?.allowCommitSplitting) {
+            logger.info('\n📋 Agent suggests splitting this into %d commits:', agenticResult.suggestedSplits.length);
+
+            for (let i = 0; i < agenticResult.suggestedSplits.length; i++) {
+                const split = agenticResult.suggestedSplits[i];
+                logger.info('\nCommit %d (%d files):', i + 1, split.files.length);
+                logger.info('  Files: %s', split.files.join(', '));
+                logger.info('  Rationale: %s', split.rationale);
+                logger.info('  Message: %s', split.message);
+            }
+
+            logger.info('\n⚠️  Commit splitting is not yet automated. Please stage and commit files separately.');
+            logger.info('Using combined message for now...\n');
+        } else if (agenticResult.suggestedSplits.length > 1) {
+            logger.debug('Agent suggested %d splits but commit splitting is not enabled', agenticResult.suggestedSplits.length);
+        }
+
+        rawSummary = agenticResult.commitMessage;
+    } else {
+        // Traditional single-shot approach
+        const prompt = await createCommitPrompt(promptConfig, promptContent, promptContext);
+
+        // Get the appropriate model for the commit command
+        const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
+
+        // Use consistent model for debug (fix hardcoded model)
+        if (runConfig.debug) {
+            const formattedPrompt = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
+            logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
+        }
+
+        const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
+
+        // Create retry callback that reduces diff size on token limit errors
+        const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
+            logger.info('COMMIT_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
+
+            // Progressively reduce the diff size on retries
+            const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
+            const reducedMaxDiffBytes = Math.max(512, Math.floor(maxDiffBytes * reductionFactor));
+
+            logger.debug('Reducing maxDiffBytes from %d to %d for retry', maxDiffBytes, reducedMaxDiffBytes);
+
+            // Re-truncate the diff with smaller limits
+            const reducedDiffContent = originalDiffContent.length > reducedMaxDiffBytes
+                ? Diff.truncateDiffByFiles(originalDiffContent, reducedMaxDiffBytes)
+                : originalDiffContent;
+
+            // Rebuild the prompt with the reduced diff
+            const reducedPromptContent = {
+                diffContent: reducedDiffContent,
+                userDirection,
+            };
+            const reducedPromptContext = {
+                logContext,
+                context: runConfig.commit?.context,
+                directories: runConfig.contextDirectories,
+            };
+
+            const retryPrompt = await createCommitPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
+            const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPrompt);
+
+            return retryRequest.messages as ChatCompletionMessageParam[];
+        };
+
+        rawSummary = await createCompletionWithRetry(
+            request.messages as ChatCompletionMessageParam[],
+            {
+                model: modelToUse,
+                openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+                debug: runConfig.debug,
+                debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
+                debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
+                storage: aiStorageAdapter,
+                logger: aiLogger,
+            },
+            createRetryCallback(diffContent)
+        );
+    }
+
+    // Apply stop-context filtering to commit message
+    const filterResult = filterContent(rawSummary, runConfig.stopContext);
+    const summary = filterResult.filtered;
 
     // Save timestamped copy of commit message with better error handling
     await saveCommitMessage(outputDirectory, summary, storage, logger);
