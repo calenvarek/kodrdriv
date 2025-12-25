@@ -8,6 +8,7 @@ coverage/
 input/
 output/
 processed/
+.kodrdriv-test-cache.json
 RELEASE_NOTES.md
 RELEASE_TITLE.md
 tsconfig.tsbuildinfo

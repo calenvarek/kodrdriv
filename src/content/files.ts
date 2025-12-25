@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { getLogger } from '../logging';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import { glob } from 'glob';
 import path from 'path';
 
@@ -90,7 +90,7 @@ export const create = async (options: {
     workingDirectory?: string
 }): Promise<Instance> => {
     const logger = getLogger();
-    const storage = createStorage({ log: logger.debug });
+    const storage = createStorage();
     const maxTotalBytes = options.maxTotalBytes || 100 * 1024; // 100KB default
     const workingDir = options.workingDirectory || process.cwd();
 

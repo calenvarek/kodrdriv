@@ -3,12 +3,12 @@ import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
 import { FileOperationError } from '../error/CommandErrors';
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 
 const executeInternal = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
 

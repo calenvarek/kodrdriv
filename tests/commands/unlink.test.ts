@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Unlink from '../../src/commands/unlink';
 import { Config } from '../../src/types';
-import * as Storage from '../../src/util/storage';
+import * as Storage from '@eldrforge/shared';
 import * as Child from '@eldrforge/git-tools';
 
 // Mock the storage module
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn()
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn()
 }));
 
 vi.mock('@eldrforge/git-tools', () => ({
@@ -122,7 +122,7 @@ describe('Unlink Command', () => {
             writeFile: vi.fn(),
             deleteFile: vi.fn()
         };
-        (Storage.create as any).mockReturnValue(mockStorage);
+        (Storage.createStorage as any).mockReturnValue(mockStorage);
 
         // Mock child.run and runSecure
         mockRun = vi.mocked(Child.run);

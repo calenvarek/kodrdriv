@@ -34,8 +34,8 @@ vi.mock('../../src/logging', () => ({
     }))
 }));
 
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn(() => ({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn(() => ({
         readFile: vi.fn(),
         exists: vi.fn(),
         writeFile: vi.fn(),
@@ -148,7 +148,7 @@ import fs from 'fs/promises';
 import { exec } from 'child_process';
 import { execute, __resetGlobalState } from '../../src/commands/tree';
 import { getLogger, getDryRunLogger } from '../../src/logging';
-import { create as createStorage } from '../../src/util/storage';
+import { createStorage } from '@eldrforge/shared';
 import {
     run,
     runSecure,

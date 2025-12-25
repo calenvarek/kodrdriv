@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readStdin, promptConfirmation } from '../../src/util/stdin';
+import { readStdin, promptConfirmation } from '@eldrforge/shared';
 import { EventEmitter } from 'events';
 
 // Mock process.stdin

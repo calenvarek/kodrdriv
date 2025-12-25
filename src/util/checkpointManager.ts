@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { getLogger } from '../logging';
 import { ParallelExecutionCheckpoint } from '../types/parallelExecution';
-import { create as createStorage } from './storage';
+import { createStorage } from '@eldrforge/shared';
 
 const CHECKPOINT_VERSION = '1.0.0';
 
@@ -15,7 +15,7 @@ export class CheckpointManager {
     private lockPath: string;
     private tempPath: string;
     private logger = getLogger();
-    private storage = createStorage({ log: this.logger.info });
+    private storage = createStorage();
 
     constructor(outputDirectory: string = process.cwd()) {
         this.checkpointPath = path.join(outputDirectory, '.kodrdriv-parallel-context.json');

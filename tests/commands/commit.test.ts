@@ -15,7 +15,7 @@ describe.skip('commit command (needs refactoring after ai-service migration)', (
 
 vi.mock('../../src/content/diff', () => ({
     // @ts-ignore
-    create: vi.fn().mockReturnValue({
+    createStorage: vi.fn().mockReturnValue({
         get: vi.fn()
     }),
     hasStagedChanges: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock('../../src/content/diff', () => ({
 
 vi.mock('../../src/content/files', () => ({
     // @ts-ignore
-    create: vi.fn().mockReturnValue({
+    createStorage: vi.fn().mockReturnValue({
         get: vi.fn()
     })
 }));
@@ -81,13 +81,13 @@ vi.mock('@eldrforge/github-tools', () => ({
 // Note: Not mocking log module to test real empty repository handling
 vi.mock('../../src/content/log', () => ({
     // @ts-ignore
-    create: vi.fn().mockReturnValue({
+    createStorage: vi.fn().mockReturnValue({
         get: vi.fn().mockResolvedValue('mock log content')
     })
 }));
 
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn().mockReturnValue({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn().mockReturnValue({
         writeFile: vi.fn().mockResolvedValue(undefined),
         ensureDirectory: vi.fn().mockResolvedValue(undefined)
     })
@@ -250,7 +250,7 @@ describe('commit', () => {
         shellescape = (await import('shell-escape')).default;
         Safety = await import('../../src/util/safety');
         Validation = await import('../../src/util/validation');
-        Storage = await import('../../src/util/storage');
+        Storage = await import('@eldrforge/shared');
         // Import the mocked prompts module so it can be referenced in tests
         // @ts-ignore – path is mocked above, actual file is not required
         Prompts = await import('../../src/prompt/prompts');
@@ -284,7 +284,7 @@ describe('commit', () => {
         // @ts-ignore
         Child.runWithDryRunSupport.mockClear?.();
         // @ts-ignore
-        Storage.create.mockClear?.();
+        Storage.createStorage.mockClear?.();
         // @ts-ignore
         Safety.checkForFileDependencies.mockClear?.();
         // @ts-ignore
@@ -973,7 +973,7 @@ describe('commit', () => {
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
             OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -1001,7 +1001,7 @@ describe('commit', () => {
             // @ts-ignore
             Diff.create.mockReturnValue({ get: vi.fn().mockResolvedValue(mockDiffContent) });
             OpenAI.createCompletionWithRetry.mockResolvedValue(mockSummary);
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -1338,7 +1338,7 @@ describe('commit', () => {
             // @ts-ignore
             Child.runWithDryRunSupport.mockClear?.();
             // @ts-ignore
-            Storage.create.mockClear?.();
+            Storage.createStorage.mockClear?.();
             // @ts-ignore
             Safety.checkForFileDependencies.mockClear?.();
             // @ts-ignore
@@ -1973,7 +1973,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -2009,7 +2009,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -2049,7 +2049,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -2085,7 +2085,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);
@@ -2138,7 +2138,7 @@ describe('commit', () => {
             // @ts-ignore
             Child.run.mockClear?.();
             // @ts-ignore
-            Storage.create.mockClear?.();
+            Storage.createStorage.mockClear?.();
             // @ts-ignore
             Safety.checkForFileDependencies.mockClear?.();
             // @ts-ignore
@@ -2666,7 +2666,7 @@ describe('commit', () => {
             const mockGithubIssues = 'Issue #123: Bug fix\nIssue #124: Feature request';
 
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
             vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue(mockGithubIssues);
 
             // Act
@@ -2695,7 +2695,7 @@ describe('commit', () => {
             const mockGithubIssues = 'Issue #123: Bug fix\nIssue #124: Feature request';
 
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
             vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue(mockGithubIssues);
 
             // Act
@@ -2720,7 +2720,7 @@ describe('commit', () => {
             };
 
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
             vi.mocked(getRecentClosedIssuesForCommit).mockRejectedValue(new Error('GitHub API error'));
 
             // Act
@@ -2745,7 +2745,7 @@ describe('commit', () => {
             };
 
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
                 const { getRecentClosedIssuesForCommit } = await import('@eldrforge/github-tools');
             vi.mocked(getRecentClosedIssuesForCommit).mockResolvedValue('');
 
@@ -3527,7 +3527,7 @@ describe('commit', () => {
                 ensureDirectory: vi.fn().mockRejectedValue(new Error('Storage creation failed'))
             };
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act & Assert
             await expect(Commit.execute(mockConfig)).rejects.toThrow('Storage creation failed');
@@ -3551,7 +3551,7 @@ describe('commit', () => {
             // @ts-ignore
             OpenAI.createCompletionWithRetry.mockResolvedValue('test commit message');
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act & Assert
             await expect(Commit.execute(mockConfig)).rejects.toThrow('Directory creation failed');
@@ -3575,7 +3575,7 @@ describe('commit', () => {
                 ensureDirectory: vi.fn().mockResolvedValue(undefined)
             };
             // @ts-ignore
-            Storage.create.mockReturnValue(mockStorage);
+            Storage.createStorage.mockReturnValue(mockStorage);
 
             // Act
             const result = await Commit.execute(mockConfig);

@@ -21,8 +21,8 @@ vi.mock('../../src/logging', () => ({
 }));
 
 // Mock the storage module
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn().mockReturnValue({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn().mockReturnValue({
         exists: vi.fn(),
         removeDirectory: vi.fn(),
     })
@@ -49,7 +49,7 @@ describe('clean command', () => {
     beforeEach(async () => {
         // Import modules after mocking
         Logging = await import('../../src/logging');
-        Storage = await import('../../src/util/storage');
+        Storage = await import('@eldrforge/shared');
         Constants = await import('../../src/constants');
         Clean = await import('../../src/commands/clean');
 
@@ -70,7 +70,7 @@ describe('clean command', () => {
 
         Logging.getLogger.mockReturnValue(mockLogger);
         Logging.getDryRunLogger.mockReturnValue(mockLogger);
-        Storage.create.mockReturnValue(mockStorage);
+        Storage.createStorage.mockReturnValue(mockStorage);
     });
 
     afterEach(() => {
@@ -268,7 +268,7 @@ describe('clean command', () => {
             await Clean.execute(runConfig);
 
             // Assert
-            expect(Storage.create).toHaveBeenCalledWith({ log: mockLogger.info });
+            expect(Storage.createStorage).toHaveBeenCalled();
         });
     });
 

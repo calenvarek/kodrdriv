@@ -4,7 +4,7 @@ import { createMockCheckpoint } from '../helpers/parallelMocks';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
-import { create as createStorage } from '../../src/util/storage';
+import { createStorage } from '@eldrforge/shared';
 
 describe('CheckpointManager', () => {
     let testDir: string;
@@ -14,7 +14,7 @@ describe('CheckpointManager', () => {
     beforeEach(async () => {
         testDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kodrdriv-test-'));
         manager = new CheckpointManager(testDir);
-        storage = createStorage({ log: () => {} });
+        storage = createStorage();
     });
 
     afterEach(async () => {

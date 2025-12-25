@@ -1,5 +1,6 @@
 import { run } from '@eldrforge/git-tools';
 import { getLogger } from '../logging';
+import { getGitRepositoryRoot, isInGitRepository } from '../util/gitMutex';
 
 export interface BranchStatus {
     name: string;
@@ -62,22 +63,34 @@ export async function checkBranchStatus(
     packagePath: string,
     expectedBranch?: string,
     targetBranch: string = 'main',
-    checkPR: boolean = false
+    checkPR: boolean = false,
+    options: { skipFetch?: boolean } = {}
 ): Promise<BranchStatus> {
     const logger = getLogger();
-    const originalCwd = process.cwd();
+
+    // Check if path is in a git repository
+    if (!isInGitRepository(packagePath)) {
+        logger.debug(`Path is not in a git repository: ${packagePath}. Skipping branch status check.`);
+        return {
+            name: 'non-git',
+            isOnExpectedBranch: true,
+            ahead: 0,
+            behind: 0,
+            hasUnpushedCommits: false,
+            needsSync: false,
+            remoteExists: false,
+        };
+    }
 
     try {
-        process.chdir(packagePath);
-
         // Get current branch
-        const { stdout: currentBranch } = await run('git rev-parse --abbrev-ref HEAD');
+        const { stdout: currentBranch } = await run('git rev-parse --abbrev-ref HEAD', { cwd: packagePath, suppressErrorLogging: true });
         const branch = currentBranch.trim();
 
         // Check if remote exists
         let remoteExists = false;
         try {
-            await run(`git ls-remote --exit-code --heads origin ${branch}`);
+            await run(`git ls-remote --exit-code --heads origin ${branch}`, { cwd: packagePath, suppressErrorLogging: true });
             remoteExists = true;
         } catch {
             remoteExists = false;
@@ -89,7 +102,7 @@ export async function checkBranchStatus(
 
         if (remoteExists) {
             try {
-                const { stdout: revList } = await run(`git rev-list --left-right --count origin/${branch}...HEAD`);
+                const { stdout: revList } = await run(`git rev-list --left-right --count origin/${branch}...HEAD`, { cwd: packagePath, suppressErrorLogging: true });
                 const [behindStr, aheadStr] = revList.trim().split('\t');
                 behind = parseInt(behindStr, 10) || 0;
                 ahead = parseInt(aheadStr, 10) || 0;
@@ -105,12 +118,14 @@ export async function checkBranchStatus(
         if (branch !== targetBranch) {
             try {
                 // Fetch latest to ensure we're checking against current target
-                logger.verbose(`    Fetching latest from origin for ${packagePath}...`);
-                await run('git fetch origin --quiet');
+                if (!options.skipFetch) {
+                    logger.verbose(`    Fetching latest from origin for ${packagePath}...`);
+                    await run('git fetch origin --quiet', { cwd: packagePath, suppressErrorLogging: true });
+                }
 
                 logger.verbose(`    Checking for merge conflicts with ${targetBranch}...`);
                 // Use git merge-tree to test for conflicts without actually merging
-                const { stdout: mergeTree } = await run(`git merge-tree $(git merge-base ${branch} origin/${targetBranch}) ${branch} origin/${targetBranch}`);
+                const { stdout: mergeTree } = await run(`git merge-tree $(git merge-base ${branch} origin/${targetBranch}) ${branch} origin/${targetBranch}`, { cwd: packagePath, suppressErrorLogging: true });
 
                 // If merge-tree output contains conflict markers, there are conflicts
                 if (mergeTree.includes('<<<<<<<') || mergeTree.includes('=======') || mergeTree.includes('>>>>>>>')) {
@@ -133,7 +148,7 @@ export async function checkBranchStatus(
             try {
                 logger.verbose(`    Checking GitHub for existing PRs...`);
                 const { findOpenPullRequestByHeadRef } = await import('@eldrforge/github-tools');
-                const pr = await findOpenPullRequestByHeadRef(branch);
+                const pr = await (findOpenPullRequestByHeadRef as any)(branch, packagePath);
                 if (pr) {
                     hasOpenPR = true;
                     prUrl = pr.html_url;
@@ -164,8 +179,17 @@ export async function checkBranchStatus(
             prUrl,
             prNumber,
         };
-    } finally {
-        process.chdir(originalCwd);
+    } catch (error: any) {
+        logger.error(`Error checking branch status for ${packagePath}: ${error.message}`);
+        return {
+            name: 'unknown',
+            isOnExpectedBranch: false,
+            ahead: 0,
+            behind: 0,
+            hasUnpushedCommits: false,
+            needsSync: false,
+            remoteExists: false,
+        };
     }
 }
 
@@ -174,26 +198,38 @@ export async function checkBranchStatus(
  */
 export async function checkTargetBranchSync(
     packagePath: string,
-    targetBranch: string = 'main'
+    targetBranch: string = 'main',
+    options: { skipFetch?: boolean } = {}
 ): Promise<TargetBranchSyncStatus> {
     const logger = getLogger();
-    const originalCwd = process.cwd();
+
+    // Check if path is in a git repository
+    if (!isInGitRepository(packagePath)) {
+        return {
+            targetBranch,
+            localExists: false,
+            remoteExists: false,
+            exactMatch: true, // Treat as match if not in git
+            canFastForward: false,
+            needsReset: false,
+        };
+    }
 
     try {
-        process.chdir(packagePath);
-
         // Fetch latest from origin to ensure we have current info
-        try {
-            await run('git fetch origin --quiet');
-        } catch (error: any) {
-            logger.verbose(`Could not fetch from origin in ${packagePath}: ${error.message}`);
+        if (!options.skipFetch) {
+            try {
+                await run('git fetch origin --quiet', { cwd: packagePath, suppressErrorLogging: true });
+            } catch (error: any) {
+                logger.verbose(`Could not fetch from origin in ${packagePath}: ${error.message}`);
+            }
         }
 
         // Check if local target branch exists
         let localExists = false;
         let localSha: string | undefined;
         try {
-            const { stdout } = await run(`git rev-parse --verify ${targetBranch}`);
+            const { stdout } = await run(`git rev-parse --verify ${targetBranch}`, { cwd: packagePath, suppressErrorLogging: true });
             localSha = stdout.trim();
             localExists = true;
         } catch {
@@ -204,7 +240,7 @@ export async function checkTargetBranchSync(
         let remoteExists = false;
         let remoteSha: string | undefined;
         try {
-            const { stdout } = await run(`git ls-remote origin ${targetBranch}`);
+            const { stdout } = await run(`git ls-remote origin ${targetBranch}`, { cwd: packagePath, suppressErrorLogging: true });
             if (stdout.trim()) {
                 remoteSha = stdout.split(/\s+/)[0];
                 remoteExists = true;
@@ -221,7 +257,7 @@ export async function checkTargetBranchSync(
         if (localExists && remoteExists && !exactMatch) {
             // Check if local is ancestor of remote (can fast-forward)
             try {
-                await run(`git merge-base --is-ancestor ${targetBranch} origin/${targetBranch}`);
+                await run(`git merge-base --is-ancestor ${targetBranch} origin/${targetBranch}`, { cwd: packagePath, suppressErrorLogging: true });
                 canFastForward = true;
                 needsReset = false;
             } catch {
@@ -251,8 +287,6 @@ export async function checkTargetBranchSync(
             needsReset: false,
             error: error.message,
         };
-    } finally {
-        process.chdir(originalCwd);
     }
 }
 
@@ -267,58 +301,124 @@ export async function auditBranchState(
         checkPR?: boolean;
         checkConflicts?: boolean;
         checkVersions?: boolean;
+        concurrency?: number;
     } = {}
 ): Promise<BranchAuditResult> {
     const logger = getLogger();
-    const audits: PackageBranchAudit[] = [];
     const targetBranch = options.targetBranch || 'main';
     const checkPR = options.checkPR !== false; // Default true
     const checkConflicts = options.checkConflicts !== false; // Default true
     const checkVersions = options.checkVersions !== false; // Default true
+    const concurrency = options.concurrency || 5;
 
-    logger.info(`BRANCH_STATE_AUDIT: Auditing branch state for packages | Package Count: ${packages.length} | Purpose: Verify synchronization`);
+    logger.info(`BRANCH_STATE_AUDIT: Auditing branch state for packages | Package Count: ${packages.length} | Concurrency: ${concurrency} | Purpose: Verify synchronization`);
+
+    // Helper for concurrency-limited parallel map
+    const parallelMap = async <T, R>(items: T[], fn: (item: T, index: number) => Promise<R>): Promise<R[]> => {
+        const results: R[] = new Array(items.length);
+        const queue = items.map((item, index) => ({ item, index }));
+        let nextIndex = 0;
+
+        const workers = Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
+            while (nextIndex < queue.length) {
+                const task = queue[nextIndex++];
+                results[task.index] = await fn(task.item, task.index);
+            }
+        });
+
+        await Promise.all(workers);
+        return results;
+    };
 
     // If no expected branch specified, find the most common branch
     let actualExpectedBranch = expectedBranch;
     if (!expectedBranch) {
+        logger.info('📋 Phase 1/3: Detecting most common branch across packages (optimized)...');
+
+        const branchNames = await parallelMap(packages, async (pkg) => {
+            if (!isInGitRepository(pkg.path)) {
+                return 'non-git';
+            }
+            try {
+                const { stdout } = await run('git rev-parse --abbrev-ref HEAD', { cwd: pkg.path, suppressErrorLogging: true });
+                return stdout.trim();
+            } catch {
+                return 'unknown';
+            }
+        });
+
         const branchCounts = new Map<string, number>();
-
-        logger.info('📋 Phase 1/2: Detecting most common branch across packages...');
-
-        // First pass: collect all branch names
-        for (let i = 0; i < packages.length; i++) {
-            const pkg = packages[i];
-            logger.info(`  [${i + 1}/${packages.length}] Checking branch: ${pkg.name}`);
-            const status = await checkBranchStatus(pkg.path);
-            branchCounts.set(status.name, (branchCounts.get(status.name) || 0) + 1);
+        for (const name of branchNames) {
+            branchCounts.set(name, (branchCounts.get(name) || 0) + 1);
         }
 
         // Find most common branch
         let maxCount = 0;
         for (const [branch, count] of branchCounts.entries()) {
-            if (count > maxCount) {
+            if (count > maxCount && branch !== 'unknown' && branch !== 'non-git') {
                 maxCount = count;
                 actualExpectedBranch = branch;
             }
         }
 
+        if (!actualExpectedBranch) actualExpectedBranch = 'main';
         logger.info(`✓ Most common branch: ${actualExpectedBranch} (${maxCount}/${packages.length} packages)`);
     }
 
-    logger.info(`\n📋 Phase 2/2: Auditing package state (checking git status, conflicts, PRs, versions)...`);
-    for (let i = 0; i < packages.length; i++) {
-        const pkg = packages[i];
-        logger.info(`  [${i + 1}/${packages.length}] Auditing: ${pkg.name}`);
+    // Phase 2: Identify unique repos and fetch once per repo
+    logger.info(`\n📋 Phase 2/3: Fetching latest from remotes (one fetch per repository)...`);
+    const repoRoots = new Set<string>();
+    for (const pkg of packages) {
+        const root = getGitRepositoryRoot(pkg.path);
+        if (root) repoRoots.add(root);
+    }
+
+    const repoList = Array.from(repoRoots);
+    await parallelMap(repoList, async (repo, i) => {
+        try {
+            logger.verbose(`  [${i + 1}/${repoList.length}] Fetching in: ${repo}`);
+            await run('git fetch origin --quiet', { cwd: repo, suppressErrorLogging: true });
+        } catch (error: any) {
+            logger.debug(`Could not fetch in ${repo}: ${error.message}`);
+        }
+    });
+    logger.info(`✓ Fetched latest information for ${repoList.length} unique repositories`);
+
+    // Phase 3: Full audit in parallel
+    logger.info(`\n📋 Phase 3/3: Auditing package state (git status, conflicts, PRs, versions)...`);
+    let completedCount = 0;
+    const audits = await parallelMap(packages, async (pkg) => {
+        // Check target branch sync (e.g., is local main exactly in sync with remote main?)
+        const targetBranchSync = await checkTargetBranchSync(pkg.path, targetBranch, { skipFetch: true });
 
         const status = await checkBranchStatus(
             pkg.path,
             actualExpectedBranch,
             targetBranch,
-            checkPR
+            checkPR,
+            { skipFetch: true }
         );
+
         const issues: string[] = [];
         const fixes: string[] = [];
         let versionStatus: VersionStatus | undefined;
+
+        // Skip issues for non-git repositories
+        if (status.name === 'non-git') {
+            completedCount++;
+            if (completedCount % 5 === 0 || completedCount === packages.length) {
+                logger.info(`  Progress: ${completedCount}/${packages.length} packages audited`);
+            }
+            return {
+                packageName: pkg.name,
+                path: pkg.path,
+                status,
+                versionStatus,
+                targetBranchSync,
+                issues,
+                fixes,
+            };
+        }
 
         // Check for issues
         if (!status.isOnExpectedBranch && actualExpectedBranch) {
@@ -382,8 +482,6 @@ export async function auditBranchState(
         }
 
         // Check target branch sync (e.g., is local main exactly in sync with remote main?)
-        const targetBranchSync = await checkTargetBranchSync(pkg.path, targetBranch);
-
         if (targetBranchSync.localExists && targetBranchSync.remoteExists && !targetBranchSync.exactMatch) {
             if (targetBranchSync.needsReset) {
                 issues.push(`Target branch '${targetBranch}' is NOT in sync with remote (local has diverged)`);
@@ -396,13 +494,19 @@ export async function auditBranchState(
                 fixes.push(`cd ${pkg.path} && git checkout ${targetBranch} && git pull origin ${targetBranch} && git checkout ${status.name}`);
             }
         } else if (!targetBranchSync.localExists && targetBranchSync.remoteExists) {
-            // Local target branch doesn't exist (this is OK - will be created during publish)
-            logger.verbose(`Local ${targetBranch} doesn't exist in ${pkg.name} - will be created when needed`);
+            // Local target branch doesn't exist but exists on remote
+            issues.push(`Target branch '${targetBranch}' does not exist locally (exists on remote)`);
+            fixes.push(`cd ${pkg.path} && git branch ${targetBranch} origin/${targetBranch}`);
         } else if (targetBranchSync.error) {
             logger.verbose(`Could not check target branch sync for ${pkg.name}: ${targetBranchSync.error}`);
         }
 
-        audits.push({
+        completedCount++;
+        if (completedCount % 5 === 0 || completedCount === packages.length) {
+            logger.info(`  Progress: ${completedCount}/${packages.length} packages audited`);
+        }
+
+        return {
             packageName: pkg.name,
             path: pkg.path,
             status,
@@ -410,8 +514,8 @@ export async function auditBranchState(
             targetBranchSync,
             issues,
             fixes,
-        });
-    }
+        };
+    });
 
     const issuesFound = audits.filter(a => a.issues.length > 0).length;
     const versionIssues = audits.filter(a => a.versionStatus && !a.versionStatus.isValid).length;
@@ -738,16 +842,13 @@ export async function autoSyncBranch(
     } = {}
 ): Promise<{ success: boolean; actions: string[]; error?: string }> {
     const logger = getLogger();
-    const originalCwd = process.cwd();
     const actions: string[] = [];
 
     try {
-        process.chdir(packagePath);
-
         // Checkout if requested
         if (options.checkout) {
             logger.verbose(`Checking out ${options.checkout}...`);
-            await run(`git checkout ${options.checkout}`);
+            await run(`git checkout ${options.checkout}`, { cwd: packagePath });
             actions.push(`Checked out ${options.checkout}`);
         }
 
@@ -755,7 +856,7 @@ export async function autoSyncBranch(
         if (options.pull) {
             logger.verbose(`Pulling from remote...`);
             try {
-                await run('git pull --ff-only');
+                await run('git pull --ff-only', { cwd: packagePath });
                 actions.push('Pulled from remote');
             } catch (error: any) {
                 if (error.message.includes('not possible to fast-forward')) {
@@ -769,7 +870,7 @@ export async function autoSyncBranch(
         // Push if requested
         if (options.push) {
             logger.verbose(`Pushing to remote...`);
-            await run('git push');
+            await run('git push', { cwd: packagePath });
             actions.push('Pushed to remote');
         }
 
@@ -777,8 +878,6 @@ export async function autoSyncBranch(
     } catch (error: any) {
         logger.error(`BRANCH_STATE_AUTO_SYNC_FAILED: Failed to auto-sync package | Path: ${packagePath} | Error: ${error.message}`);
         return { success: false, actions, error: error.message };
-    } finally {
-        process.chdir(originalCwd);
     }
 }
 

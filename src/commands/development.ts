@@ -257,7 +257,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 if (remoteExists) {
                     // Use explicit fetch+merge instead of pull to avoid git config conflicts
                     await run(`git fetch origin ${workingBranch}`);
-                    await run(`git merge origin/${workingBranch} --no-ff --no-edit`);
+                    await run(`git merge origin/${workingBranch} --no-edit`);
                     logger.info(`DEV_BRANCH_SYNCED: Successfully synchronized with remote | Branch: ${workingBranch} | Remote: origin/${workingBranch} | Status: in-sync`);
                 } else {
                     logger.info(`DEV_REMOTE_BRANCH_NOT_FOUND: No remote branch exists | Branch: ${workingBranch} | Remote: origin | Action: Will be created on first push`);
@@ -293,9 +293,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
                     // Fast-forward failed, might need regular merge
                     if (error.message && error.message.includes('Not possible to fast-forward')) {
                         logger.warn(`DEV_NO_FAST_FORWARD: Cannot fast-forward merge | Target: ${targetBranch} | Working: ${workingBranch} | Reason: Divergent history`);
-                        logger.info(`DEV_REGULAR_MERGE_ATTEMPTING: Attempting regular merge | Strategy: no-ff | Purpose: Sync branches`);
+                        logger.info(`DEV_REGULAR_MERGE_ATTEMPTING: Attempting regular merge | Strategy: fast-forward preferred | Purpose: Sync branches`);
                         try {
-                            await run(`git merge ${targetBranch} --no-ff -m "Merge ${targetBranch} into ${workingBranch} for sync"`);
+                            await run(`git merge ${targetBranch} -m "Merge ${targetBranch} into ${workingBranch} for sync"`);
                             logger.info(`DEV_TARGET_MERGED: Merged target into working | Target: ${targetBranch} | Working: ${workingBranch} | Status: merged`);
 
                             // Run npm install after merge
@@ -337,7 +337,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Step 3: Merge latest changes from development branch if it exists
         if (!isDryRun) {
             const developmentBranchExists = await localBranchExists('development');
-            if (developmentBranchExists) {
+            if (mergedDevelopmentIntoWorking) {
+                logger.info('DEV_ALREADY_MERGED: Already merged from development | Reason: Was on development branch | Action: Skipping');
+            } else if (developmentBranchExists) {
                 logger.info('DEV_DEVELOPMENT_MERGE: Merging latest changes from development branch | Source: development | Target: ' + workingBranch + ' | Purpose: Sync development changes');
 
                 try {
@@ -372,10 +374,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
                         throw error;
                     }
                 }
-            } else if (!developmentBranchExists) {
-                logger.info('DEV_NO_DEV_BRANCH: Development branch does not exist | Branch: development | Action: Skipping merge step | Status: not-found');
             } else {
-                logger.info('DEV_ALREADY_MERGED: Already merged from development | Reason: Was on development branch | Action: Skipping');
+                logger.info('DEV_NO_DEV_BRANCH: Development branch does not exist | Branch: development | Action: Skipping merge step | Status: not-found');
             }
         } else {
             logger.info('DEV_DEV_MERGE_DRY_RUN: Would merge development if exists | Mode: dry-run | Source: development | Target: working');

@@ -8,8 +8,7 @@ import { transcribeAudio } from '@eldrforge/ai-service';
 import { createStorageAdapter } from '../util/storageAdapter';
 import { createLoggerAdapter } from '../util/loggerAdapter';
 import { getTimestampedAudioFilename, archiveAudio } from '../util/general';
-import { CancellationError } from '../error/CancellationError';
-import { create as createStorage } from '../util/storage';
+import { CancellationError, createStorage } from '@eldrforge/shared';
 import { createAudioRecordingCountdown } from '../util/countdown';
 import path from 'path';
 
@@ -21,7 +20,7 @@ const AUDIO_EXTENSIONS = ['.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wma
  */
 const discoverAudioFiles = async (directory: string): Promise<string[]> => {
     const logger = getLogger();
-    const storage = createStorage({ log: logger.debug });
+    const storage = createStorage();
 
     try {
         if (!(await storage.isDirectoryReadable(directory))) {

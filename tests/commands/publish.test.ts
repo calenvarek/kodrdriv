@@ -56,14 +56,16 @@ vi.mock('@eldrforge/github-tools', () => ({
     moveOpenIssuesToNewMilestone: vi.fn(),
 }));
 
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn(() => ({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn(() => ({
         exists: vi.fn(),
         rename: vi.fn(),
         writeFile: vi.fn(),
         readFile: vi.fn(),
         ensureDirectory: vi.fn()
-    }))
+    })),
+    incrementPatchVersion: vi.fn(),
+    calculateTargetVersion: vi.fn()
 }));
 
 vi.mock('../../src/util/general', () => ({
@@ -147,7 +149,7 @@ describe('publish command', () => {
         Diff = await import('../../src/content/diff');
         Child = await import('@eldrforge/git-tools');
         GitHub = await import('@eldrforge/github-tools');
-        Storage = await import('../../src/util/storage');
+        Storage = await import('@eldrforge/shared');
         General = await import('../../src/util/general');
         Git = await import('@eldrforge/git-tools');
         Publish = await import('../../src/commands/publish');
@@ -170,7 +172,7 @@ describe('publish command', () => {
             ensureDirectory: vi.fn()
         };
 
-        Storage.create.mockReturnValue(mockStorage);
+        Storage.createStorage.mockReturnValue(mockStorage);
 
         // Set up General.getOutputPath mock to return expected file paths
         General.getOutputPath.mockImplementation((outputDirectory: string, filename: string) => {
@@ -2882,7 +2884,7 @@ cache=\${CACHE_DIR}/npm
                 vi.clearAllMocks();
 
                 // Reset mocks
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
                 General.getOutputPath.mockImplementation((outputDirectory: string, filename: string) => {
                     return filename;
                 });
@@ -3035,7 +3037,7 @@ cache=\${CACHE_DIR}/npm
                     }
                 };
 
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
                 Git.safeSyncBranchWithRemote.mockResolvedValue({ success: true });
 
                 await Publish.execute(mockConfig);
@@ -3055,7 +3057,7 @@ cache=\${CACHE_DIR}/npm
                     }
                 };
 
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
                 Git.safeSyncBranchWithRemote.mockResolvedValue({
                     success: false,
                     conflictResolutionRequired: true,
@@ -3080,7 +3082,7 @@ cache=\${CACHE_DIR}/npm
                 // Mock setup for successful publish
                 mockStorage.exists.mockResolvedValue(true); // package.json exists
                 mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
 
                 Child.run.mockImplementation((command: string) => {
                     if (command === 'git rev-parse --git-dir') {
@@ -3129,7 +3131,7 @@ cache=\${CACHE_DIR}/npm
 
                 mockStorage.exists.mockResolvedValue(true); // package.json exists
                 mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
 
                 Child.run.mockImplementation((command: string) => {
                     if (command === 'git rev-parse --git-dir') {
@@ -3166,7 +3168,7 @@ cache=\${CACHE_DIR}/npm
 
                 mockStorage.exists.mockResolvedValue(true); // package.json exists
                 mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
 
                 Child.run.mockImplementation((command: string) => {
                     if (command === 'git rev-parse --git-dir') {
@@ -3213,7 +3215,7 @@ cache=\${CACHE_DIR}/npm
 
                 mockStorage.exists.mockResolvedValue(true); // package.json exists
                 mockStorage.readFile.mockResolvedValue('{"name": "test", "version": "1.0.0", "scripts": {"prepublishOnly": "npm run build"}}');
-                Storage.create.mockReturnValue(mockStorage);
+                Storage.createStorage.mockReturnValue(mockStorage);
 
                 // Mock successful initial flow
                 Child.run.mockImplementation((command: string) => {

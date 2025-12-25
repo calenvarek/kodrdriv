@@ -14,7 +14,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { getLogger } from '../logging';
 import { Config } from '../types';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 
 
@@ -31,7 +31,7 @@ const discoverPackages = async (
     directories: string[],
     logger: any
 ): Promise<PackageInfo[]> => {
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
     const packages: PackageInfo[] = [];
 
     for (const directory of directories) {
@@ -116,7 +116,7 @@ const updateDependenciesMinor = async (
     isDryRun: boolean,
     logger: any
 ): Promise<boolean> => {
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
     const currentScope = getPackageScope(packageInfo.name);
 
     if (!currentScope) {

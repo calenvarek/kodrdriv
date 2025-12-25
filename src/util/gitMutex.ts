@@ -1,6 +1,7 @@
 import * as path from 'path';
 // eslint-disable-next-line no-restricted-imports
 import { statSync } from 'fs';
+import { execSync } from 'child_process';
 import { RepositoryFileLockManager } from './fileLock';
 import { getLogger } from '../logging';
 
@@ -69,29 +70,39 @@ export function getGitRepositoryRoot(startPath: string): string | null {
         // If stat fails, assume it's a directory and continue
     }
 
-    // Walk up until we find .git or reach root
-    const root = path.parse(currentPath).root;
+    // First try using git command as it's the most reliable
+    try {
+        const root = execSync('git rev-parse --show-toplevel', {
+            cwd: currentPath,
+            stdio: ['ignore', 'pipe', 'ignore'],
+            encoding: 'utf-8'
+        }).trim();
+        return root;
+    } catch {
+        // Fallback to manual walk-up if git command fails (e.g. git not in path or other issues)
+        const root = path.parse(currentPath).root;
 
-    while (currentPath !== root) {
-        const gitPath = path.join(currentPath, '.git');
+        while (currentPath !== root) {
+            const gitPath = path.join(currentPath, '.git');
 
-        try {
-            const stats = statSync(gitPath);
-            if (stats.isDirectory() || stats.isFile()) {
-                // Found .git (can be directory or file for submodules)
-                return currentPath;
+            try {
+                const stats = statSync(gitPath);
+                if (stats.isDirectory() || stats.isFile()) {
+                    // Found .git (can be directory or file for submodules)
+                    return currentPath;
+                }
+            } catch {
+                // .git doesn't exist at this level, continue up
             }
-        } catch {
-            // .git doesn't exist at this level, continue up
-        }
 
-        // Move up one directory
-        const parentPath = path.dirname(currentPath);
-        if (parentPath === currentPath) {
-            // Reached root without finding .git
-            break;
+            // Move up one directory
+            const parentPath = path.dirname(currentPath);
+            if (parentPath === currentPath) {
+                // Reached root without finding .git
+                break;
+            }
+            currentPath = parentPath;
         }
-        currentPath = parentPath;
     }
 
     return null;
@@ -103,7 +114,27 @@ export function getGitRepositoryRoot(startPath: string): string | null {
  * @returns true if path is in a git repository
  */
 export function isInGitRepository(checkPath: string): boolean {
-    return getGitRepositoryRoot(checkPath) !== null;
+    // If it's not a directory that exists, it's not in a git repository
+    try {
+        const stats = statSync(checkPath);
+        if (!stats.isDirectory()) {
+            return false;
+        }
+    } catch {
+        return false;
+    }
+
+    // Try using git command first
+    try {
+        execSync('git rev-parse --is-inside-work-tree', {
+            cwd: checkPath,
+            stdio: ['ignore', 'ignore', 'ignore']
+        });
+        return true;
+    } catch {
+        // If git command fails, it's definitely not a git repo according to git
+        return false;
+    }
 }
 
 /**
