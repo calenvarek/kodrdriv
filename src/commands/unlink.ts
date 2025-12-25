@@ -1,6 +1,6 @@
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import { run, runSecure } from '@eldrforge/git-tools';
 import {
     findAllPackageJsonFiles
@@ -264,7 +264,7 @@ const findConsumingPackages = async (
 const executeInternal = async (runConfig: Config, packageArgument?: string): Promise<string> => {
     const isDryRun = runConfig.dryRun || runConfig.unlink?.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     // Check if this is a status command
     if (packageArgument === 'status') {
@@ -551,7 +551,7 @@ const executeInternal = async (runConfig: Config, packageArgument?: string): Pro
 // Status function to show what's currently linked (same as link command)
 const executeStatus = async (runConfig: Config): Promise<string> => {
     const logger = getLogger();
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     // Get target directories from config, default to current directory
     const targetDirectories = runConfig.tree?.directories || [process.cwd()];

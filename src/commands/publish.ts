@@ -6,10 +6,10 @@ import * as Release from './release';
 
 import { getLogger, getDryRunLogger } from '../logging';
 import { Config, PullRequest } from '../types';
-import { run, runWithDryRunSupport, runSecure, validateGitRef, safeJsonParse, validatePackageJson, isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists } from '@eldrforge/git-tools';
+import { run, runWithDryRunSupport, runSecure, validateGitRef, safeJsonParse, validatePackageJson, isBranchInSyncWithRemote, safeSyncBranchWithRemote, localBranchExists, remoteBranchExists } from '@eldrforge/git-tools';
 import * as GitHub from '@eldrforge/github-tools';
-import { create as createStorage } from '../util/storage';
-import { incrementPatchVersion, getOutputPath, calculateTargetVersion, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
+import { createStorage, incrementPatchVersion, calculateTargetVersion } from '@eldrforge/shared';
+import { getOutputPath, checkIfTagExists, confirmVersionInteractively, calculateBranchDependentVersion } from '../util/general';
 import { DEFAULT_OUTPUT_DIRECTORY, KODRDRIV_DEFAULTS } from '../constants';
 import fs from 'fs/promises';
 import { runGitWithLock } from '../util/gitMutex';
@@ -149,7 +149,7 @@ const validateEnvironmentVariables = (requiredEnvVars: string[], isDryRun: boole
 const runPrechecks = async (runConfig: Config, targetBranch?: string): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     logger.info('PRECHECK_STARTING: Executing publish prechecks | Phase: validation | Target: ' + (targetBranch || 'default'));
 
@@ -443,7 +443,7 @@ const handleTargetBranchSyncRecovery = async (runConfig: Config, targetBranch: s
 export const execute = async (runConfig: Config): Promise<void> => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
 
     // Get current branch for branch-dependent targeting
     let currentBranch: string;
@@ -470,7 +470,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 // Use explicit fetch+merge instead of pull to avoid git config conflicts
                 await runGitWithLock(process.cwd(), async () => {
                     await run(`git fetch origin ${currentBranch}`);
-                    await run(`git merge origin/${currentBranch} --no-ff --no-edit`);
+                    await run(`git merge origin/${currentBranch} --no-edit`);
                 }, `sync ${currentBranch}`);
                 logger.info(`CURRENT_BRANCH_SYNCED: Successfully synchronized current branch with remote | Branch: ${currentBranch} | Remote: origin/${currentBranch} | Status: in-sync`);
             } else {
@@ -535,20 +535,36 @@ export const execute = async (runConfig: Config): Promise<void> => {
     } else {
         const targetBranchExists = await localBranchExists(targetBranch);
         if (!targetBranchExists) {
-            logger.info(`TARGET_BRANCH_CREATING: Target branch does not exist, creating from current branch | Branch: ${targetBranch} | Source: HEAD | Remote: origin`);
-            try {
-                // Wrap git branch and push operations with lock
-                await runGitWithLock(process.cwd(), async () => {
-                    // Create the target branch from the current HEAD
-                    await runSecure('git', ['branch', targetBranch, 'HEAD']);
-                    logger.info(`TARGET_BRANCH_CREATED: Successfully created target branch locally | Branch: ${targetBranch} | Source: HEAD`);
+            // Check if it exists on remote
+            const remoteExists = await remoteBranchExists(targetBranch);
 
-                    // Push the new branch to origin
-                    await runSecure('git', ['push', 'origin', targetBranch]);
-                    logger.info(`TARGET_BRANCH_PUSHED: Successfully pushed new target branch to remote | Branch: ${targetBranch} | Remote: origin/${targetBranch}`);
-                }, `create and push target branch ${targetBranch}`);
-            } catch (error: any) {
-                throw new Error(`Failed to create target branch '${targetBranch}': ${error.message}`);
+            if (remoteExists) {
+                logger.info(`TARGET_BRANCH_TRACKING: Target branch exists on remote but not locally, tracking origin/${targetBranch} | Branch: ${targetBranch}`);
+                try {
+                    await runGitWithLock(process.cwd(), async () => {
+                        // Create local branch tracking remote
+                        await runSecure('git', ['branch', targetBranch, `origin/${targetBranch}`]);
+                        logger.info(`TARGET_BRANCH_CREATED: Successfully created local tracking branch | Branch: ${targetBranch} | Source: origin/${targetBranch}`);
+                    }, `track target branch ${targetBranch}`);
+                } catch (error: any) {
+                    throw new Error(`Failed to track target branch '${targetBranch}': ${error.message}`);
+                }
+            } else {
+                logger.info(`TARGET_BRANCH_CREATING: Target branch does not exist locally or on remote, creating from current branch | Branch: ${targetBranch} | Source: HEAD | Remote: origin`);
+                try {
+                    // Wrap git branch and push operations with lock
+                    await runGitWithLock(process.cwd(), async () => {
+                        // Create the target branch from the current HEAD
+                        await runSecure('git', ['branch', targetBranch, 'HEAD']);
+                        logger.info(`TARGET_BRANCH_CREATED: Successfully created target branch locally | Branch: ${targetBranch} | Source: HEAD`);
+
+                        // Push the new branch to origin
+                        await runSecure('git', ['push', 'origin', targetBranch]);
+                        logger.info(`TARGET_BRANCH_PUSHED: Successfully pushed new target branch to remote | Branch: ${targetBranch} | Remote: origin/${targetBranch}`);
+                    }, `create and push target branch ${targetBranch}`);
+                } catch (error: any) {
+                    throw new Error(`Failed to create target branch '${targetBranch}': ${error.message}`);
+                }
             }
         } else {
             logger.info(`TARGET_BRANCH_EXISTS: Target branch already exists locally | Branch: ${targetBranch} | Status: ready`);
@@ -1100,7 +1116,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
                 if (remoteExists) {
                     await runGitWithLock(process.cwd(), async () => {
                         await run(`git fetch origin ${targetBranch}`);
-                        await run(`git merge origin/${targetBranch} --no-ff --no-edit`);
+                        await run(`git merge origin/${targetBranch} --no-edit`);
                     }, `sync ${targetBranch}`);
                     logger.info(`PUBLISH_TARGET_SYNCED: Successfully synced target with remote | Branch: ${targetBranch} | Remote: origin | Status: in-sync`);
                 } else {

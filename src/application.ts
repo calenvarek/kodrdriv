@@ -2,7 +2,7 @@ import * as Cardigantime from '@theunwalked/cardigantime';
 import 'dotenv/config';
 import { setLogger as setGitLogger } from '@eldrforge/git-tools';
 import { setLogger as setGitHubLogger, setPromptFunction } from '@eldrforge/github-tools';
-import { promptConfirmation } from './util/stdin';
+import { promptConfirmation } from '@eldrforge/shared';
 import { CommandConfig } from 'types';
 import * as Arguments from './arguments';
 import * as AudioCommit from './commands/audio-commit';
@@ -11,6 +11,7 @@ import * as Clean from './commands/clean';
 import * as Commit from './commands/commit';
 import * as Development from './commands/development';
 import * as Link from './commands/link';
+import * as Precommit from './commands/precommit';
 import * as Publish from './commands/publish';
 import * as Release from './commands/release';
 import * as Review from './commands/review';
@@ -19,7 +20,7 @@ import * as Tree from './commands/tree';
 import * as Unlink from './commands/unlink';
 import * as Updates from './commands/updates';
 import * as Versions from './commands/versions';
-import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_TREE, COMMAND_UNLINK, COMMAND_UPDATES, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR, VERSION } from './constants';
+import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PRECOMMIT, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_TREE, COMMAND_UNLINK, COMMAND_UPDATES, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR, VERSION } from './constants';
 import { UserCancellationError } from './error/CommandErrors';
 import { getLogger, setLogLevel } from './logging';
 import { Config, SecureConfig } from './types';
@@ -140,7 +141,7 @@ export async function runApplication(): Promise<void> {
         }
     }
     // If we have a specific command argument, use that
-    else if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'review' || command === 'select-audio' || command === 'development' || command === 'versions' || command === 'updates') {
+    else if (command === 'commit' || command === 'audio-commit' || command === 'release' || command === 'publish' || command === 'tree' || command === 'link' || command === 'unlink' || command === 'audio-review' || command === 'clean' || command === 'precommit' || command === 'review' || command === 'select-audio' || command === 'development' || command === 'versions' || command === 'updates') {
         commandName = command;
     }
 
@@ -182,6 +183,8 @@ export async function runApplication(): Promise<void> {
         } else if (commandName === COMMAND_CLEAN) {
             await Clean.execute(runConfig);
             summary = 'Output directory cleaned successfully.';
+        } else if (commandName === COMMAND_PRECOMMIT) {
+            summary = await Precommit.execute(runConfig);
         } else if (commandName === COMMAND_REVIEW) {
             summary = await Review.execute(runConfig);
         } else if (commandName === COMMAND_SELECT_AUDIO) {

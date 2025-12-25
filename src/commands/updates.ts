@@ -19,7 +19,7 @@
 import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { run, safeJsonParse } from '@eldrforge/git-tools';
-import { create as createStorage } from '../util/storage';
+import { createStorage } from '@eldrforge/shared';
 import path from 'path';
 
 /**
@@ -31,7 +31,7 @@ const updateInterProjectDependencies = async (
     isDryRun: boolean,
     logger: any
 ): Promise<{ hasChanges: boolean; updated: string[] }> => {
-    const storage = createStorage({ log: logger.info });
+    const storage = createStorage();
     const packageJsonPath = path.join(packageDir, 'package.json');
 
     if (!await storage.exists(packageJsonPath)) {

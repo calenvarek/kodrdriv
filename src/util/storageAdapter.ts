@@ -3,16 +3,13 @@
  */
 
 import type { StorageAdapter } from '@eldrforge/ai-service';
-import * as Storage from './storage';
-import { getLogger } from '../logging';
-
-const logger = getLogger();
+import { createStorage } from '@eldrforge/shared';
 
 /**
  * Create a StorageAdapter implementation using kodrdriv Storage
  */
 export function createStorageAdapter(): StorageAdapter {
-    const storage = Storage.create({ log: logger.debug });
+    const storage = createStorage();
 
     return {
         async writeOutput(fileName: string, content: string): Promise<void> {

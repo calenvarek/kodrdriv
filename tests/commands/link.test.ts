@@ -3,8 +3,8 @@ import * as Link from '../../src/commands/link';
 import type { Config } from '../../src/types';
 
 // Mocks
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn()
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn()
 }));
 
 vi.mock('@eldrforge/git-tools', () => ({
@@ -110,7 +110,7 @@ describe('Link Command', () => {
         vi.clearAllMocks();
 
         // storage
-        const Storage = await import('../../src/util/storage');
+        const Storage = await import('@eldrforge/shared');
         mockStorage = {
             readFile: vi.fn(),
             exists: vi.fn(),
@@ -118,7 +118,7 @@ describe('Link Command', () => {
             ensureDirectory: vi.fn(),
             deleteFile: vi.fn()
         };
-        (Storage.create as any).mockReturnValue(mockStorage);
+        (Storage.createStorage as any).mockReturnValue(mockStorage);
 
         // child
         const Child = await import('@eldrforge/git-tools');

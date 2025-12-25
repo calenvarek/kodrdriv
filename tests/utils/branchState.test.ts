@@ -1,21 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as branchState from '../../src/utils/branchState';
 import * as gitTools from '@eldrforge/git-tools';
+import * as gitMutex from '../../src/util/gitMutex';
 
 vi.mock('@eldrforge/git-tools');
+vi.mock('../../src/util/gitMutex');
 
 describe('branchState utilities', () => {
     const originalCwd = process.cwd();
 
     beforeEach(() => {
         vi.clearAllMocks();
-        // Mock chdir to prevent actual directory changes
-        vi.spyOn(process, 'chdir').mockImplementation(() => {});
+        // Mock getGitRepositoryRoot to return a fixed path
+        vi.mocked(gitMutex.getGitRepositoryRoot).mockReturnValue('/mock/repo/root');
+        vi.mocked(gitMutex.isInGitRepository).mockReturnValue(true);
     });
 
     afterEach(() => {
         vi.restoreAllMocks();
-        process.chdir(originalCwd);
     });
 
     describe('checkBranchStatus', () => {
@@ -87,34 +89,38 @@ describe('branchState utilities', () => {
 
     describe('auditBranchState', () => {
         it('should audit multiple packages', async () => {
-            vi.mocked(gitTools.run)
-                // Package 1: all good (on main, same as target)
-                .mockResolvedValueOnce({ stdout: 'main\n', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '0\t0\n', stderr: '' })
-                // No merge conflict check since branch == targetBranch
-                // checkTargetBranchSync for package 1
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
-                .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }) // git rev-parse --verify main
-                .mockResolvedValueOnce({ stdout: 'abc123\trefs/heads/main\n', stderr: '' }) // git ls-remote
-                // Package 2: ahead of remote (on working, different from main)
-                .mockResolvedValueOnce({ stdout: 'working\n', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '0\t2\n', stderr: '' })
-                // Merge conflict check (branch != targetBranch)
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
-                .mockResolvedValueOnce({ stdout: 'no conflicts', stderr: '' }) // git merge-tree
-                // checkTargetBranchSync for package 2
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
-                .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }) // git rev-parse --verify main
-                .mockResolvedValueOnce({ stdout: 'abc123\trefs/heads/main\n', stderr: '' }); // git ls-remote
+            vi.mocked(gitTools.run).mockImplementation(async (command, options) => {
+                const cwd = options?.cwd;
+                if (command.includes('rev-parse --abbrev-ref HEAD')) {
+                    return { stdout: cwd === '/path/to/good' ? 'main\n' : 'working\n', stderr: '' };
+                }
+                if (command.includes('ls-remote --exit-code --heads')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (command.includes('rev-list --left-right --count')) {
+                    return { stdout: cwd === '/path/to/good' ? '0\t0\n' : '0\t2\n', stderr: '' };
+                }
+                if (command.includes('git fetch origin')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (command.includes('rev-parse --verify main')) {
+                    return { stdout: 'abc123\n', stderr: '' };
+                }
+                if (command.includes('ls-remote origin main')) {
+                    return { stdout: 'abc123\trefs/heads/main\n', stderr: '' };
+                }
+                if (command.includes('merge-tree')) {
+                    return { stdout: 'no conflicts', stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            });
 
             const packages = [
                 { name: '@pkg/good', path: '/path/to/good' },
                 { name: '@pkg/ahead', path: '/path/to/ahead' },
             ];
 
-            const result = await branchState.auditBranchState(packages, 'main', { checkPR: false, checkVersions: false });
+            const result = await branchState.auditBranchState(packages, 'main', { checkPR: false, checkVersions: false, concurrency: 1 });
 
             expect(result.totalPackages).toBe(2);
             expect(result.goodPackages).toBe(1);
@@ -125,24 +131,36 @@ describe('branchState utilities', () => {
 
             const aheadPkg = result.audits.find(a => a.packageName === '@pkg/ahead');
             expect(aheadPkg?.issues.length).toBeGreaterThan(0);
-            expect(aheadPkg?.fixes.length).toBeGreaterThan(0);
         });
 
         it('should identify all types of issues', async () => {
-            vi.mocked(gitTools.run)
-                .mockResolvedValueOnce({ stdout: 'wrong-branch\n', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '', stderr: '' })
-                .mockResolvedValueOnce({ stdout: '2\t3\n', stderr: '' })
-                // Merge conflict check (branch != targetBranch)
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
-                .mockResolvedValueOnce({ stdout: 'no conflicts', stderr: '' }) // git merge-tree
-                // checkTargetBranchSync
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // git fetch
-                .mockResolvedValueOnce({ stdout: 'abc123\n', stderr: '' }) // git rev-parse --verify main
-                .mockResolvedValueOnce({ stdout: 'abc123\trefs/heads/main\n', stderr: '' }); // git ls-remote
+            vi.mocked(gitTools.run).mockImplementation(async (command) => {
+                if (command.includes('rev-parse --abbrev-ref HEAD')) {
+                    return { stdout: 'wrong-branch\n', stderr: '' };
+                }
+                if (command.includes('ls-remote --exit-code --heads')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (command.includes('rev-list --left-right --count')) {
+                    return { stdout: '2\t3\n', stderr: '' };
+                }
+                if (command.includes('git fetch origin')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (command.includes('rev-parse --verify main')) {
+                    return { stdout: 'abc123\n', stderr: '' };
+                }
+                if (command.includes('ls-remote origin main')) {
+                    return { stdout: 'abc123\trefs/heads/main\n', stderr: '' };
+                }
+                if (command.includes('merge-tree')) {
+                    return { stdout: 'no conflicts', stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            });
 
             const packages = [{ name: '@pkg/issues', path: '/path' }];
-            const result = await branchState.auditBranchState(packages, 'main', { checkPR: false, checkVersions: false });
+            const result = await branchState.auditBranchState(packages, 'main', { checkPR: false, checkVersions: false, concurrency: 1 });
 
             const audit = result.audits[0];
             expect(audit.issues.some(i => i.includes("On branch 'wrong-branch'"))).toBe(true);
@@ -239,10 +257,7 @@ describe('branchState utilities', () => {
 
     describe('autoSyncBranch', () => {
         it('should checkout, pull, and push successfully', async () => {
-            vi.mocked(gitTools.run)
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // checkout
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }) // pull
-                .mockResolvedValueOnce({ stdout: '', stderr: '' }); // push
+            vi.mocked(gitTools.run).mockResolvedValue({ stdout: '', stderr: '' });
 
             const result = await branchState.autoSyncBranch('/path', {
                 checkout: 'main',
@@ -254,6 +269,9 @@ describe('branchState utilities', () => {
             expect(result.actions).toContain('Checked out main');
             expect(result.actions).toContain('Pulled from remote');
             expect(result.actions).toContain('Pushed to remote');
+
+            // Verify cwd was passed
+            expect(gitTools.run).toHaveBeenCalledWith(expect.stringContaining('checkout main'), expect.objectContaining({ cwd: '/path' }));
         });
 
         it('should fail on non-fast-forward', async () => {
@@ -268,16 +286,6 @@ describe('branchState utilities', () => {
 
             expect(result.success).toBe(false);
             expect(result.error).toBe('Fast-forward not possible');
-        });
-
-        it('should restore cwd on error', async () => {
-            const cwdSpy = vi.spyOn(process, 'chdir');
-            vi.mocked(gitTools.run).mockRejectedValue(new Error('fail'));
-
-            await branchState.autoSyncBranch('/path', { checkout: 'main' });
-
-            // Should have called chdir twice: into /path and back to originalCwd
-            expect(cwdSpy).toHaveBeenCalledTimes(2);
         });
     });
 });

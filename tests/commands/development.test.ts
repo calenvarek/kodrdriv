@@ -21,8 +21,8 @@ vi.mock('../../src/logging', () => ({
 }));
 
 // Mock the storage module
-vi.mock('../../src/util/storage', () => ({
-    create: vi.fn().mockReturnValue({
+vi.mock('@eldrforge/shared', () => ({
+    createStorage: vi.fn().mockReturnValue({
         readFile: vi.fn(),
         writeFile: vi.fn(),
         exists: vi.fn(),
@@ -108,7 +108,7 @@ describe('development command', () => {
 
         // Import modules after mocking
         const { getDryRunLogger } = await import('../../src/logging');
-        const { create: createStorage } = await import('../../src/util/storage');
+        const { createStorage } = await import('@eldrforge/shared');
         const { run, runSecure, validateGitRef, localBranchExists, safeSyncBranchWithRemote, getCurrentBranch, safeJsonParse, validatePackageJson } = await import('@eldrforge/git-tools');
         const { execute: commitExecute } = await import('../../src/commands/commit');
         Development = await import('../../src/commands/development');

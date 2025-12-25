@@ -225,7 +225,7 @@ export function formatParallelResult(result: any): string {
     if (result.failed.length > 0) {
         lines.push(`❌ Failed (${result.failed.length}):`);
         for (const pkg of result.failed) {
-            lines.push(`   - ${pkg}`);
+            lines.push(`   - ${typeof pkg === 'string' ? pkg : pkg.name}`);
         }
         lines.push('');
     }
@@ -246,7 +246,7 @@ export function formatParallelResult(result: any): string {
     const successRate = totalProcessed > 0 ? Math.round((result.completed.length / totalProcessed) * 100) : 0;
 
     // Format elapsed time
-    const totalTimeMs = result.metrics?.totalTime || 0;
+    const totalTimeMs = result.metrics?.totalDuration || 0;
     const minutes = Math.floor(totalTimeMs / 60000);
     const seconds = Math.floor((totalTimeMs % 60000) / 1000);
     const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;

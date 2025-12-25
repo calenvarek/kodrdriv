@@ -3,14 +3,11 @@ import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as argumentsModule from '../src/arguments';
 import { Input, InputSchema, transformCliArgs, validateCommand, validateContextDirectories, getCliConfig, validateAndProcessSecureOptions, validateAndProcessOptions, validateConfigDir, configure } from '../src/arguments';
-import { readStdin } from '../src/util/stdin';
+import { readStdin } from '@eldrforge/shared';
 import type { Cardigantime } from '@theunwalked/cardigantime';
 import { ALLOWED_COMMANDS, KODRDRIV_DEFAULTS, DEFAULT_CHARACTER_ENCODING } from '../src/constants';
 
-// Mock the readStdin function
-vi.mock('../src/util/stdin', () => ({
-    readStdin: vi.fn()
-}));
+// readStdin is now mocked in the @eldrforge/shared mock below
 import { CommandConfig, Config, SecureConfig } from '../src/types';
 import { Mock } from 'vitest';
 import { ZodError } from 'zod';
@@ -49,8 +46,8 @@ vi.mock('../src/logging', () => {
     };
 });
 
-// Mock the storage module here, using a factory for create's return value
-vi.mock('../src/util/storage', () => {
+// Mock the storage module here, using a factory for createStorage's return value
+vi.mock('@eldrforge/shared', async () => {
     // Create mock storage inside the factory
     const mockStorage = {
         exists: vi.fn(),
@@ -65,18 +62,19 @@ vi.mock('../src/util/storage', () => {
     };
 
     return {
-        create: vi.fn(() => mockStorage),
+        createStorage: vi.fn(() => mockStorage),
+        readStdin: vi.fn(),
         __esModule: true,
     };
 });
 
 // Import the mocked modules to access their mocks
 import * as loggingModule from '../src/logging';
-import * as storageModule from '../src/util/storage';
+import * as storageModule from '@eldrforge/shared';
 
 // Get references to the mocked objects
 const mockLogger = (loggingModule.getLogger as any)();
-const mockStorage = (storageModule.create as any)();
+const mockStorage = (storageModule.createStorage as any)();
 
 // Mock js-yaml module for YAML parsing
 vi.mock('js-yaml', () => ({
@@ -1539,7 +1537,7 @@ describe('Argument Parsing and Configuration', () => {
         beforeEach(async () => { // Make async to allow await import
             // Dynamically import the mocked modules
             MockedLogging = await import('../src/logging');
-            // MockedStorage = await import('../src/util/storage'); // Import if needed
+            // MockedStorage = await import('@eldrforge/shared'); // Import if needed
 
             // Reset mock function states for the new test
             mockLogger.warn.mockClear(); // Already present for logger

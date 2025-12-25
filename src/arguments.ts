@@ -6,9 +6,8 @@ import { ALLOWED_COMMANDS, DEFAULT_CHARACTER_ENCODING, DEFAULT_COMMAND, KODRDRIV
 import { getLogger } from "./logging";
 const logger = getLogger();
 import { CommandConfig, Config, SecureConfig } from './types'; // Import the Config type from main.ts
-import * as Storage from "./util/storage";
+import { createStorage, readStdin } from "@eldrforge/shared";
 import { safeJsonParse } from '@eldrforge/git-tools';
-import { readStdin } from "./util/stdin";
 
 export const InputSchema = z.object({
     dryRun: z.boolean().optional(),
@@ -613,6 +612,7 @@ export async function getCliConfig(
         audioReviewCommand?: Command;
         reviewCommand?: Command;
         cleanCommand?: Command;
+        precommitCommand?: Command;
         developmentCommand?: Command;
         versionsCommand?: Command;
         updatesCommand?: Command;
@@ -783,6 +783,7 @@ export async function getCliConfig(
 Built-in commands:
   commit      - Run 'kodrdriv commit' in each package
   publish     - Run 'kodrdriv publish' in each package (supports --parallel)
+  precommit   - Run precommit checks (lint -> build -> test) in each package
   link        - Create file: dependencies for local development
   unlink      - Restore npm registry dependencies
   development - Switch to development branch with version bump
@@ -928,6 +929,11 @@ Examples:
         .description('Remove the output directory and all generated files');
     addSharedOptions(cleanCommand);
 
+    const precommitCommand = program
+        .command('precommit')
+        .description('Run precommit checks (lint -> build -> test) with optimization');
+    addSharedOptions(precommitCommand);
+
     const developmentCommand = program
         .command('development')
         .option('--target-version <targetVersion>', 'target version bump type (patch, minor, major) or explicit version (e.g., "2.1.0")', 'patch')
@@ -983,6 +989,7 @@ Examples:
             audioReviewCommand,
             reviewCommand,
             cleanCommand,
+            precommitCommand,
             developmentCommand,
             versionsCommand,
             updatesCommand,
@@ -1319,7 +1326,7 @@ export function validateCommand(commandName: string): string {
 
 export async function validateConfigDir(configDir: string): Promise<string> {
     const logger = getLogger();
-    const storage = Storage.create({ log: logger.info });
+    const storage = createStorage();
 
     // Make sure the config directory is absolute
     const absoluteConfigDir = path.isAbsolute(configDir) ?
@@ -1354,7 +1361,7 @@ export async function validateConfigDir(configDir: string): Promise<string> {
 // Export for testing
 export async function validateContextDirectories(contextDirectories: string[]): Promise<string[]> {
     const logger = getLogger();
-    const storage = Storage.create({ log: logger.info });
+    const storage = createStorage();
 
     // Filter out directories that don't exist
     const validDirectories = [];
