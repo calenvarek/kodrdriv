@@ -269,6 +269,51 @@ async function generateSelfReflection(
         }
         sections.push('');
 
+        // Add detailed execution timeline
+        sections.push('## Detailed Execution Timeline');
+        sections.push('');
+
+        if (toolMetrics.length === 0) {
+            sections.push('*No tool execution timeline available.*');
+        } else {
+            sections.push('| Time | Iteration | Tool | Result | Duration |');
+            sections.push('|------|-----------|------|--------|----------|');
+
+            for (const metric of toolMetrics) {
+                const time = new Date(metric.timestamp).toLocaleTimeString();
+                const result = metric.success ? '✅ Success' : `❌ ${metric.error || 'Failed'}`;
+                sections.push(`| ${time} | ${metric.iteration} | ${metric.name} | ${result} | ${metric.duration}ms |`);
+            }
+            sections.push('');
+        }
+
+        // Add conversation history
+        sections.push('## Conversation History');
+        sections.push('');
+        sections.push('<details>');
+        sections.push('<summary>Click to expand full agentic interaction</summary>');
+        sections.push('');
+        sections.push('```json');
+        sections.push(JSON.stringify(agenticResult.conversationHistory, null, 2));
+        sections.push('```');
+        sections.push('');
+        sections.push('</details>');
+        sections.push('');
+
+        // Add generated release notes
+        sections.push('## Generated Release Notes');
+        sections.push('');
+        sections.push('### Title');
+        sections.push('```');
+        sections.push(agenticResult.releaseNotes.title);
+        sections.push('```');
+        sections.push('');
+        sections.push('### Body');
+        sections.push('```markdown');
+        sections.push(agenticResult.releaseNotes.body);
+        sections.push('```');
+        sections.push('');
+
         // Write the reflection file
         const reflectionContent = sections.join('\n');
         await storage.writeFile(reflectionPath, reflectionContent, 'utf-8');
