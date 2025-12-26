@@ -9,7 +9,7 @@
  * Built-in commands shell out to separate kodrdriv processes to preserve
  * individual project configurations while leveraging centralized dependency analysis.
  *
- * Supported built-in commands: commit, publish, link, unlink, development, branches, checkout, precommit
+ * Supported built-in commands: commit, release, publish, link, unlink, development, branches, checkout, precommit
  *
  * Enhanced logging based on debug/verbose flags:
  *
@@ -1518,7 +1518,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
     // Check if we're in built-in command mode (tree command with second argument)
     const builtInCommand = runConfig.tree?.builtInCommand;
-    const supportedBuiltInCommands = ['commit', 'publish', 'link', 'unlink', 'development', 'branches', 'run', 'checkout', 'updates', 'precommit'];
+    const supportedBuiltInCommands = ['commit', 'release', 'publish', 'link', 'unlink', 'development', 'branches', 'run', 'checkout', 'updates', 'precommit'];
 
     if (builtInCommand && !supportedBuiltInCommands.includes(builtInCommand)) {
         throw new Error(`Unsupported built-in command: ${builtInCommand}. Supported commands: ${supportedBuiltInCommands.join(', ')}`);
@@ -2412,6 +2412,56 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
                 if (runConfig.commit?.openaiMaxOutputTokens) {
                     commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.commit.openaiMaxOutputTokens}`;
+                }
+            }
+
+            // Release command options
+            if (builtInCommand === 'release') {
+                if (runConfig.release?.agentic) {
+                    commandSpecificOptions += ' --agentic';
+                }
+                if (runConfig.release?.selfReflection) {
+                    commandSpecificOptions += ' --self-reflection';
+                }
+                if (runConfig.release?.maxAgenticIterations) {
+                    commandSpecificOptions += ` --max-agentic-iterations ${runConfig.release.maxAgenticIterations}`;
+                }
+                if (runConfig.release?.interactive) {
+                    commandSpecificOptions += ' --interactive';
+                }
+                if (runConfig.release?.from) {
+                    commandSpecificOptions += ` --from "${runConfig.release.from}"`;
+                }
+                if (runConfig.release?.to) {
+                    commandSpecificOptions += ` --to "${runConfig.release.to}"`;
+                }
+                if (runConfig.release?.focus) {
+                    commandSpecificOptions += ` --focus "${runConfig.release.focus}"`;
+                }
+                if (runConfig.release?.context) {
+                    commandSpecificOptions += ` --context "${runConfig.release.context}"`;
+                }
+                if (runConfig.release?.messageLimit) {
+                    commandSpecificOptions += ` --message-limit ${runConfig.release.messageLimit}`;
+                }
+                if (runConfig.release?.maxDiffBytes) {
+                    commandSpecificOptions += ` --max-diff-bytes ${runConfig.release.maxDiffBytes}`;
+                }
+                if (runConfig.release?.noMilestones) {
+                    commandSpecificOptions += ' --no-milestones';
+                }
+                if (runConfig.release?.fromMain) {
+                    commandSpecificOptions += ' --from-main';
+                }
+                // Model-specific options for release
+                if (runConfig.release?.model) {
+                    commandSpecificOptions += ` --model "${runConfig.release.model}"`;
+                }
+                if (runConfig.release?.openaiReasoning) {
+                    commandSpecificOptions += ` --openai-reasoning ${runConfig.release.openaiReasoning}`;
+                }
+                if (runConfig.release?.openaiMaxOutputTokens) {
+                    commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.release.openaiMaxOutputTokens}`;
                 }
             }
 

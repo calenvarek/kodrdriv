@@ -44,7 +44,7 @@ async function generateSelfReflection(
 ): Promise<void> {
     try {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
-        const reflectionPath = getOutputPath(outputDirectory, `agentic-reflection-${timestamp}.md`);
+        const reflectionPath = getOutputPath(outputDirectory, `agentic-reflection-commit-${timestamp}.md`);
 
         // Calculate tool effectiveness metrics
         const toolMetrics = agenticResult.toolMetrics || [];

@@ -21,11 +21,17 @@ npm install -g @eldrforge/kodrdriv
 ```bash
 git add .
 kodrdriv commit
+
+# Or use agentic mode for deep analysis
+kodrdriv commit --agentic --self-reflection
 ```
 
 ### Generate Release Notes
 ```bash
 kodrdriv release
+
+# Or use agentic mode for comprehensive analysis
+kodrdriv release --agentic --self-reflection
 ```
 
 ### Automate Your Release Process
@@ -42,6 +48,11 @@ kodrdriv audio-commit  # Record audio to generate commit messages
 ## Key Features
 
 - **AI-Powered Analysis** - Uses OpenAI models to understand your code changes
+- **Agentic Mode (NEW)** - AI-powered tool-calling for deep investigation and analysis
+  - 13 specialized tools for release notes generation
+  - 8 tools for commit message generation
+  - Self-reflection reports with tool effectiveness metrics
+  - Configurable iteration limits for complex releases
 - **GitHub Issues Integration** - Automatically analyzes recently closed issues to provide context for commit messages, prioritizing milestone-relevant issues
 - **Stop-Context Filtering** - Automatically filters sensitive information from AI-generated content to maintain privacy across projects
 - **Adaptive Diff Management** - Automatically handles large diffs with intelligent truncation and retry logic to ensure reliable LLM processing
