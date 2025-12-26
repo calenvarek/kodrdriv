@@ -2415,7 +2415,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            // Release command options
+            // Release command options (only for direct 'release' command)
             if (builtInCommand === 'release') {
                 if (runConfig.release?.agentic) {
                     commandSpecificOptions += ' --agentic';
@@ -2463,6 +2463,21 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 if (runConfig.release?.openaiMaxOutputTokens) {
                     commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.release.openaiMaxOutputTokens}`;
                 }
+            }
+
+            // Publish command options (only agentic flags - publish reads other release config from config file)
+            if (builtInCommand === 'publish') {
+                // Only pass the agentic-related flags that publish command accepts
+                if (runConfig.release?.agentic) {
+                    commandSpecificOptions += ' --agentic';
+                }
+                if (runConfig.release?.selfReflection) {
+                    commandSpecificOptions += ' --self-reflection';
+                }
+                if (runConfig.release?.maxAgenticIterations) {
+                    commandSpecificOptions += ` --max-agentic-iterations ${runConfig.release.maxAgenticIterations}`;
+                }
+                // Publish has its own --from, --interactive, --from-main flags (not from release config)
             }
 
             // Unlink command options
