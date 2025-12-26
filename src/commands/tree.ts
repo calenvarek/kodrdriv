@@ -2415,8 +2415,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            // Release command options
-            if (builtInCommand === 'release') {
+            // Release command options (applies to both 'release' and 'publish' commands since publish generates release notes)
+            if (builtInCommand === 'release' || builtInCommand === 'publish') {
                 if (runConfig.release?.agentic) {
                     commandSpecificOptions += ' --agentic';
                 }
@@ -2453,14 +2453,14 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 if (runConfig.release?.fromMain) {
                     commandSpecificOptions += ' --from-main';
                 }
-                // Model-specific options for release
-                if (runConfig.release?.model) {
+                // Model-specific options for release (skip if already set at commit level)
+                if (runConfig.release?.model && builtInCommand === 'release') {
                     commandSpecificOptions += ` --model "${runConfig.release.model}"`;
                 }
-                if (runConfig.release?.openaiReasoning) {
+                if (runConfig.release?.openaiReasoning && builtInCommand === 'release') {
                     commandSpecificOptions += ` --openai-reasoning ${runConfig.release.openaiReasoning}`;
                 }
-                if (runConfig.release?.openaiMaxOutputTokens) {
+                if (runConfig.release?.openaiMaxOutputTokens && builtInCommand === 'release') {
                     commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.release.openaiMaxOutputTokens}`;
                 }
             }
