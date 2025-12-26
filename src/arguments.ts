@@ -156,7 +156,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.syncTarget !== undefined ||
         finalCliArgs.skipAlreadyPublished !== undefined ||
         finalCliArgs.forceRepublish !== undefined ||
-        (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.noMilestones !== undefined))
+        (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.agentic !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined))
     ) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
@@ -168,6 +168,16 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.forceRepublish !== undefined) transformedCliArgs.publish.forceRepublish = finalCliArgs.forceRepublish;
         if ((commandName === 'publish' || finalCliArgs.mergeMethod !== undefined || finalCliArgs.targetVersion !== undefined || finalCliArgs.syncTarget !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.skipAlreadyPublished !== undefined || finalCliArgs.forceRepublish !== undefined) && finalCliArgs.noMilestones !== undefined) transformedCliArgs.publish.noMilestones = finalCliArgs.noMilestones;
         if (finalCliArgs.updateDeps !== undefined) transformedCliArgs.publish.updateDeps = finalCliArgs.updateDeps;
+
+        // Map release-related flags from publish command into release config (only if any are set)
+        if (commandName === 'publish' && (finalCliArgs.agentic !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined)) {
+            transformedCliArgs.release = {
+                ...(transformedCliArgs.release || {}),
+                ...(finalCliArgs.agentic !== undefined ? { agentic: finalCliArgs.agentic } : {}),
+                ...(finalCliArgs.selfReflection !== undefined ? { selfReflection: finalCliArgs.selfReflection } : {}),
+                ...(finalCliArgs.maxAgenticIterations !== undefined ? { maxAgenticIterations: finalCliArgs.maxAgenticIterations } : {}),
+            };
+        }
     }
 
     // Nested mappings for 'development' options
@@ -769,6 +779,9 @@ export async function getCliConfig(
         .option('--no-milestones', 'disable GitHub milestone integration')
         .option('--from-main', 'force comparison against main branch instead of previous release tag')
         .option('--update-deps <scope>', 'update inter-project dependencies before publish (e.g., --update-deps @fjell)')
+        .option('--agentic', 'use agentic mode with tool-calling for release notes generation')
+        .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
+        .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for agentic mode (default: 30)', parseInt)
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
