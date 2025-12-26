@@ -57,6 +57,10 @@ export const ConfigSchema = z.object({
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
         currentBranch: z.string().optional(),
+        // Agentic mode options
+        agentic: z.boolean().optional(),
+        maxAgenticIterations: z.number().optional(),
+        selfReflection: z.boolean().optional(),
     }).optional(),
     review: z.object({
         includeCommitHistory: z.boolean().optional(),
@@ -261,6 +265,10 @@ export type ReleaseConfig = {
     openaiReasoning?: 'low' | 'medium' | 'high';
     openaiMaxOutputTokens?: number;
     currentBranch?: string;
+    // Agentic mode options
+    agentic?: boolean;
+    maxAgenticIterations?: number;
+    selfReflection?: boolean;
 }
 
 export type ReviewConfig = {
