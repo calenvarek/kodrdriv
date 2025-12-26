@@ -2415,8 +2415,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            // Release command options (applies to both 'release' and 'publish' commands since publish generates release notes)
-            if (builtInCommand === 'release' || builtInCommand === 'publish') {
+            // Release command options (only for direct 'release' command)
+            if (builtInCommand === 'release') {
                 if (runConfig.release?.agentic) {
                     commandSpecificOptions += ' --agentic';
                 }
@@ -2453,16 +2453,31 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 if (runConfig.release?.fromMain) {
                     commandSpecificOptions += ' --from-main';
                 }
-                // Model-specific options for release (skip if already set at commit level)
-                if (runConfig.release?.model && builtInCommand === 'release') {
+                // Model-specific options for release
+                if (runConfig.release?.model) {
                     commandSpecificOptions += ` --model "${runConfig.release.model}"`;
                 }
-                if (runConfig.release?.openaiReasoning && builtInCommand === 'release') {
+                if (runConfig.release?.openaiReasoning) {
                     commandSpecificOptions += ` --openai-reasoning ${runConfig.release.openaiReasoning}`;
                 }
-                if (runConfig.release?.openaiMaxOutputTokens && builtInCommand === 'release') {
+                if (runConfig.release?.openaiMaxOutputTokens) {
                     commandSpecificOptions += ` --openai-max-output-tokens ${runConfig.release.openaiMaxOutputTokens}`;
                 }
+            }
+
+            // Publish command options (only agentic flags - publish reads other release config from config file)
+            if (builtInCommand === 'publish') {
+                // Only pass the agentic-related flags that publish command accepts
+                if (runConfig.release?.agentic) {
+                    commandSpecificOptions += ' --agentic';
+                }
+                if (runConfig.release?.selfReflection) {
+                    commandSpecificOptions += ' --self-reflection';
+                }
+                if (runConfig.release?.maxAgenticIterations) {
+                    commandSpecificOptions += ` --max-agentic-iterations ${runConfig.release.maxAgenticIterations}`;
+                }
+                // Publish has its own --from, --interactive, --from-main flags (not from release config)
             }
 
             // Unlink command options
