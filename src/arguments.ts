@@ -78,6 +78,9 @@ export const InputSchema = z.object({
     workingTagPrefix: z.string().optional(), // Tag prefix for working branch tags
     updateDeps: z.string().optional(), // Scope for inter-project dependency updates in publish command
     interProject: z.boolean().optional(), // Update inter-project dependencies in updates command
+    agentic: z.boolean().optional(), // Enable agentic mode with tool-calling
+    selfReflection: z.boolean().optional(), // Generate self-reflection report
+    maxAgenticIterations: z.number().optional(), // Maximum iterations for agentic mode
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -128,7 +131,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
 
     // Nested mappings for 'release' options (only when it's NOT a publish command)
     if (commandName !== 'publish') {
-        if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined) {
+        if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined || finalCliArgs.agentic !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined) {
             transformedCliArgs.release = {};
             if (finalCliArgs.from !== undefined) transformedCliArgs.release.from = finalCliArgs.from;
             if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
@@ -139,6 +142,9 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.release.noMilestones = finalCliArgs.noMilestones;
             if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.release.openaiReasoning = finalCliArgs.openaiReasoning;
             if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.release.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
+            if (finalCliArgs.agentic !== undefined) transformedCliArgs.release.agentic = finalCliArgs.agentic;
+            if (finalCliArgs.selfReflection !== undefined) transformedCliArgs.release.selfReflection = finalCliArgs.selfReflection;
+            if (finalCliArgs.maxAgenticIterations !== undefined) transformedCliArgs.release.maxAgenticIterations = finalCliArgs.maxAgenticIterations;
         }
     }
 
@@ -744,6 +750,9 @@ export async function getCliConfig(
         .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
         .option('--no-milestones', 'disable GitHub milestone integration')
         .option('--from-main', 'force comparison against main branch instead of previous release tag')
+        .option('--agentic', 'use agentic mode with tool-calling for release notes generation')
+        .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
+        .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for agentic mode (default: 30)', parseInt)
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
