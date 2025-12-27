@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PullRequestCheckError } from '../../src/error/CommandErrors';
+import { PullRequestCheckError } from '@eldrforge/shared';
 
 describe('PullRequestCheckError', () => {
     it('should generate recovery instructions for test failures', () => {

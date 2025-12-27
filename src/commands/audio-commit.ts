@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import path from 'path';
 import { processAudio } from '@theunwalked/unplayable';
-import { CancellationError } from '../error/CancellationError';
-import { UserCancellationError } from '../error/CommandErrors';
+import { CancellationError, UserCancellationError } from '@eldrforge/shared';
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
 import { getTimestampedAudioFilename } from '../util/general';

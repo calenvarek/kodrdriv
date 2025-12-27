@@ -140,9 +140,13 @@ const mockStorage = {
     writeFile: vi.fn().mockResolvedValue(undefined)
 };
 const mockCreateStorage = vi.fn().mockReturnValue(mockStorage);
-vi.mock('@eldrforge/shared', () => ({
-    createStorage: mockCreateStorage
-}));
+vi.mock('@eldrforge/shared', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@eldrforge/shared')>();
+    return {
+        ...actual,
+        createStorage: mockCreateStorage
+    };
+});
 
 // getUserChoice mock is defined above with other ai-service mocks
 
@@ -2726,7 +2730,7 @@ describe('review command', () => {
 
         it('should handle CommandError in execute wrapper', async () => {
             // Mock a CommandError to be thrown
-            const { CommandError } = await import('../../src/error/CommandErrors');
+            const { CommandError } = await import('@eldrforge/shared');
             mockCreateCompletion.mockRejectedValue(new CommandError('Test command error', 'TEST_ERROR'));
 
             const runConfig = {

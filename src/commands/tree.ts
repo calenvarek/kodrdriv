@@ -89,8 +89,8 @@ export const __resetGlobalState = () => {
     executionContext = null;
 };
 
-// Import shared mutex implementation
-import { SimpleMutex } from '../util/mutex';
+// Import shared mutex implementation from tree-execution
+import { SimpleMutex } from '@eldrforge/tree-execution';
 
 const globalStateMutex = new SimpleMutex();
 
