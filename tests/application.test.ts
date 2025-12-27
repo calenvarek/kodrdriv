@@ -5,15 +5,19 @@ vi.mock('@theunwalked/cardigantime', () => ({
     create: vi.fn()
 }));
 
-vi.mock('@eldrforge/shared', () => ({
-    promptConfirmation: vi.fn(),
-    createStorage: vi.fn().mockReturnValue({
-        exists: vi.fn(),
-        readFile: vi.fn(),
-        writeFile: vi.fn(),
-        createDirectory: vi.fn(),
-    })
-}));
+vi.mock('@eldrforge/shared', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@eldrforge/shared')>();
+    return {
+        ...actual,
+        promptConfirmation: vi.fn(),
+        createStorage: vi.fn().mockReturnValue({
+            exists: vi.fn(),
+            readFile: vi.fn(),
+            writeFile: vi.fn(),
+            createDirectory: vi.fn(),
+        })
+    };
+});
 
 vi.mock('../src/logging', () => ({
     getLogger: vi.fn().mockReturnValue({

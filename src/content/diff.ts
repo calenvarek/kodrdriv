@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { ExitError } from '../error/ExitError';
+import { ExitError } from '@eldrforge/shared';
 import { getLogger } from '../logging';
 import { run } from '@eldrforge/git-tools';
 import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../constants';

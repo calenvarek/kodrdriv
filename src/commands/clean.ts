@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { DEFAULT_OUTPUT_DIRECTORY } from '../constants';
-import { FileOperationError } from '../error/CommandErrors';
+import { FileOperationError } from '@eldrforge/shared';
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
 import { createStorage } from '@eldrforge/shared';

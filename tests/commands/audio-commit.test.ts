@@ -529,7 +529,7 @@ describe('audio-commit', () => {
 
         it('should handle legacy CancellationError instances', async () => {
             // First, let's import the actual CancellationError to properly test it
-            const { CancellationError } = await import('../../src/error/CancellationError');
+            const { CancellationError } = await import('@eldrforge/shared');
 
             // Arrange
             const mockConfig = createBaseConfig({
@@ -553,7 +553,7 @@ describe('audio-commit', () => {
                 audioCommit: {}
             });
 
-            const { UserCancellationError } = await import('../../src/error/CommandErrors');
+            const { UserCancellationError } = await import('@eldrforge/shared');
             const userCancellationError = new UserCancellationError('User cancelled operation');
             (processAudio as MockedFunction<typeof processAudio>).mockRejectedValue(userCancellationError);
 

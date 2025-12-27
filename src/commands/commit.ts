@@ -7,7 +7,7 @@ import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_OUTPUT_DIRECTORY } from '../constant
 import * as Diff from '../content/diff';
 import * as Log from '../content/log';
 import * as Files from '../content/files';
-import { CommandError, ValidationError, ExternalDependencyError } from '../error/CommandErrors';
+import { CommandError, ValidationError, ExternalDependencyError } from '@eldrforge/shared';
 import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
 import { run, validateString } from '@eldrforge/git-tools';

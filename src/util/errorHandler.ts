@@ -1,5 +1,5 @@
 import { Logger } from 'winston';
-import { CommandError, UserCancellationError } from '../error/CommandErrors';
+import { CommandError, UserCancellationError } from '@eldrforge/shared';
 
 export interface ErrorHandlerOptions {
     logger: Logger;
@@ -38,7 +38,7 @@ export const handleCommandError = async (
     // Handle known command errors
     if (error instanceof CommandError) {
         // Import PullRequestCheckError dynamically to avoid circular imports
-        const { PullRequestCheckError } = await import('../error/CommandErrors');
+        const { PullRequestCheckError } = await import('@eldrforge/shared');
 
         // Special handling for PR check errors since they have detailed recovery instructions
         if (error instanceof PullRequestCheckError) {
