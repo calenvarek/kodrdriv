@@ -1,5 +1,5 @@
 import type { DependencyGraph, PackageInfo } from '@eldrforge/tree-core';
-import { ParallelExecutionCheckpoint, ExecutionState } from '../../src/types/parallelExecution';
+import type { ParallelExecutionCheckpoint, ExecutionState } from '@eldrforge/tree-execution';
 import { Config } from '../../src/types';
 
 /**
