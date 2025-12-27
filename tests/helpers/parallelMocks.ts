@@ -1,4 +1,4 @@
-import { DependencyGraph, PackageInfo } from '../../src/util/dependencyGraph';
+import type { DependencyGraph, PackageInfo } from '@eldrforge/tree-core';
 import { ParallelExecutionCheckpoint, ExecutionState } from '../../src/types/parallelExecution';
 import { Config } from '../../src/types';
 

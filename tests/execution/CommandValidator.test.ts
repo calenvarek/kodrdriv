@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CommandValidator } from '../../src/execution/CommandValidator';
+import { CommandValidator } from '@eldrforge/tree-execution';
 
 describe('CommandValidator', () => {
     describe('validateForParallel', () => {

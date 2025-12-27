@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { RecoveryManager, loadRecoveryManager } from '../../src/execution/RecoveryManager';
-import { CheckpointManager } from '../../src/util/checkpointManager';
+import { RecoveryManager, loadRecoveryManager } from '@eldrforge/tree-execution';
+import { CheckpointManager } from '@eldrforge/tree-execution';
 import { createMockGraph, createMockCheckpoint } from '../helpers/parallelMocks';
 import path from 'path';
 import fs from 'fs/promises';

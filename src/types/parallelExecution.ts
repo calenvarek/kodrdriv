@@ -1,5 +1,5 @@
 import { Config } from '../types';
-import { SerializedGraph } from '../util/dependencyGraph';
+import type { SerializedGraph } from '@eldrforge/tree-core';
 
 export interface ParallelExecutionCheckpoint {
     // Metadata

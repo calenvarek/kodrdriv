@@ -43,6 +43,8 @@
     "@eldrforge/git-tools": "^0.1.13",
     "@eldrforge/github-tools": "^0.1.15",
     "@eldrforge/shared": "^0.1.2",
+    "@eldrforge/tree-core": "^0.1.0",
+    "@eldrforge/tree-execution": "^0.1.0",
     "@octokit/rest": "^22.0.0",
     "@riotprompt/riotprompt": "^0.0.8",
     "@theunwalked/cardigantime": "^0.0.16",

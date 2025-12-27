@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ResourceMonitor } from '../../src/execution/ResourceMonitor';
+import { ResourceMonitor } from '@eldrforge/tree-execution';
 
 describe('ResourceMonitor', () => {
     let monitor: ResourceMonitor;

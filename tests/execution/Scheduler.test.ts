@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Scheduler } from '../../src/execution/Scheduler';
-import { DependencyChecker } from '../../src/execution/DependencyChecker';
+import { Scheduler, DependencyChecker } from '@eldrforge/tree-execution';
 import { createMockGraph, createMockExecutionState, MockGraphPatterns } from '../helpers/parallelMocks';
 
 describe('Scheduler', () => {

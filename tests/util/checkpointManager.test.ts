@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CheckpointManager } from '../../src/util/checkpointManager';
+import { CheckpointManager } from '@eldrforge/tree-execution';
 import { createMockCheckpoint } from '../helpers/parallelMocks';
 import path from 'path';
 import fs from 'fs/promises';

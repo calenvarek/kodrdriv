@@ -6,7 +6,7 @@ import {
     validateGraph,
     serializeGraph,
     deserializeGraph
-} from '../../src/util/dependencyGraph';
+} from '@eldrforge/tree-core';
 import { createMockGraph, MockGraphPatterns } from '../helpers/parallelMocks';
 
 describe('dependencyGraph', () => {

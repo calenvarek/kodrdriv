@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DependencyChecker } from '../../src/execution/DependencyChecker';
+import { DependencyChecker } from '@eldrforge/tree-execution';
 import { createMockGraph, createMockExecutionState, MockGraphPatterns } from '../helpers/parallelMocks';
 
 describe('DependencyChecker', () => {
