@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
-import { ExitError } from '../../src/error/ExitError';
+import { ExitError } from '@eldrforge/shared';
 import { DEFAULT_GIT_COMMAND_MAX_BUFFER } from '../../src/constants';
 
 // Mock ESM modules

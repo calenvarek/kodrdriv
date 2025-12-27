@@ -18,7 +18,8 @@ import { createStorage } from '@eldrforge/shared';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 
 
-interface PackageInfo {
+// Simplified package info for version management (distinct from tree-core's PackageInfo)
+interface VersionPackageInfo {
     name: string;
     version: string;
     packageJsonPath: string;
@@ -30,9 +31,9 @@ interface PackageInfo {
 const discoverPackages = async (
     directories: string[],
     logger: any
-): Promise<PackageInfo[]> => {
+): Promise<VersionPackageInfo[]> => {
     const storage = createStorage();
-    const packages: PackageInfo[] = [];
+    const packages: VersionPackageInfo[] = [];
 
     for (const directory of directories) {
         logger.verbose(`Scanning directory: ${directory}`);
@@ -111,8 +112,8 @@ const normalizeToMinorVersion = (versionString: string): string => {
  * Update dependencies in a package.json to normalize same-scope dependencies to major.minor format
  */
 const updateDependenciesMinor = async (
-    packageInfo: PackageInfo,
-    allPackages: PackageInfo[],
+    packageInfo: VersionPackageInfo,
+    allPackages: VersionPackageInfo[],
     isDryRun: boolean,
     logger: any
 ): Promise<boolean> => {
@@ -215,8 +216,8 @@ const executeMinor = async (runConfig: Config): Promise<string> => {
     logger.info(`VERSIONS_PACKAGES_FOUND: Found packages for normalization | Count: ${allPackages.length} | Status: Analyzing`);
 
     // Group packages by scope
-    const packagesByScope = new Map<string, PackageInfo[]>();
-    const unscopedPackages: PackageInfo[] = [];
+    const packagesByScope = new Map<string, VersionPackageInfo[]>();
+    const unscopedPackages: VersionPackageInfo[] = [];
 
     for (const pkg of allPackages) {
         const scope = getPackageScope(pkg.name);

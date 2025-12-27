@@ -21,7 +21,7 @@ import * as Unlink from './commands/unlink';
 import * as Updates from './commands/updates';
 import * as Versions from './commands/versions';
 import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PRECOMMIT, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_TREE, COMMAND_UNLINK, COMMAND_UPDATES, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR, VERSION } from './constants';
-import { UserCancellationError } from './error/CommandErrors';
+import { UserCancellationError } from '@eldrforge/shared';
 import { getLogger, setLogLevel } from './logging';
 import { Config, SecureConfig } from './types';
 

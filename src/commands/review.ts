@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Formatter, Model, Request } from '@riotprompt/riotprompt';
 import type { ChatCompletionMessageParam } from 'openai/resources';
-import { ValidationError, FileOperationError, CommandError } from '../error/CommandErrors';
+import { ValidationError, FileOperationError, CommandError } from '@eldrforge/shared';
 import { getLogger } from '../logging';
 import { Config } from '../types';
 import {

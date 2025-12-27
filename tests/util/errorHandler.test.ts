@@ -15,7 +15,7 @@ import {
     PullRequestCheckError,
     ConfigurationError,
     ValidationError
-} from '../../src/error/CommandErrors';
+} from '@eldrforge/shared';
 
 // Mock logger
 const createMockLogger = (): Logger => {
