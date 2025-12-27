@@ -38,7 +38,7 @@
   "author": "Calen Varek <calenvarek@gmail.com>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@eldrforge/ai-service": "^0.1.14",
+    "@eldrforge/ai-service": "file:../ai-service",
     "@eldrforge/audio-tools": "^0.1.8",
     "@eldrforge/git-tools": "^0.1.14",
     "@eldrforge/github-tools": "^0.1.16",
