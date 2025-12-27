@@ -1,8 +1,6 @@
 import path from 'path';
-import { createStorage, deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, incrementPrereleaseVersion, convertToReleaseVersion } from '@eldrforge/shared';
+import { deepMerge, stringifyJSON, incrementPatchVersion, incrementMinorVersion, incrementMajorVersion, validateVersionString, calculateTargetVersion, incrementPrereleaseVersion, convertToReleaseVersion } from '@eldrforge/shared';
 import { getLogger } from '../logging';
-// eslint-disable-next-line no-restricted-imports
-import * as fs from 'fs';
 
 /**
  * Get version from a specific branch's package.json
@@ -301,63 +299,7 @@ export const getTimestampedArchivedTranscriptFilename = (): string => {
     return getTimestampedFilename('review-transcript', '.md');
 };
 
-/**
- * Archives an audio file and its transcription to the output/kodrdriv directory
- * @param originalAudioPath - Path to the original audio file
- * @param transcriptionText - The raw transcription text
- * @param outputDirectory - Base output directory (default: 'output')
- * @returns Object containing the paths where files were archived
- */
-export const archiveAudio = async (
-    originalAudioPath: string,
-    transcriptionText: string,
-    outputDirectory: string = 'output'
-): Promise<{ audioPath: string; transcriptPath: string }> => {
-    const logger = getLogger();
-    const storage = createStorage();
-
-    try {
-        // Ensure the output directory exists (should already be output/kodrdriv)
-        await storage.ensureDirectory(outputDirectory);
-
-        // Get file extension from original audio file
-        const originalExtension = path.extname(originalAudioPath);
-
-        // Generate timestamped filenames
-        const archivedAudioFilename = getTimestampedArchivedAudioFilename(originalExtension);
-        const archivedTranscriptFilename = getTimestampedArchivedTranscriptFilename();
-
-        // Full paths for archived files - directly in the output directory
-        const archivedAudioPath = path.join(outputDirectory, archivedAudioFilename);
-        const archivedTranscriptPath = path.join(outputDirectory, archivedTranscriptFilename);
-
-        // Copy audio file if it exists
-        if (await storage.isFileReadable(originalAudioPath)) {
-            // Read original audio file as buffer using fs directly for binary files
-            const audioBuffer = await fs.promises.readFile(originalAudioPath);
-            await storage.writeFile(archivedAudioPath, audioBuffer, 'binary');
-            logger.debug('Archived audio file to: %s', archivedAudioPath);
-        } else {
-            logger.warn('AUDIO_FILE_NOT_FOUND: Original audio file not accessible | Path: %s | Impact: Cannot archive original', originalAudioPath);
-        }
-
-        // Save transcription text
-        const transcriptContent = `# Audio Transcription Archive\n\n**Original Audio File:** ${originalAudioPath}\n**Archived:** ${new Date().toISOString()}\n\n## Transcription\n\n${transcriptionText}`;
-        await storage.writeFile(archivedTranscriptPath, transcriptContent, 'utf8');
-        logger.debug('Archived transcription to: %s', archivedTranscriptPath);
-
-        logger.info('AUDIO_ARCHIVED: Audio and transcript archived successfully | Audio: %s | Transcript: %s | Status: archived', archivedAudioFilename, archivedTranscriptFilename);
-
-        return {
-            audioPath: archivedAudioPath,
-            transcriptPath: archivedTranscriptPath
-        };
-
-    } catch (error: any) {
-        logger.error('AUDIO_ARCHIVE_FAILED: Failed to archive audio files | Error: %s | Impact: Audio not preserved', error.message);
-        throw new Error(`Audio archiving failed: ${error.message}`);
-    }
-};
+// archiveAudio function moved to @eldrforge/audio-tools
 
 /**
  * Query npm registry for published version of a package

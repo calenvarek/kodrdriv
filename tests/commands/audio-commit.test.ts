@@ -4,7 +4,7 @@ import { Config } from '../../src/types';
 import { processAudio } from '@theunwalked/unplayable';
 import { transcribeAudio } from '@eldrforge/ai-service';
 import { execute as executeCommit } from '../../src/commands/commit';
-import { createAudioRecordingCountdown } from '../../src/util/countdown';
+import { createAudioRecordingCountdown } from '@eldrforge/audio-tools';
 import { getTimestampedAudioFilename } from '../../src/util/general';
 import * as StorageAdapter from '../../src/util/storageAdapter';
 import * as LoggerAdapter from '../../src/util/loggerAdapter';
@@ -33,7 +33,13 @@ vi.mock('../../src/logging', () => ({
 vi.mock('../../src/commands/commit');
 vi.mock('@theunwalked/unplayable');
 vi.mock('@eldrforge/ai-service');
-vi.mock('../../src/util/countdown');
+vi.mock('@eldrforge/audio-tools', async (importOriginal) => {
+    const actual = await importOriginal() as any;
+    return {
+        ...actual,
+        createAudioRecordingCountdown: vi.fn()
+    };
+});
 vi.mock('../../src/util/general');
 vi.mock('../../src/util/storageAdapter');
 vi.mock('../../src/util/loggerAdapter');

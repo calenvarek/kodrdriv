@@ -15,7 +15,7 @@ import * as Logging from '../../src/logging';
 import * as ReviewCommand from '../../src/commands/review';
 import * as Unplayable from '@theunwalked/unplayable';
 import * as AIService from '@eldrforge/ai-service';
-import * as Countdown from '../../src/util/countdown';
+import * as Countdown from '@eldrforge/audio-tools';
 
 // Mock the logging module
 vi.mock('../../src/logging', () => ({
@@ -29,7 +29,13 @@ vi.mock('../../src/util/general');
 vi.mock('@eldrforge/shared');
 vi.mock('../../src/util/storageAdapter');
 vi.mock('../../src/util/loggerAdapter');
-vi.mock('../../src/util/countdown');
+vi.mock('@eldrforge/audio-tools', async (importOriginal) => {
+    const actual = await importOriginal() as any;
+    return {
+        ...actual,
+        createAudioRecordingCountdown: vi.fn()
+    };
+});
 
 // Mock storage that matches the Storage.Utility interface
 const mockStorage = {

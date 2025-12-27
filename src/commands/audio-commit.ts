@@ -5,10 +5,10 @@ import { CancellationError } from '../error/CancellationError';
 import { UserCancellationError } from '../error/CommandErrors';
 import { getDryRunLogger, getLogger } from '../logging';
 import { Config } from '../types';
-import { getTimestampedAudioFilename, archiveAudio } from '../util/general';
+import { getTimestampedAudioFilename } from '../util/general';
 import { transcribeAudio } from '@eldrforge/ai-service';
 import { execute as executeCommit } from './commit';
-import { createAudioRecordingCountdown } from '../util/countdown';
+import { createAudioRecordingCountdown, archiveAudio } from '@eldrforge/audio-tools';
 import { createStorageAdapter } from '../util/storageAdapter';
 import { createLoggerAdapter } from '../util/loggerAdapter';
 
