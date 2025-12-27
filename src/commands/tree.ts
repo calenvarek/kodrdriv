@@ -50,14 +50,14 @@ import { runGitWithLock, isInGitRepository } from '../util/gitMutex';
 import type {
     PackageInfo,
     DependencyGraph
-} from '../util/dependencyGraph';
+} from '@eldrforge/tree-core';
 import {
     scanForPackageJsonFiles,
     parsePackageJson,
     buildDependencyGraph,
     topologicalSort,
     shouldExclude
-} from '../util/dependencyGraph';
+} from '@eldrforge/tree-core';
 import { optimizePrecommitCommand, recordTestRun } from '../util/precommitOptimizations';
 import { PerformanceTimer } from '../util/performance';
 
@@ -1343,7 +1343,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
     }
 
     // Handle parallel execution recovery commands
-    const { loadRecoveryManager } = await import('../execution/RecoveryManager');
+    const { loadRecoveryManager } = await import('@eldrforge/tree-execution');
 
     // Handle status-parallel command
     if (runConfig.tree?.statusParallel) {
@@ -2519,7 +2519,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Validate command for parallel execution if parallel mode is enabled
             if (runConfig.tree?.parallel) {
-                const { CommandValidator } = await import('../execution/CommandValidator');
+                const { CommandValidator } = await import('@eldrforge/tree-execution');
                 const validation = CommandValidator.validateForParallel(commandToRun, builtInCommand);
 
                 CommandValidator.logValidation(validation);
@@ -2662,7 +2662,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
 
                 // Import parallel execution components
-                const { TreeExecutionAdapter, createParallelProgressLogger, formatParallelResult } = await import('../execution/TreeExecutionAdapter');
+                const { TreeExecutionAdapter, createParallelProgressLogger, formatParallelResult } = await import('@eldrforge/tree-execution');
                 const os = await import('os');
 
                 // Create task pool
@@ -2679,7 +2679,7 @@ export const execute = async (runConfig: Config): Promise<string> => {
                         maxRetryDelay: runConfig.tree.retry?.maxDelayMs || 60000,
                         backoffMultiplier: runConfig.tree.retry?.backoffMultiplier || 2
                     },
-                    executePackage
+                    executePackage as any
                 );
 
                 // Set up progress logging
