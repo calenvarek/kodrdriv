@@ -1,4 +1,4 @@
-import { ExecutionMetrics } from '../types/parallelExecution';
+import type { ExecutionMetrics } from '@eldrforge/tree-execution';
 
 /**
  * PerformanceTracker collects and analyzes performance metrics

@@ -1,4 +1,4 @@
-import { ExecutionResult, ExecutionMetrics } from '../types/parallelExecution';
+import type { ExecutionResult, ExecutionMetrics } from '@eldrforge/tree-execution';
 
 /**
  * ProgressFormatter creates beautiful formatted output for parallel execution

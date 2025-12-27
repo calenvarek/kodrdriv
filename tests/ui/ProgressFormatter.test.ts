@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProgressFormatter } from '../../src/ui/ProgressFormatter';
-import { ExecutionResult, ExecutionMetrics } from '../../src/types/parallelExecution';
+import type { ExecutionResult, ExecutionMetrics } from '@eldrforge/tree-execution';
 
 describe('ProgressFormatter', () => {
     describe('createProgressBar', () => {
