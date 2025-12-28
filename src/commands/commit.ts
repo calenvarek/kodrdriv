@@ -30,7 +30,6 @@ import {
     CommitContext,
     runAgenticCommit,
     generateReflectionReport,
-    saveReflectionReport,
 } from '@eldrforge/ai-service';
 import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
 import { toAIConfig } from '../util/aiAdapter';
