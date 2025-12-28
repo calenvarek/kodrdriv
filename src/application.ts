@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { setLogger as setGitLogger } from '@eldrforge/git-tools';
 import { setLogger as setGitHubLogger, setPromptFunction } from '@eldrforge/github-tools';
 import { promptConfirmation } from '@eldrforge/shared';
+import { initializeTemplates } from '@eldrforge/ai-service';
 import { CommandConfig } from 'types';
 import * as Arguments from './arguments';
 import * as AudioCommit from './commands/audio-commit';
@@ -61,6 +62,9 @@ export function configureEarlyLogging(): void {
 export async function runApplication(): Promise<void> {
     // Configure logging early, before CardiganTime initialization
     configureEarlyLogging();
+
+    // Initialize RiotPrompt templates for ai-service
+    initializeTemplates();
 
     // Use proper typing for CardiganTime create function
     interface CardigantimeCreateParams {

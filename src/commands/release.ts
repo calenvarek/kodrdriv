@@ -18,6 +18,7 @@ import {
     ReleaseContent,
     ReleaseContext,
     runAgenticRelease,
+    generateReflectionReport,
 } from '@eldrforge/ai-service';
 import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
 import { toAIConfig } from '../util/aiAdapter';
@@ -119,7 +120,7 @@ Please revise the release notes according to the user's feedback while maintaini
     );
 }
 
-// Helper function to generate self-reflection output for release notes
+// Helper function to generate self-reflection output for release notes using observability module
 async function generateSelfReflection(
     agenticResult: any,
     outputDirectory: string,
@@ -130,193 +131,21 @@ async function generateSelfReflection(
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('.')[0];
         const reflectionPath = getOutputPath(outputDirectory, `agentic-reflection-release-${timestamp}.md`);
 
-        // Calculate tool effectiveness metrics
-        const toolMetrics = agenticResult.toolMetrics || [];
-        const toolStats = new Map<string, { total: number; success: number; failures: number; totalDuration: number }>();
+        // Use new observability reflection generator
+        const report = await generateReflectionReport({
+            iterations: agenticResult.iterations || 0,
+            toolCallsExecuted: agenticResult.toolCallsExecuted || 0,
+            maxIterations: agenticResult.maxIterations || 30,
+            toolMetrics: agenticResult.toolMetrics || [],
+            conversationHistory: agenticResult.conversationHistory || [],
+            releaseNotes: agenticResult.releaseNotes,
+            logger
+        });
 
-        for (const metric of toolMetrics) {
-            if (!toolStats.has(metric.name)) {
-                toolStats.set(metric.name, { total: 0, success: 0, failures: 0, totalDuration: 0 });
-            }
-            const stats = toolStats.get(metric.name)!;
-            stats.total++;
-            stats.totalDuration += metric.duration;
-            if (metric.success) {
-                stats.success++;
-            } else {
-                stats.failures++;
-            }
-        }
-
-        // Build reflection document
-        const sections: string[] = [];
-
-        sections.push('# Agentic Release Notes - Self-Reflection Report');
-        sections.push('');
-        sections.push(`Generated: ${new Date().toISOString()}`);
-        sections.push('');
-
-        sections.push('## Execution Summary');
-        sections.push('');
-        sections.push(`- **Iterations**: ${agenticResult.iterations}`);
-        sections.push(`- **Tool Calls**: ${agenticResult.toolCallsExecuted}`);
-        sections.push(`- **Unique Tools Used**: ${toolStats.size}`);
-        sections.push('');
-
-        sections.push('## Tool Effectiveness Analysis');
-        sections.push('');
-
-        if (toolStats.size === 0) {
-            sections.push('*No tools were called during execution.*');
-            sections.push('');
-        } else {
-            sections.push('| Tool | Calls | Success Rate | Avg Duration | Total Time |');
-            sections.push('|------|-------|--------------|--------------|------------|');
-
-            const sortedTools = Array.from(toolStats.entries()).sort((a, b) => b[1].total - a[1].total);
-
-            for (const [toolName, stats] of sortedTools) {
-                const successRate = ((stats.success / stats.total) * 100).toFixed(1);
-                const avgDuration = (stats.totalDuration / stats.total).toFixed(0);
-                const totalTime = stats.totalDuration.toFixed(0);
-
-                sections.push(`| ${toolName} | ${stats.total} | ${successRate}% | ${avgDuration}ms | ${totalTime}ms |`);
-            }
-            sections.push('');
-        }
-
-        // Tool usage insights
-        sections.push('## Tool Usage Insights');
-        sections.push('');
-
-        if (toolStats.size > 0) {
-            const mostUsedTool = Array.from(toolStats.entries()).sort((a, b) => b[1].total - a[1].total)[0];
-            sections.push(`- **Most Used Tool**: \`${mostUsedTool[0]}\` (${mostUsedTool[1].total} calls)`);
-
-            const slowestTool = Array.from(toolStats.entries()).sort((a, b) =>
-                (b[1].totalDuration / b[1].total) - (a[1].totalDuration / a[1].total)
-            )[0];
-            const slowestAvg = (slowestTool[1].totalDuration / slowestTool[1].total).toFixed(0);
-            sections.push(`- **Slowest Tool**: \`${slowestTool[0]}\` (${slowestAvg}ms average)`);
-
-            const failedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.failures > 0);
-            if (failedTools.length > 0) {
-                sections.push(`- **Tools with Failures**: ${failedTools.length} tool(s) had at least one failure`);
-                for (const [toolName, stats] of failedTools) {
-                    sections.push(`  - \`${toolName}\`: ${stats.failures}/${stats.total} calls failed`);
-                }
-            } else {
-                sections.push('- **Reliability**: All tool calls succeeded ✓');
-            }
-        }
-        sections.push('');
-
-        // Execution patterns
-        sections.push('## Execution Patterns');
-        sections.push('');
-
-        const iterationsPerToolCall = agenticResult.toolCallsExecuted > 0
-            ? (agenticResult.iterations / agenticResult.toolCallsExecuted).toFixed(2)
-            : 'N/A';
-        sections.push(`- **Iterations per Tool Call**: ${iterationsPerToolCall}`);
-
-        const totalExecutionTime = Array.from(toolStats.values())
-            .reduce((sum, stats) => sum + stats.totalDuration, 0);
-        sections.push(`- **Total Tool Execution Time**: ${totalExecutionTime.toFixed(0)}ms`);
-
-        if (agenticResult.toolCallsExecuted > 0) {
-            const avgTimePerCall = (totalExecutionTime / agenticResult.toolCallsExecuted).toFixed(0);
-            sections.push(`- **Average Time per Tool Call**: ${avgTimePerCall}ms`);
-        }
-        sections.push('');
-
-        // Recommendations
-        sections.push('## Recommendations');
-        sections.push('');
-
-        const recommendations: string[] = [];
-
-        const failedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.failures > 0);
-        if (failedTools.length > 0) {
-            recommendations.push('- **Tool Reliability**: Some tools failed during execution. Review error messages and consider improving error handling or tool implementation.');
-        }
-
-        const slowTools = Array.from(toolStats.entries())
-            .filter(([_, stats]) => stats.totalDuration / stats.total > 1000);
-        if (slowTools.length > 0) {
-            recommendations.push('- **Performance**: Consider optimizing slow tools or caching results to improve execution speed.');
-        }
-
-        if (agenticResult.iterations >= (agenticResult.maxIterations || 30)) {
-            recommendations.push('- **Max Iterations Reached**: The agent reached maximum iterations. Consider increasing the limit or improving tool efficiency to allow the agent to complete naturally.');
-        }
-
-        const underutilizedTools = Array.from(toolStats.entries()).filter(([_, stats]) => stats.total === 1);
-        if (underutilizedTools.length > 3) {
-            recommendations.push('- **Underutilized Tools**: Many tools were called only once. Consider whether all tools are necessary or if the agent needs better guidance on when to use them.');
-        }
-
-        if (agenticResult.toolCallsExecuted === 0) {
-            recommendations.push('- **No Tools Used**: The agent completed without calling any tools. This might indicate the initial prompt provided sufficient information, or the agent may benefit from more explicit guidance to use tools.');
-        }
-
-        if (recommendations.length === 0) {
-            sections.push('*No specific recommendations at this time. Execution appears optimal.*');
-        } else {
-            for (const rec of recommendations) {
-                sections.push(rec);
-            }
-        }
-        sections.push('');
-
-        // Add detailed execution timeline
-        sections.push('## Detailed Execution Timeline');
-        sections.push('');
-
-        if (toolMetrics.length === 0) {
-            sections.push('*No tool execution timeline available.*');
-        } else {
-            sections.push('| Time | Iteration | Tool | Result | Duration |');
-            sections.push('|------|-----------|------|--------|----------|');
-
-            for (const metric of toolMetrics) {
-                const time = new Date(metric.timestamp).toLocaleTimeString();
-                const result = metric.success ? '✅ Success' : `❌ ${metric.error || 'Failed'}`;
-                sections.push(`| ${time} | ${metric.iteration} | ${metric.name} | ${result} | ${metric.duration}ms |`);
-            }
-            sections.push('');
-        }
-
-        // Add conversation history
-        sections.push('## Conversation History');
-        sections.push('');
-        sections.push('<details>');
-        sections.push('<summary>Click to expand full agentic interaction</summary>');
-        sections.push('');
-        sections.push('```json');
-        sections.push(JSON.stringify(agenticResult.conversationHistory, null, 2));
-        sections.push('```');
-        sections.push('');
-        sections.push('</details>');
-        sections.push('');
-
-        // Add generated release notes
-        sections.push('## Generated Release Notes');
-        sections.push('');
-        sections.push('### Title');
-        sections.push('```');
-        sections.push(agenticResult.releaseNotes.title);
-        sections.push('```');
-        sections.push('');
-        sections.push('### Body');
-        sections.push('```markdown');
-        sections.push(agenticResult.releaseNotes.body);
-        sections.push('```');
-        sections.push('');
-
-        // Write the reflection file
-        const reflectionContent = sections.join('\n');
-        await storage.writeFile(reflectionPath, reflectionContent, 'utf-8');
+        // Save the report
+        const storageAdapter = createStorageAdapter();
+        const filename = `agentic-reflection-release-${timestamp}.md`;
+        await storageAdapter.writeOutput(filename, report);
 
         logger.info('');
         logger.info('═'.repeat(80));
@@ -326,9 +155,12 @@ async function generateSelfReflection(
         logger.info('📁 Location: %s', reflectionPath);
         logger.info('');
         logger.info('📈 Report Summary:');
-        logger.info('   • %d iterations completed', agenticResult.iterations);
-        logger.info('   • %d tool calls executed', agenticResult.toolCallsExecuted);
-        logger.info('   • %d unique tools used', toolStats.size);
+        const iterations = agenticResult.iterations || 0;
+        const toolCalls = agenticResult.toolCallsExecuted || 0;
+        const uniqueTools = new Set((agenticResult.toolMetrics || []).map((m: any) => m.name)).size;
+        logger.info(`   • ${iterations} iterations completed`);
+        logger.info(`   • ${toolCalls} tool calls executed`);
+        logger.info(`   • ${uniqueTools} unique tools used`);
         logger.info('');
         logger.info('💡 Use this report to:');
         logger.info('   • Understand which tools were most effective');
@@ -557,8 +389,9 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
             openaiReasoning: aiConfig.commands?.release?.reasoning || aiConfig.reasoning,
         });
 
-        logger.info('🔍 Agentic analysis complete: %d iterations, %d tool calls',
-            agenticResult.iterations, agenticResult.toolCallsExecuted);
+        const iterations = agenticResult.iterations || 0;
+        const toolCalls = agenticResult.toolCallsExecuted || 0;
+        logger.info(`🔍 Agentic analysis complete: ${iterations} iterations, ${toolCalls} tool calls`);
 
         // Generate self-reflection output if enabled
         if (runConfig.release?.selfReflection) {
