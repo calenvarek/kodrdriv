@@ -782,6 +782,8 @@ export async function getCliConfig(
         .option('--agentic', 'use agentic mode with tool-calling for release notes generation')
         .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
         .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for agentic mode (default: 30)', parseInt)
+        .option('--agentic-publish', 'use AI agent to automatically diagnose and fix publish issues')
+        .option('--agentic-publish-max-iterations <agenticPublishMaxIterations>', 'maximum iterations for agentic publish (default: 10)', parseInt)
         .description('Publish a release');
     addSharedOptions(publishCommand);
 
