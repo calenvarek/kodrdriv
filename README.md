@@ -2,6 +2,12 @@
 
 KodrDriv is an AI-powered Git workflow automation tool that generates intelligent commit messages and release notes from your code changes. It analyzes your repository to create meaningful documentation while automating the entire release process.
 
+## 🤖 For AI Assistants
+
+**Complete AI Guide**: [`AI-GUIDE.md`](AI-GUIDE.md) - Comprehensive documentation for AI assistants helping with kodrdriv
+
+**Quick Start**: [`guide/index.md`](guide/index.md) - Navigation hub for all guides
+
 ## Why KodrDriv?
 
 Writing good commit messages and release notes is time-consuming and often done when you're least in the mood for reflection. **KodrDriv was created specifically to solve the "context switch" problem** that happens when you've been deep in code and Git asks you to summarize what you've done.
@@ -22,16 +28,19 @@ npm install -g @eldrforge/kodrdriv
 git add .
 kodrdriv commit
 
-# Or use agentic mode for deep analysis
-kodrdriv commit --agentic --self-reflection
+# With detailed analysis report
+kodrdriv commit --self-reflection
+
+# With context files
+kodrdriv commit --context-files IMPLEMENTATION.md --sendit
 ```
 
 ### Generate Release Notes
 ```bash
 kodrdriv release
 
-# Or use agentic mode for comprehensive analysis
-kodrdriv release --agentic --self-reflection
+# With context and analysis
+kodrdriv release --context-files CHANGELOG.md --self-reflection
 ```
 
 ### Automate Your Release Process
@@ -47,12 +56,14 @@ kodrdriv audio-commit  # Record audio to generate commit messages
 
 ## Key Features
 
-- **AI-Powered Analysis** - Uses OpenAI models to understand your code changes
-- **Agentic Mode (NEW)** - AI-powered tool-calling for deep investigation and analysis
+- **AI-Powered Analysis** - Uses OpenAI models with tool-calling for deep investigation
+  - Always-on agentic mode for intelligent analysis
   - 13 specialized tools for release notes generation
   - 8 tools for commit message generation
   - Self-reflection reports with tool effectiveness metrics
   - Configurable iteration limits for complex releases
+- **Context Files (NEW)** - Pass documentation files as context for better AI understanding
+- **Human-Readable Output** - Professional tone without AI slop, emojis, or marketing speak
 - **GitHub Issues Integration** - Automatically analyzes recently closed issues to provide context for commit messages, prioritizing milestone-relevant issues
 - **Stop-Context Filtering** - Automatically filters sensitive information from AI-generated content to maintain privacy across projects
 - **Adaptive Diff Management** - Automatically handles large diffs with intelligent truncation and retry logic to ensure reliable LLM processing
@@ -78,6 +89,24 @@ kodrdriv --check-config
 ## Documentation
 
 📚 **Comprehensive Documentation**
+
+### 🤖 AI-Friendly Guides
+
+**NEW**: Complete guide system designed for AI assistants and developers:
+- **[AI Guide (Master)](AI-GUIDE.md)** - Complete reference for AI assistants
+- **[Guide Directory](guide/)** - 13 focused guides covering everything
+  - [Quick Start](guide/quickstart.md) - 5-minute setup
+  - [Integration](guide/integration.md) - Add to your project
+  - [Usage](guide/usage.md) - Common workflows
+  - [Commands](guide/commands.md) - Quick reference
+  - [Configuration](guide/configuration.md) - All options
+  - [AI System](guide/ai-system.md) - How AI works
+  - [Debugging](guide/debugging.md) - Troubleshooting
+  - [Architecture](guide/architecture.md) - System design
+  - [Development](guide/development.md) - Extend kodrdriv
+  - [Testing](guide/testing.md) - Test suite
+  - [Tree Operations](guide/tree-operations.md) - Multi-package
+  - [Monorepo](guide/monorepo.md) - Monorepo workflows
 
 ### Commands
 - **[All Commands Overview](docs/public/commands.md)** - Complete command reference with examples

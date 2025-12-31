@@ -138,7 +138,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                 },
             };
 
@@ -165,7 +164,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                     from: 'v1.0.0',
                     to: 'v2.0.0',
                     focus: 'Performance improvements',
@@ -204,7 +202,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                 },
             };
 
@@ -231,7 +228,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                 },
             };
 
@@ -268,7 +264,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                     selfReflection: true,
                 },
             };
@@ -310,7 +305,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                     selfReflection: false,
                 },
             };
@@ -343,7 +337,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                     interactive: true,
                 },
             };
@@ -380,7 +373,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                     interactive: true,
                 },
             };
@@ -390,61 +382,6 @@ describe('Release Command - Agentic Mode', () => {
             expect(mockAiService.editContentInEditor).toHaveBeenCalled();
             expect(result.title).toBe('Edited Title');
             expect(result.body).toBe('Edited body');
-        });
-    });
-
-    describe('Traditional Mode (Non-Agentic)', () => {
-        it('should use traditional flow when agentic is false', async () => {
-            mockAiService.createReleasePrompt.mockResolvedValue({
-                prompt: { messages: [] },
-                maxTokens: 10000,
-                isLargeRelease: false,
-            });
-
-            mockAiService.createCompletionWithRetry.mockResolvedValue({
-                title: 'Traditional Title',
-                body: 'Traditional body',
-            });
-
-            const runConfig: Partial<Config> = {
-                release: {
-                    agentic: false,
-                },
-            };
-
-            const result = await Release.execute(runConfig);
-
-            expect(mockAiService.createReleasePrompt).toHaveBeenCalled();
-            expect(mockAiService.createCompletionWithRetry).toHaveBeenCalled();
-            expect(mockAiService.runAgenticRelease).not.toHaveBeenCalled();
-            expect(result).toEqual({
-                title: 'Traditional Title',
-                body: 'Traditional body',
-            });
-        });
-
-        it('should use traditional flow when agentic is undefined', async () => {
-            mockAiService.createReleasePrompt.mockResolvedValue({
-                prompt: { messages: [] },
-                maxTokens: 10000,
-                isLargeRelease: false,
-            });
-
-            mockAiService.createCompletionWithRetry.mockResolvedValue({
-                title: 'Traditional Title',
-                body: 'Traditional body',
-            });
-
-            const runConfig: Partial<Config> = {};
-
-            const result = await Release.execute(runConfig);
-
-            expect(mockAiService.createReleasePrompt).toHaveBeenCalled();
-            expect(mockAiService.runAgenticRelease).not.toHaveBeenCalled();
-            expect(result).toEqual({
-                title: 'Traditional Title',
-                body: 'Traditional body',
-            });
         });
     });
 
@@ -463,7 +400,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                 },
                 dryRun: true,
             };
@@ -490,7 +426,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                     interactive: true,
                 },
                 dryRun: true,
@@ -504,7 +439,7 @@ describe('Release Command - Agentic Mode', () => {
     });
 
     describe('Output Files', () => {
-        it('should save timestamped release notes in agentic mode', async () => {
+        it('should save timestamped release notes', async () => {
             const mockWriteFile = vi.fn();
             mockStorage.createStorage.mockReturnValue({
                 ensureDirectory: vi.fn(),
@@ -525,7 +460,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                 },
             };
 
@@ -556,7 +490,6 @@ describe('Release Command - Agentic Mode', () => {
 
             const runConfig: Partial<Config> = {
                 release: {
-                    agentic: true,
                 },
                 debug: true,
                 outputDirectory: 'debug-output',
