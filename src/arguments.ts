@@ -320,7 +320,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (!transformedCliArgs.commit) transformedCliArgs.commit = {};
             transformedCliArgs.commit.maxAgenticIterations = finalCliArgs.maxAgenticIterations;
         }
-        
+
         if ((builtInCommand === 'release' || builtInCommand === 'publish') && finalCliArgs.contextFiles !== undefined) {
             if (!transformedCliArgs.release) transformedCliArgs.release = {};
             transformedCliArgs.release.contextFiles = finalCliArgs.contextFiles;
@@ -844,7 +844,7 @@ export async function getCliConfig(
 
         // Link/Unlink Options
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
-        
+
         // Command-specific options (forwarded to commit/release/publish)
         .option('--context-files [contextFiles...]', 'files containing additional context (forwarded to commit/release/publish)')
         .option('--self-reflection', 'generate self-reflection report (forwarded to commit/release/publish)')
