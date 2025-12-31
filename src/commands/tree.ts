@@ -2356,9 +2356,6 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Commit command options
             if (builtInCommand === 'commit') {
-                if (runConfig.commit?.agentic) {
-                    commandSpecificOptions += ' --agentic';
-                }
                 if (runConfig.commit?.selfReflection) {
                     commandSpecificOptions += ' --self-reflection';
                 }
@@ -2395,6 +2392,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 if (runConfig.commit?.context) {
                     commandSpecificOptions += ` --context "${runConfig.commit.context}"`;
                 }
+                if (runConfig.commit?.contextFiles && runConfig.commit.contextFiles.length > 0) {
+                    commandSpecificOptions += ` --context-files ${runConfig.commit.contextFiles.join(' ')}`;
+                }
                 // Push option can be boolean or string (remote name)
                 if (runConfig.commit?.push) {
                     if (typeof runConfig.commit.push === 'string') {
@@ -2417,9 +2417,6 @@ export const execute = async (runConfig: Config): Promise<string> => {
 
             // Release command options (only for direct 'release' command)
             if (builtInCommand === 'release') {
-                if (runConfig.release?.agentic) {
-                    commandSpecificOptions += ' --agentic';
-                }
                 if (runConfig.release?.selfReflection) {
                     commandSpecificOptions += ' --self-reflection';
                 }
@@ -2440,6 +2437,9 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
                 if (runConfig.release?.context) {
                     commandSpecificOptions += ` --context "${runConfig.release.context}"`;
+                }
+                if (runConfig.release?.contextFiles && runConfig.release.contextFiles.length > 0) {
+                    commandSpecificOptions += ` --context-files ${runConfig.release.contextFiles.join(' ')}`;
                 }
                 if (runConfig.release?.messageLimit) {
                     commandSpecificOptions += ` --message-limit ${runConfig.release.messageLimit}`;
@@ -2465,12 +2465,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
                 }
             }
 
-            // Publish command options (only agentic flags - publish reads other release config from config file)
+            // Publish command options (pass self-reflection - publish reads other release config from config file)
             if (builtInCommand === 'publish') {
-                // Only pass the agentic-related flags that publish command accepts
-                if (runConfig.release?.agentic) {
-                    commandSpecificOptions += ' --agentic';
-                }
                 if (runConfig.release?.selfReflection) {
                     commandSpecificOptions += ' --self-reflection';
                 }

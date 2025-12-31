@@ -55,7 +55,8 @@ const processSingleAudioFile = async (audioFilePath: string, runConfig: Config):
         // Use kodrdriv's transcription functionality
         logger.info('AUDIO_REVIEW_TRANSCRIBING: Transcribing audio using OpenAI Whisper | Service: OpenAI Whisper | Purpose: Convert speech to text');
 
-        const aiStorageAdapter = createStorageAdapter();
+        const outputDir = runConfig.outputDirectory || 'output';
+        const aiStorageAdapter = createStorageAdapter(outputDir);
         const aiLogger = createLoggerAdapter(runConfig.dryRun || false);
 
         const transcription = await transcribeAudio(audioFilePath, {
@@ -251,7 +252,8 @@ export const execute = async (runConfig: Config): Promise<string> => {
         // Step 3: Use kodrdriv's transcription functionality
         logger.info('AUDIO_REVIEW_TRANSCRIBING_LOCAL: Transcribing audio locally | Service: OpenAI Whisper | Mode: local | Purpose: Convert speech to text');
 
-        const aiStorageAdapter = createStorageAdapter();
+        const outputDir = runConfig.outputDirectory || 'output';
+        const aiStorageAdapter = createStorageAdapter(outputDir);
         const aiLogger = createLoggerAdapter(isDryRun);
 
         const transcription = await transcribeAudio(audioFilePath, {
