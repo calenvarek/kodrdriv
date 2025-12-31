@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Formatter, Model, Request } from '@riotprompt/riotprompt';
+import { Formatter, Model } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import type { ChatCompletionMessageParam } from 'openai/resources';
 import { DEFAULT_EXCLUDED_PATTERNS, DEFAULT_TO_COMMIT_ALIAS, DEFAULT_OUTPUT_DIRECTORY } from '../constants';
@@ -14,11 +14,11 @@ import {
     getLLMFeedbackInEditor,
     requireTTY,
     STANDARD_CHOICES,
-    createReleasePrompt,
     ReleaseContent,
     ReleaseContext,
     runAgenticRelease,
     generateReflectionReport,
+    createReleasePrompt,
 } from '@eldrforge/ai-service';
 import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
 import { toAIConfig } from '../util/aiAdapter';
@@ -32,6 +32,28 @@ import { validateReleaseSummary, type ReleaseSummary } from '../util/validation'
 import { safeJsonParse } from '@eldrforge/git-tools';
 import * as GitHub from '@eldrforge/github-tools';
 import { filterContent } from '../util/stopContext';
+
+// Helper function to read context files
+async function readContextFiles(contextFiles: string[] | undefined, logger: any): Promise<string> {
+    if (!contextFiles || contextFiles.length === 0) {
+        return '';
+    }
+
+    const storage = createStorage();
+    const contextParts: string[] = [];
+
+    for (const filePath of contextFiles) {
+        try {
+            const content = await storage.readFile(filePath, 'utf8');
+            contextParts.push(`## Context from ${filePath}\n\n${content}\n`);
+            logger.debug(`Read context from file: ${filePath}`);
+        } catch (error: any) {
+            logger.warn(`Failed to read context file ${filePath}: ${error.message}`);
+        }
+    }
+
+    return contextParts.join('\n---\n\n');
+}
 
 // Helper function to edit release notes using editor
 async function editReleaseNotesInteractively(releaseSummary: ReleaseSummary): Promise<ReleaseSummary> {
@@ -87,7 +109,7 @@ Please revise the release notes according to the user's feedback while maintaini
         },
         callLLM: async (request, runConfig, outputDirectory) => {
             const aiConfig = toAIConfig(runConfig);
-            const aiStorageAdapter = createStorageAdapter();
+            const aiStorageAdapter = createStorageAdapter(outputDirectory);
             const aiLogger = createLoggerAdapter(false);
             const modelToUse = aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o-mini';
             const openaiReasoning = aiConfig.commands?.release?.reasoning || aiConfig.reasoning;
@@ -142,10 +164,8 @@ async function generateSelfReflection(
             logger
         });
 
-        // Save the report
-        const storageAdapter = createStorageAdapter();
-        const filename = `agentic-reflection-release-${timestamp}.md`;
-        await storageAdapter.writeOutput(filename, report);
+        // Save the report to output directory
+        await storage.writeFile(reflectionPath, report, 'utf8');
 
         logger.info('');
         logger.info('═'.repeat(80));
@@ -356,182 +376,56 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
         logger.debug('Milestone integration disabled via --no-milestones');
     }
 
-    // Create adapters for ai-service
-    const aiConfig = toAIConfig(runConfig);
-    const aiStorageAdapter = createStorageAdapter();
-    const aiLogger = createLoggerAdapter(isDryRun);
-
     // Always ensure output directory exists for request/response files
     const outputDirectory = runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY;
     const storage = createStorage();
     await storage.ensureDirectory(outputDirectory);
 
-    // Check if agentic mode is enabled
-    if (runConfig.release?.agentic) {
-        logger.info('🤖 Using agentic mode for release notes generation');
+    // Create adapters for ai-service
+    const aiConfig = toAIConfig(runConfig);
+    const aiStorageAdapter = createStorageAdapter(outputDirectory);
+    const aiLogger = createLoggerAdapter(isDryRun);
 
-        // Run agentic release notes generation
-        const agenticResult = await runAgenticRelease({
-            fromRef,
-            toRef,
-            logContent,
-            diffContent,
-            milestoneIssues: milestoneIssuesContent,
-            releaseFocus: runConfig.release?.focus,
-            userContext: runConfig.release?.context,
-            model: aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o',
-            maxIterations: runConfig.release?.maxAgenticIterations || 30,
-            debug: runConfig.debug,
-            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release-agentic')),
-            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release-agentic')),
-            storage: aiStorageAdapter,
-            logger: aiLogger,
-            openaiReasoning: aiConfig.commands?.release?.reasoning || aiConfig.reasoning,
-        });
+    // Read context from files if provided
+    const contextFromFiles = await readContextFiles(runConfig.release?.contextFiles, logger);
 
-        const iterations = agenticResult.iterations || 0;
-        const toolCalls = agenticResult.toolCallsExecuted || 0;
-        logger.info(`🔍 Agentic analysis complete: ${iterations} iterations, ${toolCalls} tool calls`);
+    // Combine file context with existing context
+    const combinedContext = [
+        runConfig.release?.context,
+        contextFromFiles
+    ].filter(Boolean).join('\n\n---\n\n');
 
-        // Generate self-reflection output if enabled
-        if (runConfig.release?.selfReflection) {
-            await generateSelfReflection(agenticResult, outputDirectory, storage, logger);
-        }
-
-        // Apply stop-context filtering to release notes
-        const titleFilterResult = filterContent(agenticResult.releaseNotes.title, runConfig.stopContext);
-        const bodyFilterResult = filterContent(agenticResult.releaseNotes.body, runConfig.stopContext);
-        let releaseSummary: ReleaseSummary = {
-            title: titleFilterResult.filtered,
-            body: bodyFilterResult.filtered,
-        };
-
-        // Handle interactive mode
-        if (runConfig.release?.interactive && !isDryRun) {
-            requireTTY('Interactive mode requires a terminal. Use --dry-run instead.');
-
-            const interactivePromptContext: ReleaseContext = {
-                context: runConfig.release?.context,
-                directories: runConfig.contextDirectories,
-            };
-
-            const interactiveResult = await handleInteractiveReleaseFeedback(
-                releaseSummary,
-                runConfig,
-                promptConfig,
-                interactivePromptContext,
-                outputDirectory,
-                storage,
-                logContent,
-                diffContent
-            );
-
-            if (interactiveResult.action === 'skip') {
-                logger.info('RELEASE_ABORTED: Release notes generation aborted by user | Reason: User choice | Status: cancelled');
-            } else {
-                logger.info('RELEASE_FINALIZED: Release notes finalized and accepted | Status: ready | Next: Create release or save');
-            }
-
-            releaseSummary = interactiveResult.finalSummary;
-        }
-
-        // Save timestamped copy of release notes to output directory
-        try {
-            const timestampedFilename = getTimestampedReleaseNotesFilename();
-            const outputPath = getOutputPath(outputDirectory, timestampedFilename);
-
-            // Format the release notes as markdown
-            const releaseNotesContent = `# ${releaseSummary.title}\n\n${releaseSummary.body}`;
-
-            await storage.writeFile(outputPath, releaseNotesContent, 'utf-8');
-            logger.debug('Saved timestamped release notes: %s', outputPath);
-        } catch (error: any) {
-            logger.warn('RELEASE_SAVE_FAILED: Failed to save timestamped release notes | Error: %s | Impact: Notes not persisted to file', error.message);
-        }
-
-        if (isDryRun) {
-            logger.info('RELEASE_SUMMARY_COMPLETE: Generated release summary successfully | Status: completed');
-            logger.info('RELEASE_SUMMARY_TITLE: %s', releaseSummary.title);
-            logger.info('RELEASE_SUMMARY_BODY: %s', releaseSummary.body);
-        }
-
-        return releaseSummary;
-    }
-
-    // Non-agentic mode: use traditional prompt-based approach
-    const promptContent: ReleaseContent = {
+    // Run agentic release notes generation
+    const agenticResult = await runAgenticRelease({
+        fromRef,
+        toRef,
         logContent,
         diffContent,
-        releaseFocus: runConfig.release?.focus,
         milestoneIssues: milestoneIssuesContent,
-    };
-    const promptContext: ReleaseContext = {
-        context: runConfig.release?.context,
-        directories: runConfig.contextDirectories,
-    };
+        releaseFocus: runConfig.release?.focus,
+        userContext: combinedContext || undefined,
+        model: aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o',
+        maxIterations: runConfig.release?.maxAgenticIterations || 30,
+        debug: runConfig.debug,
+        debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release')),
+        debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
+        storage: aiStorageAdapter,
+        logger: aiLogger,
+        openaiReasoning: aiConfig.commands?.release?.reasoning || aiConfig.reasoning,
+    });
 
-    const promptResult = await createReleasePrompt(promptConfig, promptContent, promptContext);
+    const iterations = agenticResult.iterations || 0;
+    const toolCalls = agenticResult.toolCallsExecuted || 0;
+    logger.info(`🔍 Analysis complete: ${iterations} iterations, ${toolCalls} tool calls`);
 
-    const modelToUse = aiConfig.commands?.release?.model || aiConfig.model || 'gpt-4o-mini';
-    const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, promptResult.prompt);
-
-    logger.debug('Release analysis: isLargeRelease=%s, maxTokens=%d', promptResult.isLargeRelease, promptResult.maxTokens);
-
-    // Create retry callback that reduces diff size on token limit errors
-    const createRetryCallback = (originalDiffContent: string, originalLogContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
-        logger.info('RELEASE_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
-
-        // Progressively reduce the diff size on retries
-        const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
-        const reducedMaxDiffBytes = Math.max(512, Math.floor(maxDiffBytes * reductionFactor));
-
-        logger.debug('Reducing maxDiffBytes from %d to %d for retry', maxDiffBytes, reducedMaxDiffBytes);
-
-        // Re-truncate the diff with smaller limits
-        const reducedDiffContent = originalDiffContent.length > reducedMaxDiffBytes
-            ? Diff.truncateDiffByFiles(originalDiffContent, reducedMaxDiffBytes)
-            : originalDiffContent;
-
-        // Rebuild the prompt with the reduced diff
-        const reducedPromptContent = {
-            logContent: originalLogContent,
-            diffContent: reducedDiffContent,
-            releaseFocus: runConfig.release?.focus,
-            milestoneIssues: milestoneIssuesContent,
-        };
-        const reducedPromptContext = {
-            context: runConfig.release?.context,
-            directories: runConfig.contextDirectories,
-        };
-
-        const retryPromptResult = await createReleasePrompt(promptConfig, reducedPromptContent, reducedPromptContext);
-        const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPromptResult.prompt);
-
-        return retryRequest.messages as ChatCompletionMessageParam[];
-    };
-
-    const summary = await createCompletionWithRetry(
-        request.messages as ChatCompletionMessageParam[],
-        {
-            model: modelToUse,
-            openaiReasoning: aiConfig.commands?.release?.reasoning || aiConfig.reasoning,
-            maxTokens: promptResult.maxTokens, // Use calculated maxTokens for large release detection
-            responseFormat: { type: 'json_object' },
-            debug: runConfig.debug,
-            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('release')),
-            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('release')),
-            storage: aiStorageAdapter,
-            logger: aiLogger,
-        },
-        createRetryCallback(diffContent, logContent)
-    );
-
-    // Validate and safely cast the response
-    const rawReleaseSummary = validateReleaseSummary(summary);
+    // Generate self-reflection output if enabled
+    if (runConfig.release?.selfReflection) {
+        await generateSelfReflection(agenticResult, outputDirectory, storage, logger);
+    }
 
     // Apply stop-context filtering to release notes
-    const titleFilterResult = filterContent(rawReleaseSummary.title, runConfig.stopContext);
-    const bodyFilterResult = filterContent(rawReleaseSummary.body, runConfig.stopContext);
+    const titleFilterResult = filterContent(agenticResult.releaseNotes.title, runConfig.stopContext);
+    const bodyFilterResult = filterContent(agenticResult.releaseNotes.body, runConfig.stopContext);
     let releaseSummary: ReleaseSummary = {
         title: titleFilterResult.filtered,
         body: bodyFilterResult.filtered,
@@ -541,11 +435,16 @@ export const execute = async (runConfig: Config): Promise<ReleaseSummary> => {
     if (runConfig.release?.interactive && !isDryRun) {
         requireTTY('Interactive mode requires a terminal. Use --dry-run instead.');
 
+        const interactivePromptContext: ReleaseContext = {
+            context: combinedContext || undefined,
+            directories: runConfig.contextDirectories,
+        };
+
         const interactiveResult = await handleInteractiveReleaseFeedback(
             releaseSummary,
             runConfig,
             promptConfig,
-            promptContext,
+            interactivePromptContext,
             outputDirectory,
             storage,
             logContent,

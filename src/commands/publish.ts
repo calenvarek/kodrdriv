@@ -1030,10 +1030,7 @@ export const execute = async (runConfig: Config): Promise<void> => {
         if (runConfig.publish?.fromMain) {
             logger.verbose('Forcing comparison against main branch for release notes');
         }
-        // Log agentic mode settings for debugging
-        if (releaseConfig.release?.agentic) {
-            logger.verbose('Agentic mode enabled for release notes generation');
-        }
+        // Log self-reflection settings for debugging
         if (releaseConfig.release?.selfReflection) {
             logger.verbose('Self-reflection enabled for release notes generation');
         }

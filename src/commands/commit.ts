@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Formatter, Model, Request } from '@riotprompt/riotprompt';
+import { Formatter, Model } from '@riotprompt/riotprompt';
 import 'dotenv/config';
 import type { ChatCompletionMessageParam } from 'openai/resources';
 import shellescape from 'shell-escape';
@@ -15,7 +15,7 @@ import { sanitizeDirection } from '../util/validation';
 import { filterContent } from '../util/stopContext';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
 import { DEFAULT_MAX_DIFF_BYTES } from '../constants';
-import { stringifyJSON, checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions, createStorage } from '@eldrforge/shared';
+import { checkForFileDependencies, logFileDependencyWarning, logFileDependencySuggestions, createStorage } from '@eldrforge/shared';
 import { getRecentClosedIssuesForCommit } from '@eldrforge/github-tools';
 import { safeJsonParse, validatePackageJson } from '@eldrforge/git-tools';
 import {
@@ -25,16 +25,38 @@ import {
     getLLMFeedbackInEditor,
     requireTTY,
     STANDARD_CHOICES,
-    createCommitPrompt,
     CommitContent,
     CommitContext,
     runAgenticCommit,
     generateReflectionReport,
+    createCommitPrompt,
 } from '@eldrforge/ai-service';
 import { improveContentWithLLM, type LLMImprovementConfig } from '../util/interactive';
 import { toAIConfig } from '../util/aiAdapter';
 import { createStorageAdapter } from '../util/storageAdapter';
 import { createLoggerAdapter } from '../util/loggerAdapter';
+
+// Helper function to read context files
+async function readContextFiles(contextFiles: string[] | undefined, logger: any): Promise<string> {
+    if (!contextFiles || contextFiles.length === 0) {
+        return '';
+    }
+
+    const storage = createStorage();
+    const contextParts: string[] = [];
+
+    for (const filePath of contextFiles) {
+        try {
+            const content = await storage.readFile(filePath, 'utf8');
+            contextParts.push(`## Context from ${filePath}\n\n${content}\n`);
+            logger.debug(`Read context from file: ${filePath}`);
+        } catch (error: any) {
+            logger.warn(`Failed to read context file ${filePath}: ${error.message}`);
+        }
+    }
+
+    return contextParts.join('\n---\n\n');
+}
 
 // Helper function to generate self-reflection output using observability module
 async function generateSelfReflection(
@@ -59,10 +81,8 @@ async function generateSelfReflection(
             logger
         });
 
-        // Save the report
-        const storageAdapter = createStorageAdapter();
-        const filename = `agentic-reflection-commit-${timestamp}.md`;
-        await storageAdapter.writeOutput(filename, report);
+        // Save the report to output directory
+        await storage.writeFile(reflectionPath, report, 'utf8');
 
         logger.info('');
         logger.info('═'.repeat(80));
@@ -131,7 +151,7 @@ async function improveCommitMessageWithLLM(
 
     // Create AI config from kodrdriv config
     const aiConfig = toAIConfig(runConfig);
-    const aiStorageAdapter = createStorageAdapter();
+    const aiStorageAdapter = createStorageAdapter(outputDirectory);
     const aiLogger = createLoggerAdapter(false);
 
     const improvementConfig: LLMImprovementConfig = {
@@ -543,145 +563,81 @@ const executeInternal = async (runConfig: Config) => {
 
     // Create adapters for ai-service
     const aiConfig = toAIConfig(runConfig);
-    const aiStorageAdapter = createStorageAdapter();
+    const aiStorageAdapter = createStorageAdapter(outputDirectory);
     const aiLogger = createLoggerAdapter(isDryRun);
 
-    // Define promptContext for use in both agentic and traditional modes
-    const promptContent: CommitContent = {
-        diffContent,
-        userDirection,
-        isFileContent: isUsingFileContent,
-        githubIssuesContext,
-    };
+    // Read context from files if provided
+    const contextFromFiles = await readContextFiles(runConfig.commit?.contextFiles, logger);
+
+    // Combine file context with existing context
+    const combinedContext = [
+        runConfig.commit?.context,
+        contextFromFiles
+    ].filter(Boolean).join('\n\n---\n\n');
+
+    // Define promptContext for use in interactive improvements
     const promptContext: CommitContext = {
         logContext,
-        context: runConfig.commit?.context,
+        context: combinedContext || undefined,
         directories: runConfig.contextDirectories,
     };
 
-    let rawSummary: string;
-
-    // Check if agentic mode is enabled
-    if (runConfig.commit?.agentic) {
-        logger.info('🤖 Using agentic mode for commit message generation');
-
-        // Announce self-reflection if enabled
-        if (runConfig.commit?.selfReflection) {
-            logger.info('📊 Self-reflection enabled - detailed analysis will be generated');
-        }
-
-        // Get list of changed files
-        const changedFilesResult = await run(`git diff --name-only ${cached ? '--cached' : ''}`);
-        const changedFilesOutput = typeof changedFilesResult === 'string' ? changedFilesResult : changedFilesResult.stdout;
-        const changedFiles = changedFilesOutput.split('\n').filter((f: string) => f.trim().length > 0);
-
-        logger.debug('Changed files for agentic analysis: %d files', changedFiles.length);
-
-        // Run agentic commit generation
-        const agenticResult = await runAgenticCommit({
-            changedFiles,
-            diffContent,
-            userDirection,
-            logContext,
-            model: aiConfig.commands?.commit?.model || aiConfig.model,
-            maxIterations: runConfig.commit?.maxAgenticIterations || 10,
-            debug: runConfig.debug,
-            debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('commit-agentic')),
-            debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('commit-agentic')),
-            storage: aiStorageAdapter,
-            logger: aiLogger,
-            openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
-        });
-
-        const iterations = agenticResult.iterations || 0;
-        const toolCalls = agenticResult.toolCallsExecuted || 0;
-        logger.info(`🔍 Agentic analysis complete: ${iterations} iterations, ${toolCalls} tool calls`);
-
-        // Generate self-reflection output if enabled
-        if (runConfig.commit?.selfReflection) {
-            await generateSelfReflection(agenticResult, outputDirectory, storage, logger);
-        }
-
-        // Check for suggested splits
-        if (agenticResult.suggestedSplits.length > 1 && runConfig.commit?.allowCommitSplitting) {
-            logger.info('\n📋 Agent suggests splitting this into %d commits:', agenticResult.suggestedSplits.length);
-
-            for (let i = 0; i < agenticResult.suggestedSplits.length; i++) {
-                const split = agenticResult.suggestedSplits[i];
-                logger.info('\nCommit %d (%d files):', i + 1, split.files.length);
-                logger.info('  Files: %s', split.files.join(', '));
-                logger.info('  Rationale: %s', split.rationale);
-                logger.info('  Message: %s', split.message);
-            }
-
-            logger.info('\n⚠️  Commit splitting is not yet automated. Please stage and commit files separately.');
-            logger.info('Using combined message for now...\n');
-        } else if (agenticResult.suggestedSplits.length > 1) {
-            logger.debug('Agent suggested %d splits but commit splitting is not enabled', agenticResult.suggestedSplits.length);
-        }
-
-        rawSummary = agenticResult.commitMessage;
-    } else {
-        // Traditional single-shot approach
-        const prompt = await createCommitPrompt(promptConfig, promptContent, promptContext);
-
-        // Get the appropriate model for the commit command
-        const modelToUse = aiConfig.commands?.commit?.model || aiConfig.model || 'gpt-4o-mini';
-
-        // Use consistent model for debug (fix hardcoded model)
-        if (runConfig.debug) {
-            const formattedPrompt = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
-            logger.silly('Formatted Prompt: %s', stringifyJSON(formattedPrompt));
-        }
-
-        const request: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, prompt);
-
-        // Create retry callback that reduces diff size on token limit errors
-        const createRetryCallback = (originalDiffContent: string) => async (attempt: number): Promise<ChatCompletionMessageParam[]> => {
-            logger.info('COMMIT_RETRY: Retrying with reduced diff size | Attempt: %d | Strategy: Truncate diff | Reason: Previous attempt failed', attempt);
-
-            // Progressively reduce the diff size on retries
-            const reductionFactor = Math.pow(0.5, attempt - 1); // 50% reduction per retry
-            const reducedMaxDiffBytes = Math.max(512, Math.floor(maxDiffBytes * reductionFactor));
-
-            logger.debug('Reducing maxDiffBytes from %d to %d for retry', maxDiffBytes, reducedMaxDiffBytes);
-
-            // Re-truncate the diff with smaller limits
-            const reducedDiffContent = originalDiffContent.length > reducedMaxDiffBytes
-                ? Diff.truncateDiffByFiles(originalDiffContent, reducedMaxDiffBytes)
-                : originalDiffContent;
-
-            // Rebuild the prompt with the reduced diff
-            const reducedPromptContent = {
-                diffContent: reducedDiffContent,
-                userDirection,
-            };
-            const reducedPromptContext = {
-                logContext,
-                context: runConfig.commit?.context,
-                directories: runConfig.contextDirectories,
-            };
-
-            const retryPrompt = await createCommitPrompt(promptConfig, reducedPromptContent, reducedPromptContext);
-            const retryRequest: Request = Formatter.create({ logger }).formatPrompt(modelToUse as Model, retryPrompt);
-
-            return retryRequest.messages as ChatCompletionMessageParam[];
-        };
-
-        rawSummary = await createCompletionWithRetry(
-            request.messages as ChatCompletionMessageParam[],
-            {
-                model: modelToUse,
-                openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
-                debug: runConfig.debug,
-                debugRequestFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedRequestFilename('commit')),
-                debugResponseFile: getOutputPath(runConfig.outputDirectory || DEFAULT_OUTPUT_DIRECTORY, getTimestampedResponseFilename('commit')),
-                storage: aiStorageAdapter,
-                logger: aiLogger,
-            },
-            createRetryCallback(diffContent)
-        );
+    // Announce self-reflection if enabled
+    if (runConfig.commit?.selfReflection) {
+        logger.info('📊 Self-reflection enabled - detailed analysis will be generated');
     }
+
+    // Get list of changed files
+    const changedFilesResult = await run(`git diff --name-only ${cached ? '--cached' : ''}`);
+    const changedFilesOutput = typeof changedFilesResult === 'string' ? changedFilesResult : changedFilesResult.stdout;
+    const changedFiles = changedFilesOutput.split('\n').filter((f: string) => f.trim().length > 0);
+
+    logger.debug('Changed files for analysis: %d files', changedFiles.length);
+
+    // Run agentic commit generation
+    const agenticResult = await runAgenticCommit({
+        changedFiles,
+        diffContent,
+        userDirection,
+        logContext,
+        model: aiConfig.commands?.commit?.model || aiConfig.model,
+        maxIterations: runConfig.commit?.maxAgenticIterations || 10,
+        debug: runConfig.debug,
+        debugRequestFile: getOutputPath(outputDirectory, getTimestampedRequestFilename('commit')),
+        debugResponseFile: getOutputPath(outputDirectory, getTimestampedResponseFilename('commit')),
+        storage: aiStorageAdapter,
+        logger: aiLogger,
+        openaiReasoning: aiConfig.commands?.commit?.reasoning || aiConfig.reasoning,
+    });
+
+    const iterations = agenticResult.iterations || 0;
+    const toolCalls = agenticResult.toolCallsExecuted || 0;
+    logger.info(`🔍 Analysis complete: ${iterations} iterations, ${toolCalls} tool calls`);
+
+    // Generate self-reflection output if enabled
+    if (runConfig.commit?.selfReflection) {
+        await generateSelfReflection(agenticResult, outputDirectory, storage, logger);
+    }
+
+    // Check for suggested splits
+    if (agenticResult.suggestedSplits.length > 1 && runConfig.commit?.allowCommitSplitting) {
+        logger.info('\n📋 AI suggests splitting this into %d commits:', agenticResult.suggestedSplits.length);
+
+        for (let i = 0; i < agenticResult.suggestedSplits.length; i++) {
+            const split = agenticResult.suggestedSplits[i];
+            logger.info('\nCommit %d (%d files):', i + 1, split.files.length);
+            logger.info('  Files: %s', split.files.join(', '));
+            logger.info('  Rationale: %s', split.rationale);
+            logger.info('  Message: %s', split.message);
+        }
+
+        logger.info('\n⚠️  Commit splitting is not yet automated. Please stage and commit files separately.');
+        logger.info('Using combined message for now...\n');
+    } else if (agenticResult.suggestedSplits.length > 1) {
+        logger.debug('AI suggested %d splits but commit splitting is not enabled', agenticResult.suggestedSplits.length);
+    }
+
+    const rawSummary = agenticResult.commitMessage;
 
     // Apply stop-context filtering to commit message
     const filterResult = filterContent(rawSummary, runConfig.stopContext);

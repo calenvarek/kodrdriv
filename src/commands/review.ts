@@ -494,7 +494,7 @@ const processSingleReview = async (reviewNote: string, runConfig: Config, output
     };
     // Create adapters for ai-service
     const aiConfig = toAIConfig(runConfig);
-    const aiStorageAdapter = createStorageAdapter();
+    const aiStorageAdapter = createStorageAdapter(outputDirectory);
     const aiLogger = createLoggerAdapter(runConfig.dryRun || false);
 
     const promptContent: ReviewContent = {

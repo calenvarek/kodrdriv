@@ -37,6 +37,7 @@ export const InputSchema = z.object({
     excludedPaths: z.array(z.string()).optional(),
     exclude: z.array(z.string()).optional(), // Alias for excludedPatterns
     context: z.string().optional(),
+    contextFiles: z.array(z.string()).optional(), // Additional context from files
     note: z.string().optional(), // For review command positional argument/STDIN
     direction: z.string().optional(),
     messageLimit: z.number().optional(),
@@ -78,9 +79,8 @@ export const InputSchema = z.object({
     workingTagPrefix: z.string().optional(), // Tag prefix for working branch tags
     updateDeps: z.string().optional(), // Scope for inter-project dependency updates in publish command
     interProject: z.boolean().optional(), // Update inter-project dependencies in updates command
-    agentic: z.boolean().optional(), // Enable agentic mode with tool-calling
     selfReflection: z.boolean().optional(), // Generate self-reflection report
-    maxAgenticIterations: z.number().optional(), // Maximum iterations for agentic mode
+    maxAgenticIterations: z.number().optional(), // Maximum iterations for AI analysis
 });
 
 export type Input = z.infer<typeof InputSchema>;
@@ -131,7 +131,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
 
     // Nested mappings for 'release' options (only when it's NOT a publish command)
     if (commandName !== 'publish') {
-        if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined || finalCliArgs.agentic !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined) {
+        if (finalCliArgs.from !== undefined || finalCliArgs.to !== undefined || finalCliArgs.maxDiffBytes !== undefined || finalCliArgs.interactive !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.openaiReasoning !== undefined || finalCliArgs.openaiMaxOutputTokens !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined) {
             transformedCliArgs.release = {};
             if (finalCliArgs.from !== undefined) transformedCliArgs.release.from = finalCliArgs.from;
             if (finalCliArgs.to !== undefined) transformedCliArgs.release.to = finalCliArgs.to;
@@ -142,7 +142,6 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
             if (finalCliArgs.noMilestones !== undefined) transformedCliArgs.release.noMilestones = finalCliArgs.noMilestones;
             if (finalCliArgs.openaiReasoning !== undefined) transformedCliArgs.release.openaiReasoning = finalCliArgs.openaiReasoning;
             if (finalCliArgs.openaiMaxOutputTokens !== undefined) transformedCliArgs.release.openaiMaxOutputTokens = finalCliArgs.openaiMaxOutputTokens;
-            if (finalCliArgs.agentic !== undefined) transformedCliArgs.release.agentic = finalCliArgs.agentic;
             if (finalCliArgs.selfReflection !== undefined) transformedCliArgs.release.selfReflection = finalCliArgs.selfReflection;
             if (finalCliArgs.maxAgenticIterations !== undefined) transformedCliArgs.release.maxAgenticIterations = finalCliArgs.maxAgenticIterations;
         }
@@ -156,7 +155,7 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         finalCliArgs.syncTarget !== undefined ||
         finalCliArgs.skipAlreadyPublished !== undefined ||
         finalCliArgs.forceRepublish !== undefined ||
-        (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.agentic !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined))
+        (commandName === 'publish' && (finalCliArgs.from !== undefined || finalCliArgs.noMilestones !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined))
     ) {
         transformedCliArgs.publish = {};
         if (finalCliArgs.mergeMethod !== undefined) transformedCliArgs.publish.mergeMethod = finalCliArgs.mergeMethod;
@@ -170,10 +169,9 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
         if (finalCliArgs.updateDeps !== undefined) transformedCliArgs.publish.updateDeps = finalCliArgs.updateDeps;
 
         // Map release-related flags from publish command into release config (only if any are set)
-        if (commandName === 'publish' && (finalCliArgs.agentic !== undefined || finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined)) {
+        if (commandName === 'publish' && (finalCliArgs.selfReflection !== undefined || finalCliArgs.maxAgenticIterations !== undefined)) {
             transformedCliArgs.release = {
                 ...(transformedCliArgs.release || {}),
-                ...(finalCliArgs.agentic !== undefined ? { agentic: finalCliArgs.agentic } : {}),
                 ...(finalCliArgs.selfReflection !== undefined ? { selfReflection: finalCliArgs.selfReflection } : {}),
                 ...(finalCliArgs.maxAgenticIterations !== undefined ? { maxAgenticIterations: finalCliArgs.maxAgenticIterations } : {}),
             };
@@ -307,6 +305,34 @@ export const transformCliArgs = (finalCliArgs: Input, commandName?: string): Par
     if (commandName === 'tree') {
         const builtInCommand = (finalCliArgs as any).builtInCommand;
         const packageArgument = (finalCliArgs as any).packageArgument;
+
+        // Map command-specific options to nested configs for tree operations
+        // When tree commit/release/publish is run, these options get forwarded
+        if (builtInCommand === 'commit' && finalCliArgs.contextFiles !== undefined) {
+            if (!transformedCliArgs.commit) transformedCliArgs.commit = {};
+            transformedCliArgs.commit.contextFiles = finalCliArgs.contextFiles;
+        }
+        if (builtInCommand === 'commit' && finalCliArgs.selfReflection !== undefined) {
+            if (!transformedCliArgs.commit) transformedCliArgs.commit = {};
+            transformedCliArgs.commit.selfReflection = finalCliArgs.selfReflection;
+        }
+        if (builtInCommand === 'commit' && finalCliArgs.maxAgenticIterations !== undefined) {
+            if (!transformedCliArgs.commit) transformedCliArgs.commit = {};
+            transformedCliArgs.commit.maxAgenticIterations = finalCliArgs.maxAgenticIterations;
+        }
+
+        if ((builtInCommand === 'release' || builtInCommand === 'publish') && finalCliArgs.contextFiles !== undefined) {
+            if (!transformedCliArgs.release) transformedCliArgs.release = {};
+            transformedCliArgs.release.contextFiles = finalCliArgs.contextFiles;
+        }
+        if ((builtInCommand === 'release' || builtInCommand === 'publish') && finalCliArgs.selfReflection !== undefined) {
+            if (!transformedCliArgs.release) transformedCliArgs.release = {};
+            transformedCliArgs.release.selfReflection = finalCliArgs.selfReflection;
+        }
+        if ((builtInCommand === 'release' || builtInCommand === 'publish') && finalCliArgs.maxAgenticIterations !== undefined) {
+            if (!transformedCliArgs.release) transformedCliArgs.release = {};
+            transformedCliArgs.release.maxAgenticIterations = finalCliArgs.maxAgenticIterations;
+        }
 
         // Only create tree object if there are actual tree-specific options
         const cliArgs = finalCliArgs as any;
@@ -662,6 +688,7 @@ export async function getCliConfig(
         .argument('[direction]', 'direction or guidance for the commit message')
         .description('Generate commit notes')
         .option('--context <context>', 'context for the commit message')
+        .option('--context-files [contextFiles...]', 'files containing additional context for the commit message')
         .option('--cached', 'use cached diff')
         .option('--add', 'add all changes before committing')
         .option('--sendit', 'Commit with the message generated. No review.')
@@ -671,10 +698,9 @@ export async function getCliConfig(
         .option('--message-limit <messageLimit>', 'limit the number of messages to generate')
         .option('--skip-file-check', 'skip check for file: dependencies before committing')
         .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
-        .option('--agentic', 'use agentic mode with tool-calling for commit message generation')
         .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
-        .option('--max-agentic-iterations <iterations>', 'maximum iterations for agentic mode (default: 10)', parseInt)
-        .option('--allow-commit-splitting', 'allow agentic mode to suggest splitting commits')
+        .option('--max-agentic-iterations <iterations>', 'maximum iterations for analysis (default: 10)', parseInt)
+        .option('--allow-commit-splitting', 'allow AI to suggest splitting commits')
         .option('--tool-timeout <timeout>', 'timeout for tool execution in milliseconds', parseInt);
 
     // Add shared options to commit command
@@ -686,7 +712,8 @@ export async function getCliConfig(
             const nameAndVersion = `${helper.commandUsage(cmd)}\n\n${helper.commandDescription(cmd)}\n`;
 
             const commitOptions = [
-                ['--context <context>', 'context for the commit message']
+                ['--context <context>', 'context for the commit message'],
+                ['--context-files [contextFiles...]', 'files containing additional context']
             ];
 
             const behavioralOptions = [
@@ -701,11 +728,10 @@ export async function getCliConfig(
                 ['--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 20480)']
             ];
 
-            const agenticOptions = [
-                ['--agentic', 'use agentic mode with tool-calling for commit generation'],
+            const aiOptions = [
                 ['--self-reflection', 'generate self-reflection report with tool effectiveness analysis'],
-                ['--max-agentic-iterations <iterations>', 'maximum iterations for agentic mode (default: 10)'],
-                ['--allow-commit-splitting', 'allow agentic mode to suggest splitting commits'],
+                ['--max-agentic-iterations <iterations>', 'maximum iterations for AI analysis (default: 10)'],
+                ['--allow-commit-splitting', 'allow AI to suggest splitting commits'],
                 ['--tool-timeout <timeout>', 'timeout for tool execution in milliseconds']
             ];
 
@@ -733,7 +759,7 @@ export async function getCliConfig(
             return nameAndVersion + '\n' +
                 formatOptionsSection('Commit Message Options', commitOptions) + '\n' +
                 formatOptionsSection('Behavioral Options', behavioralOptions) + '\n' +
-                formatOptionsSection('Agentic Mode Options', agenticOptions) + '\n' +
+                formatOptionsSection('AI Options', aiOptions) + '\n' +
                 formatOptionsSection('Global Options', globalOptions) + '\n' +
                 'Environment Variables:\n' +
                 '  OPENAI_API_KEY          OpenAI API key (required)\n';
@@ -756,13 +782,13 @@ export async function getCliConfig(
         .option('--from <from>', 'branch to generate release notes from')
         .option('--to <to>', 'branch to generate release notes to')
         .option('--context <context>', 'context for the commit message')
+        .option('--context-files [contextFiles...]', 'files containing additional context for release notes')
         .option('--interactive', 'Present release notes for interactive review and editing')
         .option('--max-diff-bytes <maxDiffBytes>', 'maximum bytes per file in diff (default: 2048)')
         .option('--no-milestones', 'disable GitHub milestone integration')
         .option('--from-main', 'force comparison against main branch instead of previous release tag')
-        .option('--agentic', 'use agentic mode with tool-calling for release notes generation')
         .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
-        .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for agentic mode (default: 30)', parseInt)
+        .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for analysis (default: 30)', parseInt)
         .description('Generate release notes');
     addSharedOptions(releaseCommand);
 
@@ -771,6 +797,7 @@ export async function getCliConfig(
         .option('--merge-method <method>', 'method to merge PR (merge, squash, rebase)', 'squash')
         .option('--from <from>', 'branch/tag to generate release notes from (default: previous release tag)')
         .option('--target-version <targetVersion>', 'target version for release (explicit version like "4.30.0" or semantic bump: "patch", "minor", "major")')
+        .option('--context-files [contextFiles...]', 'files containing additional context for release notes')
         .option('--interactive', 'present release notes for interactive review and editing')
         .option('--sendit', 'skip all confirmation prompts and proceed automatically')
         .option('--sync-target', 'attempt to automatically sync target branch with remote before publishing')
@@ -779,9 +806,8 @@ export async function getCliConfig(
         .option('--no-milestones', 'disable GitHub milestone integration')
         .option('--from-main', 'force comparison against main branch instead of previous release tag')
         .option('--update-deps <scope>', 'update inter-project dependencies before publish (e.g., --update-deps @fjell)')
-        .option('--agentic', 'use agentic mode with tool-calling for release notes generation')
         .option('--self-reflection', 'generate self-reflection report with tool effectiveness analysis')
-        .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for agentic mode (default: 30)', parseInt)
+        .option('--max-agentic-iterations <maxAgenticIterations>', 'maximum iterations for analysis (default: 30)', parseInt)
         .option('--agentic-publish', 'use AI agent to automatically diagnose and fix publish issues')
         .option('--agentic-publish-max-iterations <agenticPublishMaxIterations>', 'maximum iterations for agentic publish (default: 10)', parseInt)
         .description('Publish a release');
@@ -818,6 +844,11 @@ export async function getCliConfig(
 
         // Link/Unlink Options
         .option('--clean-node-modules', 'for unlink command: remove node_modules and package-lock.json, then reinstall dependencies')
+
+        // Command-specific options (forwarded to commit/release/publish)
+        .option('--context-files [contextFiles...]', 'files containing additional context (forwarded to commit/release/publish)')
+        .option('--self-reflection', 'generate self-reflection report (forwarded to commit/release/publish)')
+        .option('--max-agentic-iterations <iterations>', 'maximum iterations for AI analysis (forwarded to commit/release/publish)', parseInt)
         .description(`Analyze package dependencies in workspace and execute commands in dependency order.
 
 Built-in commands:
@@ -831,8 +862,18 @@ Built-in commands:
   run         - Execute custom shell command (use --cmd)
   checkout    - Checkout specified branch in all packages
 
+Command-specific options:
+  You can pass any commit, release, or publish options and they will be forwarded.
+  Examples: --context-files, --sendit, --interactive, --self-reflection
+
+  For commit options: kodrdriv commit --help
+  For release options: kodrdriv release --help
+  For publish options: kodrdriv publish --help
+
 Examples:
-  kodrdriv tree publish --parallel --model "gpt-5-mini"
+  kodrdriv tree commit --context-files IMPL.md --sendit
+  kodrdriv tree publish --parallel --context-files RELEASE.md
+  kodrdriv tree publish --parallel --model "gpt-4o" --self-reflection
   kodrdriv tree --cmd "npm test"
   kodrdriv tree publish --continue --retry-failed
   kodrdriv tree publish --audit-branches

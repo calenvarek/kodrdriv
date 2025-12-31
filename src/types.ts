@@ -21,14 +21,14 @@ export const ConfigSchema = z.object({
         push: z.union([z.boolean(), z.string()]).optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+        contextFiles: z.array(z.string()).optional(),
         direction: z.string().optional(),
         skipFileCheck: z.boolean().optional(),
         maxDiffBytes: z.number().optional(),
         model: z.string().optional(),
         openaiReasoning: z.enum(['low', 'medium', 'high']).optional(),
         openaiMaxOutputTokens: z.number().optional(),
-        // Agentic mode options
-        agentic: z.boolean().optional(),
+        // Agentic options (always enabled)
         maxAgenticIterations: z.number().optional(),
         allowCommitSplitting: z.boolean().optional(),
         toolTimeout: z.number().optional(),
@@ -48,6 +48,7 @@ export const ConfigSchema = z.object({
         to: z.string().optional(),
         messageLimit: z.number().optional(),
         context: z.string().optional(),
+        contextFiles: z.array(z.string()).optional(),
         interactive: z.boolean().optional(),
         focus: z.string().optional(),
         maxDiffBytes: z.number().optional(),
@@ -57,8 +58,7 @@ export const ConfigSchema = z.object({
         noMilestones: z.boolean().optional(),
         fromMain: z.boolean().optional(),
         currentBranch: z.string().optional(),
-        // Agentic mode options
-        agentic: z.boolean().optional(),
+        // Agentic options (always enabled)
         maxAgenticIterations: z.number().optional(),
         selfReflection: z.boolean().optional(),
     }).optional(),
@@ -259,6 +259,7 @@ export type ReleaseConfig = {
     from?: string;
     to?: string;
     context?: string;
+    contextFiles?: string[];  // Additional context from files
     interactive?: boolean;
     focus?: string;
     messageLimit?: number;
@@ -267,8 +268,7 @@ export type ReleaseConfig = {
     openaiReasoning?: 'low' | 'medium' | 'high';
     openaiMaxOutputTokens?: number;
     currentBranch?: string;
-    // Agentic mode options
-    agentic?: boolean;
+    // Agentic options (always enabled)
     maxAgenticIterations?: number;
     selfReflection?: boolean;
 }
@@ -318,16 +318,18 @@ export type CommitConfig = {
     cached?: boolean;
     sendit?: boolean;
     interactive?: boolean;
+    amend?: boolean;
+    push?: string | boolean;
     messageLimit?: number;
     context?: string;
+    contextFiles?: string[];  // Additional context from files
     direction?: string;
     skipFileCheck?: boolean;
     maxDiffBytes?: number;
     model?: string;
     openaiReasoning?: 'low' | 'medium' | 'high';
     openaiMaxOutputTokens?: number;
-    // Agentic mode options
-    agentic?: boolean;
+    // Agentic options (always enabled)
     maxAgenticIterations?: number;
     allowCommitSplitting?: boolean;
     toolTimeout?: number;

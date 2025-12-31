@@ -94,7 +94,8 @@ const executeInternal = async (runConfig: Config): Promise<string> => {
         // Step 3: Use ai-service transcription functionality
         logger.info('AUDIO_COMMIT_TRANSCRIBING: Transcribing audio locally | Service: OpenAI Whisper | Mode: local | Purpose: Convert speech to text');
 
-        const aiStorageAdapter = createStorageAdapter();
+        const outputDir = runConfig.outputDirectory || 'output';
+        const aiStorageAdapter = createStorageAdapter(outputDir);
         const aiLogger = createLoggerAdapter(isDryRun);
 
         const transcription = await transcribeAudio(audioFilePath, {
