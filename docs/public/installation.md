@@ -59,7 +59,7 @@ If you want to contribute to the project or install from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/calenvarek/kodrdriv.git
+git clone https://github.com/grunnverk/kodrdriv.git
 cd kodrdriv
 
 # Install dependencies

@@ -97,7 +97,7 @@ Complete monorepo workflows. Dependency management, coordinated releases.
 
 ### Root Directory Implementation Docs
 
-See `/Users/tobrien/gitw/calenvarek/*.md` for:
+See `/Users/tobrien/gitw/grunnverk/*.md` for:
 - Detailed implementation guides
 - Feature specifications
 - Migration guides

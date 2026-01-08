@@ -47,7 +47,7 @@ function StoryPage() {
                     <div className="nav-links">
                         <Link to="/">← Back to Home</Link>
                         <Link to="/commands">Commands</Link>
-                        <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">
+                        <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer">
                             GitHub
                         </a>
                     </div>

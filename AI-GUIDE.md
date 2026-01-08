@@ -744,7 +744,7 @@ cd ../kodrdriv && npm run build
 ## Directory Structure Reference
 
 ```
-/Users/tobrien/gitw/calenvarek/
+/Users/tobrien/gitw/grunnverk/
 ├── kodrdriv/                    # Main package
 │   ├── guide/                   # AI-friendly guides ⭐
 │   ├── docs/                    # Detailed documentation
