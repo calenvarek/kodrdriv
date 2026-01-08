@@ -247,6 +247,7 @@ describe('Application module', () => {
                 defaults: {
                     configDirectory: '.kodrdriv',
                 },
+                configShape: {},
                 features: ['config', 'hierarchical'],
                 logger: mockLogger
             });
