@@ -31,6 +31,7 @@ export const ConfigSchema = z.object({
         // Agentic options (always enabled)
         maxAgenticIterations: z.number().optional(),
         allowCommitSplitting: z.boolean().optional(),
+        autoSplit: z.boolean().optional(), // Defaults to true if not specified (see commit.ts)
         toolTimeout: z.number().optional(),
         selfReflection: z.boolean().optional(),
     }).optional(),
@@ -332,6 +333,7 @@ export type CommitConfig = {
     // Agentic options (always enabled)
     maxAgenticIterations?: number;
     allowCommitSplitting?: boolean;
+    autoSplit?: boolean;
     toolTimeout?: number;
     selfReflection?: boolean;
 }

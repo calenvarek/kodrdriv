@@ -10,7 +10,7 @@ import * as Files from '../content/files';
 import { CommandError, ValidationError, ExternalDependencyError } from '@eldrforge/shared';
 import { getDryRunLogger } from '../logging';
 import { Config } from '../types';
-import { run, validateString } from '@eldrforge/git-tools';
+import { run, validateString, stageFiles, unstageAll, getStagedFiles, verifyStagedFiles } from '@eldrforge/git-tools';
 import { sanitizeDirection } from '../util/validation';
 import { filterContent } from '../util/stopContext';
 import { getOutputPath, getTimestampedRequestFilename, getTimestampedResponseFilename, getTimestampedCommitFilename } from '../util/general';
@@ -404,6 +404,277 @@ const saveCommitMessage = async (outputDirectory: string, summary: string, stora
     }
 };
 
+// ===================================================================
+// COMMIT SPLITTING TYPES AND FUNCTIONS
+// ===================================================================
+
+interface CommitSplit {
+    files: string[];
+    message: string;
+    rationale: string;
+}
+
+interface SplitCommitOptions {
+    splits: CommitSplit[];
+    runConfig: Config;
+    isDryRun: boolean;
+    interactive: boolean;
+    logger: any;
+    storage: any;
+}
+
+interface SplitCommitResult {
+    success: boolean;
+    commitsCreated: number;
+    commits: Array<{
+        message: string;
+        files: string[];
+        sha?: string;
+    }>;
+    error?: Error;
+    skipped: number;
+}
+
+/**
+ * Interactive review of a single split before committing
+ */
+async function reviewSplitInteractively(
+    split: CommitSplit,
+    index: number,
+    total: number,
+    logger: any
+): Promise<{
+    action: 'commit' | 'edit' | 'skip' | 'stop';
+    modifiedMessage?: string;
+}> {
+    logger.info('');
+    logger.info('═'.repeat(80));
+    logger.info(`📋 Commit ${index + 1} of ${total}`);
+    logger.info('═'.repeat(80));
+    logger.info('');
+    logger.info('Files (%d):', split.files.length);
+    split.files.forEach((f: string) => logger.info(`  - ${f}`));
+    logger.info('');
+    logger.info('Rationale:');
+    logger.info(`  ${split.rationale}`);
+    logger.info('');
+    logger.info('Proposed Message:');
+    logger.info('─'.repeat(50));
+    logger.info(split.message);
+    logger.info('─'.repeat(50));
+    logger.info('');
+
+    const choices = [
+        { key: 'c', label: 'Commit with this message' },
+        { key: 'e', label: 'Edit message before committing' },
+        { key: 's', label: 'Skip this commit' },
+        { key: 't', label: 'Stop - no more commits' }
+    ];
+
+    const choice = await getUserChoice(
+        'What would you like to do?',
+        choices,
+        { nonTtyErrorSuggestions: ['Use --sendit to auto-commit without review'] }
+    );
+
+    if (choice === 'e') {
+        // Edit the message
+        const edited = await editCommitMessageInteractively(split.message);
+        return { action: 'commit', modifiedMessage: edited };
+    } else if (choice === 'c') {
+        return { action: 'commit' };
+    } else if (choice === 's') {
+        return { action: 'skip' };
+    } else {
+        return { action: 'stop' };
+    }
+}
+
+/**
+ * Create a single commit from a split
+ */
+async function createSingleSplitCommit(
+    split: CommitSplit,
+    commitMessage: string,
+    isDryRun: boolean,
+    logger: any
+): Promise<string | undefined> {
+    // Stage the files for this split
+    if (isDryRun) {
+        logger.debug(`[DRY RUN] Would stage: ${split.files.join(', ')}`);
+    } else {
+        await stageFiles(split.files);
+
+        // Verify files were staged correctly
+        const verification = await verifyStagedFiles(split.files);
+        if (!verification.allPresent) {
+            throw new ValidationError(
+                `Stage verification failed. Missing: ${verification.missing.join(', ')}. ` +
+                `Unexpected: ${verification.unexpected.join(', ')}`
+            );
+        }
+    }
+
+    // Create the commit
+    if (isDryRun) {
+        logger.debug(`[DRY RUN] Would commit with message: ${commitMessage}`);
+        return undefined;
+    } else {
+        const validatedMessage = validateString(commitMessage, 'commit message');
+        const escapedMessage = shellescape([validatedMessage]);
+        await run(`git commit -m ${escapedMessage}`);
+
+        // Get the SHA of the commit we just created
+        const result = await run('git rev-parse HEAD');
+        const sha = (typeof result === 'string' ? result : result.stdout).trim();
+
+        logger.debug(`Created commit: ${sha}`);
+        return sha;
+    }
+}
+
+/**
+ * Execute a series of split commits
+ */
+async function executeSplitCommits(
+    options: SplitCommitOptions
+): Promise<SplitCommitResult> {
+    const { splits, runConfig, isDryRun, interactive, logger, storage } = options;
+
+    const result: SplitCommitResult = {
+        success: false,
+        commitsCreated: 0,
+        commits: [],
+        skipped: 0
+    };
+
+    try {
+        logger.debug('Preparing to create split commits...');
+
+        logger.info('');
+        logger.info('═'.repeat(80));
+        logger.info(`🔀 Creating ${splits.length} commits from staged changes`);
+        logger.info('═'.repeat(80));
+
+        // Process each split
+        for (let i = 0; i < splits.length; i++) {
+            const split = splits[i];
+
+            logger.info('');
+            logger.info(`Processing commit ${i + 1} of ${splits.length}...`);
+
+            // Interactive review if enabled
+            let commitMessage = split.message;
+            if (interactive && !isDryRun) {
+                const review = await reviewSplitInteractively(split, i, splits.length, logger);
+
+                if (review.action === 'stop') {
+                    logger.info('User stopped split commit process');
+                    logger.info(`Created ${result.commitsCreated} commits before stopping`);
+                    result.success = false;
+                    return result;
+                } else if (review.action === 'skip') {
+                    logger.info(`Skipped commit ${i + 1}`);
+                    result.skipped++;
+                    continue;
+                } else if (review.action === 'edit') {
+                    commitMessage = review.modifiedMessage!;
+                }
+            }
+
+            try {
+                // Unstage everything first
+                if (!isDryRun) {
+                    await unstageAll();
+                }
+
+                // Create this split's commit
+                const sha = await createSingleSplitCommit(
+                    split,
+                    commitMessage,
+                    isDryRun,
+                    logger
+                );
+
+                result.commits.push({
+                    message: commitMessage,
+                    files: split.files,
+                    sha
+                });
+                result.commitsCreated++;
+
+                if (isDryRun) {
+                    logger.info(`[DRY RUN] Would create commit ${i + 1}: ${commitMessage.split('\n')[0]}`);
+                } else {
+                    logger.info(`✅ Created commit ${i + 1}: ${sha?.substring(0, 7)} - ${commitMessage.split('\n')[0]}`);
+                }
+
+            } catch (error: any) {
+                logger.error(`Failed to create commit ${i + 1}: ${error.message}`);
+                logger.info(`Successfully created ${result.commitsCreated} commits before error`);
+
+                // Re-stage remaining files for user
+                if (!isDryRun) {
+                    const remainingFiles = splits.slice(i).flatMap((s: CommitSplit) => s.files);
+                    try {
+                        await stageFiles(remainingFiles);
+                        logger.info(`Remaining ${remainingFiles.length} files are staged for manual commit`);
+                    } catch (restageError: any) {
+                        logger.error(`Failed to re-stage remaining files: ${restageError.message}`);
+                    }
+                }
+
+                result.success = false;
+                result.error = error;
+                return result;
+            }
+        }
+
+        result.success = true;
+        return result;
+
+    } catch (error: any) {
+        logger.error(`Split commit process failed: ${error.message}`);
+        result.success = false;
+        result.error = error;
+        return result;
+    }
+}
+
+/**
+ * Format a summary message for split commits
+ */
+function formatSplitCommitSummary(result: SplitCommitResult): string {
+    const lines: string[] = [];
+
+    lines.push('');
+    lines.push('═'.repeat(80));
+    lines.push('✅ COMMIT SPLITTING COMPLETE');
+    lines.push('═'.repeat(80));
+    lines.push('');
+    lines.push(`Total commits created: ${result.commitsCreated}`);
+    if (result.skipped > 0) {
+        lines.push(`Commits skipped: ${result.skipped}`);
+    }
+    lines.push('');
+
+    if (result.commits.length > 0) {
+        lines.push('Commits:');
+        lines.push('');
+        result.commits.forEach((commit, idx) => {
+            const sha = commit.sha ? `${commit.sha.substring(0, 7)} ` : '';
+            const firstLine = commit.message.split('\n')[0];
+            lines.push(`  ${idx + 1}. ${sha}${firstLine}`);
+            lines.push(`     Files: ${commit.files.length}`);
+        });
+    }
+
+    lines.push('');
+    lines.push('═'.repeat(80));
+
+    return lines.join('\n');
+}
+
 const executeInternal = async (runConfig: Config) => {
     const isDryRun = runConfig.dryRun || false;
     const logger = getDryRunLogger(isDryRun);
@@ -631,8 +902,41 @@ const executeInternal = async (runConfig: Config) => {
             logger.info('  Message: %s', split.message);
         }
 
-        logger.info('\n⚠️  Commit splitting is not yet automated. Please stage and commit files separately.');
-        logger.info('Using combined message for now...\n');
+        // NEW: Check if auto-split is enabled (defaults to true if not specified)
+        const autoSplitEnabled = runConfig.commit?.autoSplit !== false; // Default to true
+        if (autoSplitEnabled) {
+            logger.info('\n🔄 Auto-split enabled - creating separate commits...\n');
+
+            const splitResult = await executeSplitCommits({
+                splits: agenticResult.suggestedSplits,
+                runConfig,
+                isDryRun,
+                interactive: !!(runConfig.commit?.interactive && !runConfig.commit?.sendit),
+                logger,
+                storage
+            });
+
+            if (splitResult.success) {
+                // Push if requested (all commits)
+                if (runConfig.commit?.push && !isDryRun) {
+                    await pushCommit(runConfig.commit.push, logger, isDryRun);
+                }
+
+                return formatSplitCommitSummary(splitResult);
+            } else {
+                const errorMessage = splitResult.error?.message || 'Unknown error';
+                throw new CommandError(
+                    `Failed to create split commits: ${errorMessage}`,
+                    'SPLIT_COMMIT_FAILED',
+                    false,
+                    splitResult.error
+                );
+            }
+        } else {
+            logger.info('\n⚠️  Commit splitting is not automated. Please stage and commit files separately.');
+            logger.info('Using combined message for now...\n');
+            logger.info('💡 To enable automatic splitting, add autoSplit: true to your commit configuration');
+        }
     } else if (agenticResult.suggestedSplits.length > 1) {
         logger.debug('AI suggested %d splits but commit splitting is not enabled', agenticResult.suggestedSplits.length);
     }
