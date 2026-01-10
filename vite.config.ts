@@ -69,9 +69,21 @@ export default defineConfig({
         },
         rollupOptions: {
             external: [
+                // Command packages
+                '@eldrforge/core',
+                '@eldrforge/commands-git',
+                '@eldrforge/commands-tree',
+                '@eldrforge/commands-publish',
+                '@eldrforge/commands-audio',
+                // Foundation packages
                 '@eldrforge/ai-service',
                 '@eldrforge/git-tools',
                 '@eldrforge/github-tools',
+                '@eldrforge/shared',
+                '@eldrforge/tree-core',
+                '@eldrforge/tree-execution',
+                '@eldrforge/audio-tools',
+                // External dependencies
                 '@theunwalked/dreadcabinet',
                 '@theunwalked/cardigantime',
                 '@theunwalked/unplayable',
