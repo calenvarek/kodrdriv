@@ -97,7 +97,7 @@ Complete monorepo workflows. Dependency management, coordinated releases.
 
 ### Root Directory Implementation Docs
 
-See `/Users/tobrien/gitw/calenvarek/*.md` for:
+See `/Users/tobrien/gitw/grunnverk/*.md` for:
 - Detailed implementation guides
 - Feature specifications
 - Migration guides
@@ -152,4 +152,7 @@ Last updated: December 31, 2025
 ---
 
 **Everything you need to understand, use, and extend kodrdriv is here. Start with [`index.md`](./index.md) and navigate to what you need!**
+
+
+
 

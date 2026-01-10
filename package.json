@@ -1,6 +1,6 @@
 {
   "name": "@eldrforge/kodrdriv",
-  "version": "1.2.133",
+  "version": "1.2.134",
   "description": "Create Intelligent Release Notes or Change Logs from Git",
   "main": "dist/main.js",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/calenvarek/kodrdriv.git"
+    "url": "git+https://github.com/grunnverk/kodrdriv.git"
   },
   "scripts": {
     "build": "npm run lint && tsc --noEmit && vite build && copyfiles -u 1 \"src/**/*.md\" dist && chmod 755 ./dist/main.js 2>/dev/null || chmod 755 ./dist/kodrdriv/src/main.js",
@@ -35,16 +35,16 @@
     "changelog",
     "analysis"
   ],
-  "author": "Calen Varek <calenvarek@gmail.com>",
+  "author": "Tim O'Brien <tobrien@discursive.com>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@eldrforge/ai-service": "^0.1.16",
-    "@eldrforge/audio-tools": "^0.1.10",
-    "@eldrforge/git-tools": "^0.1.15",
-    "@eldrforge/github-tools": "^0.1.17",
-    "@eldrforge/shared": "^0.1.5",
-    "@eldrforge/tree-core": "^0.1.4",
-    "@eldrforge/tree-execution": "^0.1.4",
+    "@eldrforge/ai-service": "^0.1.17",
+    "@eldrforge/audio-tools": "^0.1.11",
+    "@eldrforge/git-tools": "^0.1.16",
+    "@eldrforge/github-tools": "^0.1.18",
+    "@eldrforge/shared": "^0.1.6",
+    "@eldrforge/tree-core": "^0.1.5",
+    "@eldrforge/tree-execution": "^0.1.5",
     "@octokit/rest": "^22.0.0",
     "@riotprompt/riotprompt": "^0.0.10",
     "@theunwalked/cardigantime": "^0.0.16",

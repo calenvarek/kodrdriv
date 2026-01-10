@@ -744,7 +744,7 @@ cd ../kodrdriv && npm run build
 ## Directory Structure Reference
 
 ```
-/Users/tobrien/gitw/calenvarek/
+/Users/tobrien/gitw/grunnverk/
 ├── kodrdriv/                    # Main package
 │   ├── guide/                   # AI-friendly guides ⭐
 │   ├── docs/                    # Detailed documentation
@@ -831,4 +831,7 @@ cd ../kodrdriv && npm run build
 ---
 
 This guide is your complete reference for working with kodrdriv. Start with the guide directory, dive into implementation docs as needed, and leverage the extensive documentation to help users succeed!
+
+
+
 

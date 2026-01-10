@@ -76,7 +76,7 @@ function LandingPage() {
                             <h1>KodrDriv</h1>
                         </div>
                         <div className="header-links">
-                            <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">
+                            <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer">
                                 GitHub
                             </a>
                             <a href="https://www.npmjs.com/package/@eldrforge/kodrdriv" target="_blank" rel="noopener noreferrer">
@@ -95,8 +95,8 @@ function LandingPage() {
                     <div className="container">
                         <p>
                             Built with ❤️ by{' '}
-                            <a href="https://github.com/calenvarek" target="_blank" rel="noopener noreferrer">
-                                Calen Varek
+                            <a href="https://github.com/grunnverk" target="_blank" rel="noopener noreferrer">
+                                Tim O'Brien
                             </a>
                         </p>
                         <p className="license">Licensed under Apache-2.0</p>
@@ -127,7 +127,7 @@ function LandingPage() {
                         <a href="#installation">Install</a>
                         <a href="/kodrdriv/story" className="nav-link-story">Story</a>
                         <a href="/kodrdriv/commands/" className="nav-link-docs">Docs</a>
-                        <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer" className="nav-link-github">GitHub</a>
+                        <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer" className="nav-link-github">GitHub</a>
                     </div>
                 </div>
             </nav>
@@ -456,7 +456,7 @@ function LandingPage() {
                             </div>
                             <div className="footer-section">
                                 <h4>Resources</h4>
-                                <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">GitHub</a>
+                                <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer">GitHub</a>
                                 <a href="https://www.npmjs.com/package/@eldrforge/kodrdriv" target="_blank" rel="noopener noreferrer">NPM</a>
                                 <a href="/kodrdriv/customization">Customization</a>
                             </div>
@@ -465,8 +465,8 @@ function LandingPage() {
                     <div className="footer-bottom">
                         <p>
                             Built with ❤️ by{' '}
-                            <a href="https://github.com/calenvarek" target="_blank" rel="noopener noreferrer">
-                                Calen Varek
+                            <a href="https://github.com/grunnverk" target="_blank" rel="noopener noreferrer">
+                                Tim O'Brien
                             </a>
                         </p>
                         <p className="license">Licensed under Apache-2.0</p>

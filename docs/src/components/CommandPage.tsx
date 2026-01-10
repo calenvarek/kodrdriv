@@ -67,7 +67,7 @@ function CommandPage() {
                             </a>
                         </div>
                         <div className="header-links">
-                            <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">
+                            <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer">
                                 GitHub
                             </a>
                             <a href="https://www.npmjs.com/package/@eldrforge/kodrdriv" target="_blank" rel="noopener noreferrer">
@@ -104,7 +104,7 @@ function CommandPage() {
                             </a>
                         </div>
                         <div className="header-links">
-                            <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">
+                            <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer">
                                 GitHub
                             </a>
                             <a href="https://www.npmjs.com/package/@eldrforge/kodrdriv" target="_blank" rel="noopener noreferrer">
@@ -147,7 +147,7 @@ function CommandPage() {
                         </a>
                     </div>
                     <div className="header-links">
-                        <a href="https://github.com/calenvarek/kodrdriv" target="_blank" rel="noopener noreferrer">
+                        <a href="https://github.com/grunnverk/kodrdriv" target="_blank" rel="noopener noreferrer">
                             GitHub
                         </a>
                         <a href="https://www.npmjs.com/package/@eldrforge/kodrdriv" target="_blank" rel="noopener noreferrer">
@@ -182,8 +182,8 @@ function CommandPage() {
                 <div className="container">
                     <p>
                         Built with ❤️ by{' '}
-                        <a href="https://github.com/calenvarek" target="_blank" rel="noopener noreferrer">
-                            Calen Varek
+                        <a href="https://github.com/grunnverk" target="_blank" rel="noopener noreferrer">
+                            Tim O'Brien
                         </a>
                     </p>
                     <p className="license">Licensed under Apache-2.0</p>

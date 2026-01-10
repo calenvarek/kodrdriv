@@ -553,7 +553,7 @@ kodrdriv commit --debug --dry-run 2>&1 | tee debug-output.txt
 
 ### Review Implementation Docs
 
-Check `/Users/tobrien/gitw/calenvarek/` for detailed guides:
+Check `/Users/tobrien/gitw/grunnverk/` for detailed guides:
 - `PARALLEL-PUBLISH-DEBUGGING-GUIDE.md` - Parallel execution issues
 - `RECOVERY-FIXES.md` - Recovery mechanisms
 - `AI-SERVICE-INTEGRATION-COMPLETE.md` - AI system details
@@ -581,4 +581,7 @@ Most issues can be diagnosed with `--verbose` and resolved with proper configura
 - **[AI System Guide](./ai-system.md)** - Understand AI behavior
 - **[Commands Reference](./commands.md)** - Command-specific help
 - **[Development Guide](./development.md)** - Extend or modify kodrdriv
+
+
+
 

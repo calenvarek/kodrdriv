@@ -155,7 +155,7 @@ export GITHUB_TOKEN="your-token"      # For publish
 
 ## Implementation Guides in Root Directory
 
-The `/Users/tobrien/gitw/calenvarek/` directory contains extensive implementation documentation:
+The `/Users/tobrien/gitw/grunnverk/` directory contains extensive implementation documentation:
 
 ### Recent Improvements
 - `SELF-REFLECTION-IMPROVEMENTS.md` - File location and prompt improvements
@@ -209,4 +209,7 @@ If you're integrating kodrdriv:
 - 🧠 [Understand the AI system](./ai-system.md)
 
 **Need help?** Start with the guide that matches your goal, and refer to the implementation documents in the root directory for detailed technical information.
+
+
+
 
