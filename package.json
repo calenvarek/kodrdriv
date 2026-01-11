@@ -52,7 +52,7 @@
     "@eldrforge/tree-execution": "^0.1.7",
     "@octokit/rest": "^22.0.0",
     "@riotprompt/riotprompt": "^0.0.10",
-    "@theunwalked/cardigantime": "^0.0.16",
+    "@theunwalked/cardigantime": "^0.0.20",
     "@theunwalked/unplayable": "^0.0.21",
     "@types/semver": "^7.7.0",
     "commander": "^14.0.0",
