@@ -55,7 +55,7 @@ export class PerformanceTracker {
 
         // Calculate speedup vs sequential
         const totalCPUTime = durations.reduce((a, b) => a + b, 0);
-        const speedupVsSequential = totalDuration > 0 ? totalCPUTime / totalDuration : 1;
+        const speedupVsSequential = (totalDuration > 0 && totalCPUTime > 0) ? totalCPUTime / totalDuration : 1;
 
         return {
             totalDuration,
