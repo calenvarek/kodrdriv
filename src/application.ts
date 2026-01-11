@@ -6,21 +6,12 @@ import { promptConfirmation } from '@eldrforge/shared';
 import { initializeTemplates } from '@eldrforge/ai-service';
 import { CommandConfig } from 'types';
 import * as Arguments from './arguments';
-import * as AudioCommit from './commands/audio-commit';
-import * as AudioReview from './commands/audio-review';
-import * as Clean from './commands/clean';
-import * as Commit from './commands/commit';
-import * as Development from './commands/development';
-import * as Link from './commands/link';
-import * as Precommit from './commands/precommit';
-import * as Publish from './commands/publish';
-import * as Release from './commands/release';
-import * as Review from './commands/review';
-import * as SelectAudio from './commands/select-audio';
-import * as Tree from './commands/tree';
-import * as Unlink from './commands/unlink';
-import * as Updates from './commands/updates';
-import * as Versions from './commands/versions';
+
+// Import commands from extracted packages
+import * as CommandsGit from '@eldrforge/commands-git';
+import * as CommandsTree from '@eldrforge/commands-tree';
+import * as CommandsPublish from '@eldrforge/commands-publish';
+import * as CommandsAudio from '@eldrforge/commands-audio';
 import { COMMAND_AUDIO_COMMIT, COMMAND_AUDIO_REVIEW, COMMAND_CHECK_CONFIG, COMMAND_CLEAN, COMMAND_COMMIT, COMMAND_DEVELOPMENT, COMMAND_INIT_CONFIG, COMMAND_LINK, COMMAND_PRECOMMIT, COMMAND_PUBLISH, COMMAND_RELEASE, COMMAND_REVIEW, COMMAND_SELECT_AUDIO, COMMAND_TREE, COMMAND_UNLINK, COMMAND_UPDATES, COMMAND_VERSIONS, DEFAULT_CONFIG_DIR, VERSION } from './constants';
 import { UserCancellationError } from '@eldrforge/shared';
 import { getLogger, setLogLevel } from './logging';
@@ -158,16 +149,19 @@ export async function runApplication(): Promise<void> {
             printDebugCommandInfo(commandName, runConfig);
         }
 
+        // Git commands (from @eldrforge/commands-git)
         if (commandName === COMMAND_COMMIT) {
-            summary = await Commit.execute(runConfig);
-        } else if (commandName === COMMAND_AUDIO_COMMIT) {
-            summary = await AudioCommit.execute(runConfig);
-        } else if (commandName === COMMAND_RELEASE) {
-            const releaseSummary = await Release.execute(runConfig);
-            summary = `${releaseSummary.title}\n\n${releaseSummary.body}`;
-        } else if (commandName === COMMAND_PUBLISH) {
-            await Publish.execute(runConfig);
-        } else if (commandName === COMMAND_TREE) {
+            summary = await CommandsGit.commit(runConfig);
+        } else if (commandName === COMMAND_PRECOMMIT) {
+            summary = await CommandsGit.precommit(runConfig);
+        } else if (commandName === COMMAND_CLEAN) {
+            await CommandsGit.clean(runConfig);
+            summary = 'Output directory cleaned successfully.';
+        } else if (commandName === COMMAND_REVIEW) {
+            summary = await CommandsGit.review(runConfig);
+        }
+        // Tree commands (from @eldrforge/commands-tree)
+        else if (commandName === COMMAND_TREE) {
             // Handle tree directories mapping from command-specific arguments
             if (runConfig.audioReview?.directory && !runConfig.tree?.directories) {
                 runConfig.tree = runConfig.tree || {};
@@ -178,29 +172,33 @@ export async function runApplication(): Promise<void> {
                 runConfig.tree = runConfig.tree || {};
                 runConfig.tree.exclude = runConfig.excludedPatterns;
             }
-            summary = await Tree.execute(runConfig);
+            summary = await CommandsTree.tree(runConfig);
         } else if (commandName === COMMAND_LINK) {
-            summary = await Link.execute(runConfig);
+            summary = await CommandsTree.link(runConfig);
         } else if (commandName === COMMAND_UNLINK) {
-            summary = await Unlink.execute(runConfig);
-        } else if (commandName === COMMAND_AUDIO_REVIEW) {
-            summary = await AudioReview.execute(runConfig);
-        } else if (commandName === COMMAND_CLEAN) {
-            await Clean.execute(runConfig);
-            summary = 'Output directory cleaned successfully.';
-        } else if (commandName === COMMAND_PRECOMMIT) {
-            summary = await Precommit.execute(runConfig);
-        } else if (commandName === COMMAND_REVIEW) {
-            summary = await Review.execute(runConfig);
-        } else if (commandName === COMMAND_SELECT_AUDIO) {
-            await SelectAudio.execute(runConfig);
-            summary = 'Audio selection completed successfully.';
-        } else if (commandName === COMMAND_DEVELOPMENT) {
-            summary = await Development.execute(runConfig);
-        } else if (commandName === COMMAND_VERSIONS) {
-            summary = await Versions.execute(runConfig);
+            summary = await CommandsTree.unlink(runConfig);
         } else if (commandName === COMMAND_UPDATES) {
-            summary = await Updates.execute(runConfig);
+            summary = await CommandsTree.updates(runConfig);
+        } else if (commandName === COMMAND_VERSIONS) {
+            summary = await CommandsTree.versions(runConfig);
+        }
+        // Publish commands (from @eldrforge/commands-publish)
+        else if (commandName === COMMAND_RELEASE) {
+            const releaseSummary = await CommandsPublish.release(runConfig);
+            summary = `${releaseSummary.title}\n\n${releaseSummary.body}`;
+        } else if (commandName === COMMAND_PUBLISH) {
+            await CommandsPublish.publish(runConfig);
+        } else if (commandName === COMMAND_DEVELOPMENT) {
+            summary = await CommandsPublish.development(runConfig);
+        }
+        // Audio commands (from @eldrforge/commands-audio)
+        else if (commandName === COMMAND_AUDIO_COMMIT) {
+            summary = await CommandsAudio.audioCommit(runConfig);
+        } else if (commandName === COMMAND_AUDIO_REVIEW) {
+            summary = await CommandsAudio.audioReview(runConfig);
+        } else if (commandName === COMMAND_SELECT_AUDIO) {
+            await CommandsAudio.selectAudio(runConfig);
+            summary = 'Audio selection completed successfully.';
         }
 
         // eslint-disable-next-line no-console

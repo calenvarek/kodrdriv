@@ -35,64 +35,32 @@ vi.mock('../src/arguments', () => ({
     configure: vi.fn()
 }));
 
-vi.mock('../src/commands/commit', () => ({
-    execute: vi.fn()
+// Mock the new extracted command packages
+vi.mock('@eldrforge/commands-git', () => ({
+    commit: vi.fn(),
+    precommit: vi.fn(),
+    clean: vi.fn(),
+    review: vi.fn()
 }));
 
-vi.mock('../src/commands/audio-commit', () => ({
-    execute: vi.fn()
+vi.mock('@eldrforge/commands-audio', () => ({
+    audioCommit: vi.fn(),
+    audioReview: vi.fn(),
+    selectAudio: vi.fn()
 }));
 
-vi.mock('../src/commands/release', () => ({
-    execute: vi.fn()
+vi.mock('@eldrforge/commands-publish', () => ({
+    release: vi.fn(),
+    publish: vi.fn(),
+    development: vi.fn()
 }));
 
-vi.mock('../src/commands/publish', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/link', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/unlink', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/audio-review', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/clean', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/review', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/select-audio', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/tree', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/development', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/versions', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/updates', () => ({
-    execute: vi.fn()
-}));
-
-vi.mock('../src/commands/precommit', () => ({
-    execute: vi.fn()
+vi.mock('@eldrforge/commands-tree', () => ({
+    tree: vi.fn(),
+    link: vi.fn(),
+    unlink: vi.fn(),
+    updates: vi.fn(),
+    versions: vi.fn()
 }));
 
 vi.mock('../src/constants', () => ({
@@ -159,18 +127,10 @@ describe('Application module', () => {
         Logging = await import('../src/logging');
         Arguments = await import('../src/arguments');
         Commands = {
-            Commit: await import('../src/commands/commit'),
-            AudioCommit: await import('../src/commands/audio-commit'),
-            Release: await import('../src/commands/release'),
-            Publish: await import('../src/commands/publish'),
-            Link: await import('../src/commands/link'),
-            Unlink: await import('../src/commands/unlink'),
-            AudioReview: await import('../src/commands/audio-review'),
-            Clean: await import('../src/commands/clean'),
-            Review: await import('../src/commands/review'),
-            SelectAudio: await import('../src/commands/select-audio'),
-            Tree: await import('../src/commands/tree'),
-            Development: await import('../src/commands/development'),
+            Git: await import('@eldrforge/commands-git'),
+            Audio: await import('@eldrforge/commands-audio'),
+            Publish: await import('@eldrforge/commands-publish'),
+            Tree: await import('@eldrforge/commands-tree'),
         };
         Application = await import('../src/application');
 
@@ -293,7 +253,7 @@ describe('Application module', () => {
             await Application.runApplication();
 
             // Should not execute any commands
-            expect(Commands.Commit.execute).not.toHaveBeenCalled();
+            expect(Commands.Git.commit).not.toHaveBeenCalled();
             // Should not call console.log since function returns early
             expect(console.log).not.toHaveBeenCalled();
         });
@@ -308,14 +268,14 @@ describe('Application module', () => {
             await Application.runApplication();
 
             // Should not execute any commands
-            expect(Commands.Commit.execute).not.toHaveBeenCalled();
+            expect(Commands.Git.commit).not.toHaveBeenCalled();
             // Should not call console.log since function returns early
             expect(console.log).not.toHaveBeenCalled();
         });
 
         it('should execute commit command', async () => {
             process.argv = ['node', 'main.js', 'commit'];
-            Commands.Commit.execute.mockResolvedValue('Commit completed successfully');
+            Commands.Git.commit.mockResolvedValue('Commit completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -325,13 +285,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Commit.execute).toHaveBeenCalled();
+            expect(Commands.Git.commit).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nCommit completed successfully\n\n');
         });
 
         it('should execute audio-commit command', async () => {
             process.argv = ['node', 'main.js', 'audio-commit'];
-            Commands.AudioCommit.execute.mockResolvedValue('Audio commit completed successfully');
+            Commands.Audio.audioCommit.mockResolvedValue('Audio commit completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -341,13 +301,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.AudioCommit.execute).toHaveBeenCalled();
+            expect(Commands.Audio.audioCommit).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nAudio commit completed successfully\n\n');
         });
 
         it('should execute release command and format output', async () => {
             process.argv = ['node', 'main.js', 'release'];
-            Commands.Release.execute.mockResolvedValue({
+            Commands.Publish.release.mockResolvedValue({
                 title: 'Release v1.0.0',
                 body: 'Release notes content'
             });
@@ -360,7 +320,7 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Release.execute).toHaveBeenCalled();
+            expect(Commands.Publish.release).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nRelease v1.0.0\n\nRelease notes content\n\n');
         });
 
@@ -375,13 +335,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Publish.execute).toHaveBeenCalled();
+            expect(Commands.Publish.publish).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\n\n\n');
         });
 
         it('should execute link command', async () => {
             process.argv = ['node', 'main.js', 'link'];
-            Commands.Link.execute.mockResolvedValue('Link completed successfully');
+            Commands.Tree.link.mockResolvedValue('Link completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -391,13 +351,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Link.execute).toHaveBeenCalled();
+            expect(Commands.Tree.link).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nLink completed successfully\n\n');
         });
 
         it('should execute unlink command', async () => {
             process.argv = ['node', 'main.js', 'unlink'];
-            Commands.Unlink.execute.mockResolvedValue('Unlink completed successfully');
+            Commands.Tree.unlink.mockResolvedValue('Unlink completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -407,13 +367,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Unlink.execute).toHaveBeenCalled();
+            expect(Commands.Tree.unlink).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nUnlink completed successfully\n\n');
         });
 
         it('should execute audio-review command', async () => {
             process.argv = ['node', 'main.js', 'audio-review'];
-            Commands.AudioReview.execute.mockResolvedValue('Audio review completed successfully');
+            Commands.Audio.audioReview.mockResolvedValue('Audio review completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -423,7 +383,7 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.AudioReview.execute).toHaveBeenCalled();
+            expect(Commands.Audio.audioReview).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nAudio review completed successfully\n\n');
         });
 
@@ -438,13 +398,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Clean.execute).toHaveBeenCalled();
+            expect(Commands.Git.clean).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nOutput directory cleaned successfully.\n\n');
         });
 
         it('should execute review command', async () => {
             process.argv = ['node', 'main.js', 'review'];
-            Commands.Review.execute.mockResolvedValue('Review completed successfully');
+            Commands.Git.review.mockResolvedValue('Review completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -454,7 +414,7 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Review.execute).toHaveBeenCalled();
+            expect(Commands.Git.review).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nReview completed successfully\n\n');
         });
 
@@ -469,7 +429,7 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.SelectAudio.execute).toHaveBeenCalled();
+            expect(Commands.Audio.selectAudio).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nAudio selection completed successfully.\n\n');
         });
 
@@ -485,13 +445,13 @@ describe('Application module', () => {
             await Application.runApplication();
 
             // Should not execute any commands
-            expect(Commands.Commit.execute).not.toHaveBeenCalled();
+            expect(Commands.Git.commit).not.toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\n\n\n');
         });
 
         it('should use command from process.argv when available', async () => {
             process.argv = ['node', 'main.js', 'commit'];
-            Commands.Commit.execute.mockResolvedValue('Commit from argv');
+            Commands.Git.commit.mockResolvedValue('Commit from argv');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -501,13 +461,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Commit.execute).toHaveBeenCalled();
+            expect(Commands.Git.commit).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nCommit from argv\n\n');
         });
 
         it('should execute tree command', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -517,13 +477,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(Commands.Tree.tree).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nTree completed successfully\n\n');
         });
 
         it('should execute development command', async () => {
             process.argv = ['node', 'main.js', 'development'];
-            Commands.Development.execute.mockResolvedValue('Development completed successfully');
+            Commands.Publish.development.mockResolvedValue('Development completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -533,13 +493,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Development.execute).toHaveBeenCalled();
+            expect(Commands.Publish.development).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nDevelopment completed successfully\n\n');
         });
 
         it('should handle tree command with built-in commit command', async () => {
             process.argv = ['node', 'main.js', 'tree', 'commit'];
-            Commands.Tree.execute.mockResolvedValue('Tree commit completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree commit completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -549,13 +509,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(Commands.Tree.tree).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nTree commit completed successfully\n\n');
         });
 
         it('should handle tree command with built-in publish command', async () => {
             process.argv = ['node', 'main.js', 'tree', 'publish'];
-            Commands.Tree.execute.mockResolvedValue('Tree publish completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree publish completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -565,13 +525,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(Commands.Tree.tree).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nTree publish completed successfully\n\n');
         });
 
         it('should handle tree command with built-in link command', async () => {
             process.argv = ['node', 'main.js', 'tree', 'link'];
-            Commands.Tree.execute.mockResolvedValue('Tree link completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree link completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -581,13 +541,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(Commands.Tree.tree).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nTree link completed successfully\n\n');
         });
 
         it('should handle tree command with built-in unlink command', async () => {
             process.argv = ['node', 'main.js', 'tree', 'unlink'];
-            Commands.Tree.execute.mockResolvedValue('Tree unlink completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree unlink completed successfully');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -597,13 +557,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(Commands.Tree.tree).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nTree unlink completed successfully\n\n');
         });
 
         it('should handle tree command with unknown built-in command', async () => {
             process.argv = ['node', 'main.js', 'tree', 'unknown-command'];
-            Commands.Tree.execute.mockResolvedValue('Tree with unknown command handled');
+            Commands.Tree.tree.mockResolvedValue('Tree with unknown command handled');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -613,13 +573,13 @@ describe('Application module', () => {
 
             await Application.runApplication();
 
-            expect(Commands.Tree.execute).toHaveBeenCalled();
+            expect(Commands.Tree.tree).toHaveBeenCalled();
             expect(console.log).toHaveBeenCalledWith('\n\nTree with unknown command handled\n\n');
         });
 
         it('should map audioReview.directory to tree.directories when tree directories not set', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -636,12 +596,12 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree?.directories).toEqual(['/test/audio/dir']);
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should not override existing tree.directories when already set', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -659,12 +619,12 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree.directories).toEqual(['/existing/dir']);
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should map excludedPatterns to tree.excludedPatterns when tree excludedPatterns not set', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -681,12 +641,12 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree?.exclude).toEqual(['*.test.ts', '*.spec.ts']);
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should not override existing tree.excludedPatterns when already set', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -704,7 +664,7 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree.excludedPatterns).toEqual(['*.existing.ts']);
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should handle both verbose and debug flags with debug taking precedence', async () => {
@@ -760,7 +720,7 @@ describe('Application module', () => {
 
         it('should handle command execution errors that are not UserCancellationError', async () => {
             const execError = new Error('Command execution failed');
-            Commands.Commit.execute.mockRejectedValue(execError);
+            Commands.Git.commit.mockRejectedValue(execError);
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },
@@ -773,7 +733,7 @@ describe('Application module', () => {
 
         it('should handle tree command without audio-review directory configuration', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -790,12 +750,12 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree?.directories).toBeUndefined();
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should handle tree command without excludedPatterns configuration', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -812,12 +772,12 @@ describe('Application module', () => {
             await Application.runApplication();
 
             expect(runConfig.tree?.excludedPatterns).toBeUndefined();
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should handle tree command and create tree config object when needed for directory mapping', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -836,12 +796,12 @@ describe('Application module', () => {
 
             expect(runConfig.tree).toBeDefined();
             expect(runConfig.tree.directories).toEqual(['/test/dir']);
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should handle tree command and create tree config object when needed for excludedPatterns mapping', async () => {
             process.argv = ['node', 'main.js', 'tree'];
-            Commands.Tree.execute.mockResolvedValue('Tree completed successfully');
+            Commands.Tree.tree.mockResolvedValue('Tree completed successfully');
 
             const runConfig: any = {
                 verbose: false,
@@ -860,14 +820,14 @@ describe('Application module', () => {
 
             expect(runConfig.tree).toBeDefined();
             expect(runConfig.tree.exclude).toEqual(['*.test.ts']);
-            expect(Commands.Tree.execute).toHaveBeenCalledWith(runConfig);
+            expect(Commands.Tree.tree).toHaveBeenCalledWith(runConfig);
         });
 
         it('should call configureEarlyLogging before CardiganTime initialization', async () => {
             process.argv = ['node', 'main.js', '--debug'];
 
-            // Reset the commit execute mock to not throw error
-            Commands.Commit.execute.mockResolvedValue('Commit success');
+            // Reset the commit mock to not throw error
+            Commands.Git.commit.mockResolvedValue('Commit success');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: true },
@@ -883,8 +843,8 @@ describe('Application module', () => {
         });
 
         it('should set cardigantime logger after getting the configured logger', async () => {
-            // Reset the commit execute mock to not throw error
-            Commands.Commit.execute.mockResolvedValue('Commit success');
+            // Reset the commit mock to not throw error
+            Commands.Git.commit.mockResolvedValue('Commit success');
 
             Arguments.configure.mockResolvedValue([
                 { verbose: false, debug: false },

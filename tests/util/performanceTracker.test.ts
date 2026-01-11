@@ -116,11 +116,15 @@ describe('PerformanceTracker', () => {
             expect(metrics.averagePackageDuration).toBe(0);
         });
 
-        it('should calculate speedup correctly', () => {
+        it('should calculate speedup correctly', async () => {
             tracker.recordPackageStart('package-a');
+            await new Promise(resolve => setTimeout(resolve, 5));
             tracker.recordPackageEnd('package-a');
+
             tracker.recordPackageStart('package-b');
+            await new Promise(resolve => setTimeout(resolve, 5));
             tracker.recordPackageEnd('package-b');
+
             tracker.recordConcurrency(2);
             tracker.recordConcurrency(2);
 
